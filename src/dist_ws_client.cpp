@@ -73,7 +73,7 @@ bool WsClient::tcp_connect(const std::string& host, uint16_t port) {
     if (fd_ < 0) { err_ = "socket() failed"; return false; }
 
     int one = 1;
-    ::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    ::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
 
     if (::connect(fd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
         err_ = "connect() failed: " + std::string(std::strerror(errno));
@@ -157,10 +157,17 @@ void WsClient::close() {
 
 bool WsClient::set_recv_timeout_ms(uint32_t ms) {
     if (fd_ < 0) return false;
+#ifdef _WIN32
+    DWORD tv = ms;
+    return ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO,
+                        (const char*)&tv, sizeof(tv)) == 0;
+#else
     struct timeval tv{};
     tv.tv_sec  = ms / 1000;
     tv.tv_usec = (ms % 1000) * 1000;
-    return ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == 0;
+    return ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO,
+                        (const char*)&tv, sizeof(tv)) == 0;
+#endif
 }
 
 bool WsClient::send_all(const void* buf, size_t n) {

@@ -44,7 +44,7 @@ void DashboardServer::start() {
         std::cerr << "[Dashboard] socket() failed\n"; return;
     }
     int yes = 1;
-    ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof(yes));
 
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
