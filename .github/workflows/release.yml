@@ -83,7 +83,14 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build build --config Release --parallel
+        run: |
+          # CUDA hosts get OOM-killed at --parallel (nvcc is hungry on a
+          # 7GB runner).  Cap at 2 jobs; other targets use full parallelism.
+          if [ -n "${{ matrix.cuda }}" ]; then
+            cmake --build build --config Release --parallel 2
+          else
+            cmake --build build --config Release --parallel
+          fi
 
       - name: Stage artifacts
         shell: bash
