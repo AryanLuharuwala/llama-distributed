@@ -63,7 +63,11 @@ jobs:
         with:
           cuda: ${{ matrix.cuda }}
           method: "network"
-          sub-packages: '["nvcc","cudart","cublas","cublas_dev"]'
+          # For CUDA 12.5 on ubuntu-jammy the cuBLAS packages were renamed
+          # from `cuda-cublas-*` to `libcublas-*`, so Jimver's short names
+          # `cublas`/`cublas_dev` no longer resolve.  Use the explicit
+          # `libcublas`/`libcublas_dev` aliases instead.
+          sub-packages: '["nvcc","cudart","libcublas","libcublas_dev"]'
 
       - name: Install Ninja (windows/mac)
         if: runner.os != 'Linux'
