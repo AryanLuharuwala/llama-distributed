@@ -63,11 +63,10 @@ jobs:
         with:
           cuda: ${{ matrix.cuda }}
           method: "network"
-          # For CUDA 12.5 on ubuntu-jammy the cuBLAS packages were renamed
-          # from `cuda-cublas-*` to `libcublas-*`, so Jimver's short names
-          # `cublas`/`cublas_dev` no longer resolve.  Use the explicit
-          # `libcublas`/`libcublas_dev` aliases instead.
-          sub-packages: '["nvcc","cudart","libcublas","libcublas_dev"]'
+          # Jimver always prefixes sub-package names with `cuda-`, but on
+          # ubuntu-jammy the 12.5 cuBLAS packages are `libcublas-12-5`
+          # (no `cuda-` prefix).  Skipping sub-packages installs the full
+          # toolkit, which is the only path that works today.
 
       - name: Install Ninja (windows/mac)
         if: runner.os != 'Linux'
