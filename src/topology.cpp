@@ -6,7 +6,6 @@
 #include <cstring>
 #include <limits>
 #include <sstream>
-#include <unistd.h>
 
 namespace dist {
 

@@ -4,6 +4,7 @@
 
 #include "coordinator.h"
 #include "node_agent.h"  // for ActivationBatch
+#include "platform_compat.h"
 
 #include <algorithm>
 #include <chrono>
@@ -14,7 +15,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <sys/stat.h>
 
 namespace dist {
 
@@ -719,7 +719,7 @@ void Coordinator::ensure_issuer_secret() {
     if (f) {
         f << to_hex(issuer_secret_.data(), issuer_secret_.size()) << "\n";
         f.close();
-        ::chmod(path.c_str(), 0600);
+        dist::chmod_0600(path);
     }
     has_issuer_secret_ = true;
     std::cout << "[Coordinator] generated issuer secret at " << path << "\n";

@@ -21,11 +21,7 @@
 #include <string>
 #include <thread>
 
-// POSIX socket includes
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
+#include "platform_compat.h"
 
 namespace dist {
 
@@ -57,7 +53,7 @@ void DashboardServer::start() {
 
     if (::bind(srv, (sockaddr*)&sa, sizeof(sa)) < 0) {
         std::cerr << "[Dashboard] bind() failed on port " << cfg_.http_port << "\n";
-        ::close(srv);
+        dist::close_sock(srv);
         return;
     }
     ::listen(srv, 16);
@@ -70,11 +66,11 @@ void DashboardServer::start() {
             sockaddr_in ca{};
             socklen_t clen = sizeof(ca);
             int fd = ::accept(srv, (sockaddr*)&ca, &clen);
-            if (fd < 0) { if (running_.load()) ::usleep(5000); continue; }
+            if (fd < 0) { if (running_.load()) dist::sleep_ms(5); continue; }
             // Fire and forget — non-SSE requests are quick; SSE gets its own thread
             std::thread([this, fd]{ handle_client(fd); }).detach();
         }
-        ::close(srv);
+        dist::close_sock(srv);
     });
 }
 
@@ -94,7 +90,7 @@ void DashboardServer::handle_client(int fd) {
     char buf[256];
     while (req.find("\r\n\r\n") == std::string::npos) {
         ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
-        if (n <= 0) { ::close(fd); return; }
+        if (n <= 0) { dist::close_sock(fd); return; }
         req.append(buf, (size_t)n);
         if (req.size() > 8192) break;
     }
@@ -117,22 +113,22 @@ void DashboardServer::handle_client(int fd) {
     if (path == "/" || path.empty()) {
         auto resp = serve_index();
         ::send(fd, resp.data(), resp.size(), 0);
-        ::close(fd);
+        dist::close_sock(fd);
     } else if (path == "/stats") {
         auto resp = serve_stats();
         ::send(fd, resp.data(), resp.size(), 0);
-        ::close(fd);
+        dist::close_sock(fd);
     } else if (path == "/join") {
         auto resp = serve_join();
         ::send(fd, resp.data(), resp.size(), 0);
-        ::close(fd);
+        dist::close_sock(fd);
     } else if (path == "/events") {
         serve_sse(fd);
         // fd closed inside serve_sse
     } else {
         auto resp = http_404();
         ::send(fd, resp.data(), resp.size(), 0);
-        ::close(fd);
+        dist::close_sock(fd);
     }
 }
 
@@ -172,7 +168,7 @@ void DashboardServer::serve_sse(int fd) {
         "Connection: keep-alive\r\n"
         "\r\n";
     if (::send(fd, hdr.data(), hdr.size(), 0) < 0) {
-        ::close(fd); return;
+        dist::close_sock(fd); return;
     }
 
     {
@@ -193,7 +189,7 @@ void DashboardServer::serve_sse(int fd) {
         if (!found) break; // removed by broadcast loop on error
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-    ::close(fd);
+    dist::close_sock(fd);
 }
 
 // ─── SSE broadcast ────────────────────────────────────────────────────────────
@@ -216,7 +212,7 @@ void DashboardServer::sse_broadcast_loop() {
             sse_clients_.erase(
                 std::remove(sse_clients_.begin(), sse_clients_.end(), fd),
                 sse_clients_.end());
-            ::close(fd);
+            dist::close_sock(fd);
         }
     }
 }

@@ -1,15 +1,11 @@
 #include "dist_ws_client.h"
 #include "auth.h"   // reuse sha256() + random_bytes() + to_hex()
 
-#include <arpa/inet.h>
+#include "platform_compat.h"
+
 #include <cstring>
 #include <errno.h>
-#include <netdb.h>
-#include <netinet/tcp.h>
 #include <sstream>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 namespace dist {
 
@@ -81,7 +77,7 @@ bool WsClient::tcp_connect(const std::string& host, uint16_t port) {
 
     if (::connect(fd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
         err_ = "connect() failed: " + std::string(std::strerror(errno));
-        ::close(fd_); fd_ = -1;
+        dist::close_sock(fd_); fd_ = -1;
         return false;
     }
     return true;
@@ -154,7 +150,7 @@ void WsClient::close() {
         uint8_t empty[2] = { 0x03, 0xE8 };   // status 1000
         send_frame(OP_CLOSE, empty, 2);
         ::shutdown(fd_, SHUT_RDWR);
-        ::close(fd_);
+        dist::close_sock(fd_);
         fd_ = -1;
     }
 }

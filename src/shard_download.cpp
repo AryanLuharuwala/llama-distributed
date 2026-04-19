@@ -1,13 +1,9 @@
 #include "shard_download.h"
 
-#include <arpa/inet.h>
+#include "platform_compat.h"
+
 #include <cstdio>
 #include <cstring>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -79,7 +75,7 @@ bool fetch_shard(const std::string & url, const std::string & dest_path,
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { ::freeaddrinfo(res); err = "socket failed"; return false; }
     if (::connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
-        ::freeaddrinfo(res); ::close(fd);
+        ::freeaddrinfo(res); dist::close_sock(fd);
         err = "connect failed to " + u.host + ":" + std::to_string(u.port);
         return false;
     }
@@ -92,7 +88,7 @@ bool fetch_shard(const std::string & url, const std::string & dest_path,
         "Connection: close\r\n"
         "\r\n";
     if (!send_all(fd, req.data(), req.size())) {
-        ::close(fd); err = "send request failed"; return false;
+        dist::close_sock(fd); err = "send request failed"; return false;
     }
 
     // Read until we see \r\n\r\n (end of headers), then stream body to file.
@@ -105,27 +101,27 @@ bool fetch_shard(const std::string & url, const std::string & dest_path,
         header_end = hdr.find("\r\n\r\n");
         if (header_end != std::string::npos) break;
         if (hdr.size() > 65536) {
-            ::close(fd); err = "HTTP headers exceed 64KB"; return false;
+            dist::close_sock(fd); err = "HTTP headers exceed 64KB"; return false;
         }
     }
     if (header_end == std::string::npos) {
-        ::close(fd); err = "no HTTP header terminator"; return false;
+        dist::close_sock(fd); err = "no HTTP header terminator"; return false;
     }
 
     // Parse status line.
     size_t sp1 = hdr.find(' ');
     size_t sp2 = hdr.find(' ', sp1 + 1);
     if (sp1 == std::string::npos || sp2 == std::string::npos) {
-        ::close(fd); err = "bad HTTP status line"; return false;
+        dist::close_sock(fd); err = "bad HTTP status line"; return false;
     }
     int status = std::atoi(hdr.substr(sp1 + 1, sp2 - sp1 - 1).c_str());
     if (status != 200) {
-        ::close(fd); err = "HTTP status " + std::to_string(status); return false;
+        dist::close_sock(fd); err = "HTTP status " + std::to_string(status); return false;
     }
 
     FILE * fp = std::fopen(dest_path.c_str(), "wb");
     if (!fp) {
-        ::close(fd); err = "open " + dest_path + " for write failed"; return false;
+        dist::close_sock(fd); err = "open " + dest_path + " for write failed"; return false;
     }
 
     // Flush any body already in `hdr` past the header terminator.
@@ -137,13 +133,13 @@ bool fetch_shard(const std::string & url, const std::string & dest_path,
     // Stream the rest.
     while ((n = ::recv(fd, buf, sizeof(buf), 0)) > 0) {
         if (std::fwrite(buf, 1, (size_t) n, fp) != (size_t) n) {
-            std::fclose(fp); ::close(fd);
+            std::fclose(fp); dist::close_sock(fd);
             err = "write to " + dest_path + " failed";
             return false;
         }
     }
     std::fclose(fp);
-    ::close(fd);
+    dist::close_sock(fd);
     if (n < 0) { err = "recv failed mid-body"; return false; }
     return true;
 }

@@ -23,21 +23,11 @@
 #include <string>
 #include <vector>
 
-#ifdef _WIN32
-#  include <winsock2.h>
-#  include <ws2tcpip.h>
-   typedef SOCKET sock_t;
-#  define SOCK_INVALID INVALID_SOCKET
-#else
-#  include <arpa/inet.h>
-#  include <fcntl.h>
-#  include <netdb.h>
-#  include <netinet/tcp.h>
-#  include <sys/socket.h>
-#  include <unistd.h>
-   typedef int sock_t;
-#  define SOCK_INVALID (-1)
-#endif
+#include "platform_compat.h"
+
+// Back-compat aliases — existing call sites use unqualified sock_t / SOCK_INVALID.
+using sock_t = dist::sock_t;
+static constexpr sock_t SOCK_INVALID = dist::SOCK_INVALID_V;
 
 namespace dist {
 
@@ -184,13 +174,7 @@ private:
         setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(bufsize));
     }
 
-    static void _close_sock(sock_t s) {
-#ifdef _WIN32
-        closesocket(s);
-#else
-        ::close(s);
-#endif
-    }
+    static void _close_sock(sock_t s) { dist::close_sock(s); }
 
     void _send_all(const void* data, size_t len) {
         const char* p = static_cast<const char*>(data);
@@ -265,13 +249,7 @@ public:
 private:
     std::atomic<sock_t> listen_fd_ { SOCK_INVALID };
 
-    static void _close_sock(sock_t s) {
-#ifdef _WIN32
-        closesocket(s);
-#else
-        ::close(s);
-#endif
-    }
+    static void _close_sock(sock_t s) { dist::close_sock(s); }
 };
 
 } // namespace dist

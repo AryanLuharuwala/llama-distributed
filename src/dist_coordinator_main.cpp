@@ -16,6 +16,7 @@
  */
 
 #include "coordinator.h"
+#include "platform_compat.h"
 
 #include <iostream>
 #include <string>
@@ -37,6 +38,7 @@ static void print_usage(const char* prog) {
 }
 
 int main(int argc, char* argv[]) {
+    dist::net_startup();
     dist::CoordinatorConfig cfg;
 
     for (int i = 1; i < argc; ++i) {

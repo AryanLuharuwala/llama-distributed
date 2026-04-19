@@ -27,16 +27,14 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include "platform_compat.h"
+
 #include <cstring>
 #include <cerrno>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unistd.h>      // gethostname, getpid, readlink
-#include <netdb.h>       // gethostbyname
-#include <arpa/inet.h>
-#include <sys/socket.h>
 
 // ─── Tiny HTTP GET (no libcurl — just raw TCP) ────────────────────────────────
 
@@ -63,17 +61,17 @@ static std::string http_get(const std::string& host, uint16_t port,
     sa.sin_family = AF_INET;
     sa.sin_port   = htons(port);
     struct hostent* he = gethostbyname(host.c_str());
-    if (!he) { ::close(fd); return ""; }
+    if (!he) { dist::close_sock(fd); return ""; }
     std::memcpy(&sa.sin_addr, he->h_addr, he->h_length);
 
-    if (::connect(fd, (sockaddr*)&sa, sizeof(sa)) < 0) { ::close(fd); return ""; }
+    if (::connect(fd, (sockaddr*)&sa, sizeof(sa)) < 0) { dist::close_sock(fd); return ""; }
     ::send(fd, req.data(), req.size(), 0);
 
     std::string resp;
     char buf[1024];
     ssize_t n;
     while ((n = ::recv(fd, buf, sizeof(buf), 0)) > 0) resp.append(buf, n);
-    ::close(fd);
+    dist::close_sock(fd);
 
     // Strip HTTP headers
     auto sep = resp.find("\r\n\r\n");
@@ -106,6 +104,7 @@ static void print_usage(const char* prog) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
+    dist::net_startup();
     if (argc < 2) { print_usage(argv[0]); return 1; }
 
     std::string coord_host;
@@ -200,6 +199,16 @@ int main(int argc, char* argv[]) {
     // (allows running from the build directory without PATH manipulation)
     std::string self_path;
     {
+#ifdef _WIN32
+        char self_buf[4096] = {};
+        DWORD n = ::GetModuleFileNameA(nullptr, self_buf, sizeof(self_buf));
+        if (n > 0 && n < sizeof(self_buf)) {
+            self_path = std::string(self_buf, n);
+            size_t slash = self_path.find_last_of("/\\");
+            if (slash != std::string::npos)
+                self_path = self_path.substr(0, slash + 1) + parts[0] + ".exe";
+        }
+#else
         char self_buf[4096] = {};
         ssize_t r = ::readlink("/proc/self/exe", self_buf, sizeof(self_buf) - 1);
         if (r > 0) {
@@ -208,11 +217,20 @@ int main(int argc, char* argv[]) {
             if (slash != std::string::npos)
                 self_path = self_path.substr(0, slash + 1) + parts[0];
         }
+#endif
     }
 
-    // Try self_path first, then PATH
+    // Try self_path first, then PATH.  _execvp/_spawnvp on Windows replace
+    // the current process when called with _P_OVERLAY, matching exec*() on
+    // POSIX, but _execvp isn't declared in CRT headers uniformly — use
+    // _spawnvp explicitly.
+#ifdef _WIN32
+    if (!self_path.empty()) ::_spawnv(_P_OVERLAY, self_path.c_str(), cargv.data());
+    ::_spawnvp(_P_OVERLAY, cargv[0], cargv.data());
+#else
     if (!self_path.empty()) ::execv(self_path.c_str(), cargv.data());
     ::execvp(cargv[0], cargv.data());
+#endif
 
     // If we get here, exec failed
     std::cerr << "exec failed: " << strerror(errno) << "\n";

@@ -22,6 +22,7 @@
 
 #include "dist_protocol.h"
 #include "dist_conn.h"
+#include "platform_compat.h"
 
 #include <cstring>
 #include <iostream>
@@ -55,6 +56,7 @@ static std::vector<int32_t> simple_tokenize(const std::string& text) {
 }
 
 int main(int argc, char* argv[]) {
+    dist::net_startup();
     std::string  server_host;
     uint16_t     api_port     = dist::PORT_API;
     std::string  model_name;

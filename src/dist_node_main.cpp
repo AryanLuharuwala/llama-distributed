@@ -22,6 +22,8 @@
 #include "shard_download.h"
 #include "gpu_lock.h"
 
+#include "platform_compat.h"
+
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -32,7 +34,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 static void print_usage(const char* prog) {
@@ -779,6 +780,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
 }
 
 int main(int argc, char* argv[]) {
+    dist::net_startup();
     dist::NodeAgentConfig cfg;
     std::string pair_url;
 

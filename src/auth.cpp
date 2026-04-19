@@ -1,4 +1,5 @@
 #include "auth.h"
+#include "platform_compat.h"
 
 #include <array>
 #include <cstdio>
@@ -6,7 +7,6 @@
 #include <fstream>
 #include <random>
 #include <sstream>
-#include <sys/stat.h>
 
 namespace dist {
 
@@ -207,7 +207,7 @@ bool TokenStore::save(const std::string& path) const {
           << t.note << '\n';
     }
     f.close();
-    ::chmod(path.c_str(), 0600); // secrets — owner-only
+    dist::chmod_0600(path); // secrets — owner-only (no-op on Windows)
     return true;
 }
 
