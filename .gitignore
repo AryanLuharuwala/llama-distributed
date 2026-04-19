@@ -1,5 +1,5 @@
 build/
-install/
+/install/
 .cache/
 compile_commands.json
 *.o

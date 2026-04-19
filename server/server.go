@@ -44,6 +44,11 @@ func (s *server) router() http.Handler {
 	// Pairing (browser mints, agent consumes)
 	mux.HandleFunc("POST /api/pair", s.handlePairMint)
 
+	// Install flow
+	mux.HandleFunc("GET /install.sh", s.handleInstallSh)
+	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
+	mux.HandleFunc("POST /api/install_command", s.handleInstallCommand)
+
 	// Sessions / me
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/rigs", s.handleListRigs)
