@@ -1,0 +1,159 @@
+name: release
+
+# Builds dist-node / dist-join / dist-coordinator for each platform and uploads
+# a tarball/zip to the GitHub Release.  Triggered by pushing a tag like
+# `v0.1.0` or via the "Run workflow" button (workflow_dispatch).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref_name:
+        description: "Tag name for the release artifacts (e.g. v0.1.0-dev)"
+        required: false
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: write
+
+env:
+  # Centralised version string used in artifact names.  Derived from the
+  # pushed tag or from workflow_dispatch input.
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64-cpu
+            runner: ubuntu-22.04
+            archive: tar.gz
+            cmake_flags: ""
+          - target: linux-x86_64-cuda
+            runner: ubuntu-22.04
+            archive: tar.gz
+            cmake_flags: "-DDIST_USE_CUDA=ON"
+            cuda: "12.4.0"
+          - target: macos-arm64-metal
+            runner: macos-14
+            archive: tar.gz
+            cmake_flags: "-DDIST_USE_METAL=ON"
+          - target: windows-x86_64-cpu
+            runner: windows-2022
+            archive: zip
+            cmake_flags: ""
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install CUDA Toolkit (linux-cuda only)
+        if: matrix.cuda != ''
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: ${{ matrix.cuda }}
+          method: "network"
+          sub-packages: '["nvcc","cudart","cublas","cublas_dev"]'
+
+      - name: Install Ninja (windows/mac)
+        if: runner.os != 'Linux'
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure
+        shell: bash
+        run: |
+          mkdir -p build
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDIST_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_flags }}
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          set -eu
+          STAGE="stage/llama-distributed-${RELEASE_TAG:-dev}-${{ matrix.target }}"
+          mkdir -p "$STAGE/bin"
+          BINS="dist-node dist-coordinator dist-client dist-join"
+          for b in $BINS; do
+            if [ -x "build/$b" ]; then
+              cp "build/$b" "$STAGE/bin/"
+            elif [ -x "build/Release/$b.exe" ]; then
+              cp "build/Release/$b.exe" "$STAGE/bin/"
+            elif [ -x "build/$b.exe" ]; then
+              cp "build/$b.exe" "$STAGE/bin/"
+            else
+              echo "missing binary $b" >&2
+              ls -la build build/Release 2>/dev/null || true
+              exit 1
+            fi
+          done
+          # Bundle shared libraries produced by llama.cpp where needed.
+          # (CPU/Metal builds are fully static; CUDA builds pull in libs that
+          # already live in CUDA_HOME at runtime, so we don't ship them.)
+          if [ -d scripts/package ]; then
+            cp -r scripts/package/* "$STAGE/" 2>/dev/null || true
+          fi
+          # Copy the per-OS installer alongside the binaries.
+          mkdir -p "$STAGE/scripts/install"
+          cp -r scripts/install/* "$STAGE/scripts/install/" 2>/dev/null || true
+          cp README.md "$STAGE/" 2>/dev/null || true
+          echo "STAGE=$STAGE" >> $GITHUB_ENV
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          cd stage
+          tar -czf "../$(basename $STAGE).tar.gz" "$(basename $STAGE)"
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $name = Split-Path $env:STAGE -Leaf
+          Compress-Archive -Path "stage/$name" -DestinationPath "$name.zip"
+
+      - name: Upload to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.zip
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten
+        run: |
+          mkdir -p out
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec mv {} out/ \;
+          ls -la out
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

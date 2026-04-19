@@ -64,6 +64,11 @@ struct NodeAgentConfig {
     uint32_t    n_batch    = 512;
     uint32_t    n_ubatch   = 512;
     int32_t     n_gpu_layers = 999; // offload all assigned layers to GPU
+
+    // Phase-5 auth.  If token_id is empty, the node makes no attempt to
+    // authenticate; the coordinator will also proceed if auth is disabled.
+    std::string token_id;
+    std::string token_secret_hex;   // 64 hex chars = 32 bytes
 };
 
 class NodeAgent {
@@ -104,6 +109,13 @@ private:
     void send_heartbeat();
     NodeCapability build_capability() const;
     void connect_to_next_node();
+
+    // Respond to an AUTH_CHALLENGE if the coordinator sends one as the first
+    // message.  Returns true if auth succeeded or wasn't required.
+    bool perform_auth_if_challenged();
+
+    // Send a TOPOLOGY_HELLO based on DIST_* environment variables.
+    void send_topology_hello();
 
     // ── State ────────────────────────────────────────────────────────────────
     NodeAgentConfig cfg_;

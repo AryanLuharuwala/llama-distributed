@@ -1,0 +1,35 @@
+build/
+install/
+.cache/
+compile_commands.json
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Server build outputs (checked-in binaries are a footgun)
+server/server
+server/distpool-server
+
+# Local database + WAL — may contain tokens, user data
+server/*.sqlite
+server/*.sqlite-shm
+server/*.sqlite-wal
+
+# Model weights — large, not source
+server/models-store/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

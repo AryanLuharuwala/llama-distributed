@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>llama-distributed</title>
+<style>
+  :root {
+    --bg: #0a0d12;
+    --panel: #141922;
+    --panel-2: #1c2230;
+    --border: #222836;
+    --text: #e6e8ec;
+    --muted: #8f96a3;
+    --accent: #6ee7b7;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+               font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  header { display: flex; align-items: center; justify-content: space-between;
+           padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  header .brand { font-weight: 600; letter-spacing: 0.5px; }
+  header .user { color: var(--muted); font-size: 14px; }
+  main { padding: 32px 24px; max-width: 960px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+          border-radius: 10px; padding: 24px; margin-bottom: 24px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 14px; }
+  button { background: var(--accent); color: #0a0d12; border: 0;
+           padding: 10px 16px; border-radius: 6px; font-weight: 600;
+           cursor: pointer; font-size: 14px; }
+  button.secondary { background: var(--panel-2); color: var(--text);
+                     border: 1px solid var(--border); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=text] { background: var(--panel-2); border: 1px solid var(--border);
+                     color: var(--text); padding: 10px 12px; border-radius: 6px;
+                     font-size: 14px; width: 240px; }
+  code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px;
+         font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  .rig { display: flex; align-items: center; justify-content: space-between;
+         padding: 12px; border: 1px solid var(--border); border-radius: 8px;
+         margin-top: 8px; background: var(--panel-2); }
+  .rig .name { font-weight: 600; }
+  .rig .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%;
+         background: var(--muted); display: inline-block; margin-right: 6px; }
+  .dot.online { background: var(--accent); }
+  .empty { color: var(--muted); font-style: italic; }
+  .event-log { font-family: ui-monospace, Menlo, Consolas, monospace;
+               font-size: 12px; color: var(--muted); max-height: 200px;
+               overflow-y: auto; padding: 8px; background: var(--panel-2);
+               border-radius: 6px; border: 1px solid var(--border); }
+  .event-log div { padding: 2px 0; }
+
+  .pool-row { display: flex; justify-content: space-between; align-items: center;
+              padding: 10px 12px; border: 1px solid var(--border);
+              border-radius: 8px; margin-top: 8px; background: var(--panel-2);
+              cursor: pointer; }
+  .pool-row:hover { border-color: var(--accent); }
+  .pool-row .title { font-weight: 600; }
+  .pool-row .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
+          font-size: 11px; background: var(--panel); border: 1px solid var(--border);
+          color: var(--muted); margin-left: 6px; }
+  .pill.me { color: var(--accent); border-color: var(--accent); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .tab { padding: 6px 12px; border-radius: 6px; background: var(--panel-2);
+         border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+         font-size: 13px; }
+  .tab.active { color: var(--accent); border-color: var(--accent); }
+
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+                    display: none; align-items: flex-start; justify-content: center;
+                    padding-top: 10vh; z-index: 10; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; padding: 24px; width: 560px; max-width: 92vw;
+           max-height: 80vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 16px; font-size: 18px; }
+  .modal .close { float: right; cursor: pointer; color: var(--muted); }
+  select { background: var(--panel-2); border: 1px solid var(--border);
+           color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">llama-distributed</div>
+  <div class="user" id="user">…</div>
+</header>
+
+<main>
+
+<div id="login-card" class="card" hidden>
+  <h2>Sign in</h2>
+  <p class="muted">Sign in to connect your rigs and join pools.</p>
+  <div class="row">
+    <a href="/auth/github"><button>Sign in with GitHub</button></a>
+    <span id="dev-login-wrap" hidden>
+      <input type="text" id="dev-name" placeholder="dev display name">
+      <button id="dev-login-btn" class="secondary">Dev login</button>
+    </span>
+  </div>
+</div>
+
+<div id="app" hidden>
+
+  <div class="card">
+    <h2>Connect a rig</h2>
+    <p class="muted">
+      Click the button below on the machine that has the <code>dist-node</code>
+      agent installed. The browser hands off a one-time pairing token to the
+      agent via a <code>distpool://</code> deep link. The agent connects back to
+      this server and shows up below.
+    </p>
+    <div class="row">
+      <button id="pair-btn">Pair this machine</button>
+      <button id="copy-link-btn" class="secondary" hidden>Copy link</button>
+      <span id="pair-status" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your rigs</h2>
+    <div id="rigs" class="empty">No rigs yet — pair one above.</div>
+  </div>
+
+  <div class="card">
+    <h2>Pools
+      <button id="new-pool-btn" class="secondary" style="float:right;font-size:12px;padding:4px 10px;">+ New pool</button>
+    </h2>
+    <div class="tabs">
+      <div class="tab active" data-tab="mine">My pools</div>
+      <div class="tab" data-tab="public">Public</div>
+    </div>
+    <div id="pools" class="empty">Loading…</div>
+  </div>
+
+  <div class="card">
+    <h2>Playground
+      <span id="usage-meter" class="muted" style="float:right;font-size:12px;font-weight:400;"></span>
+    </h2>
+    <p class="muted">Send a prompt to a pool; the response streams back from an online rig.</p>
+    <div class="row" style="margin-bottom:10px;">
+      <select id="pg-pool"><option value="">Select pool…</option></select>
+      <input type="text" id="pg-prompt" placeholder="Your prompt…" style="flex:1;min-width:240px;">
+      <button id="pg-run">Run</button>
+    </div>
+    <pre id="pg-output" style="white-space:pre-wrap;margin:0;padding:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;min-height:60px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;"></pre>
+    <div id="pg-status" class="muted" style="margin-top:6px;font-size:12px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Live events</h2>
+    <div id="log" class="event-log"></div>
+  </div>
+
+  <!-- New pool modal -->
+  <div class="modal-backdrop" id="new-pool-modal">
+    <div class="modal">
+      <span class="close" onclick="closeModal('new-pool-modal')">✕</span>
+      <h3>Create pool</h3>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="text" id="new-pool-name" placeholder="pool name" style="width:100%;">
+      </div>
+      <div class="row" style="margin-bottom:16px;">
+        <label class="muted">Visibility:</label>
+        <select id="new-pool-vis">
+          <option value="private">Private (only you)</option>
+          <option value="invite">Invite only</option>
+          <option value="public">Public</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="new-pool-create">Create</button>
+        <button class="secondary" onclick="closeModal('new-pool-modal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pool detail modal -->
+  <div class="modal-backdrop" id="pool-detail-modal">
+    <div class="modal">
+      <span class="close" onclick="closeModal('pool-detail-modal')">✕</span>
+      <h3 id="pd-title">Pool</h3>
+      <div class="muted" id="pd-sub"></div>
+      <div id="pd-actions" style="margin-top:16px;"></div>
+      <h4 style="margin-top:18px;font-size:14px;">Members</h4>
+      <div id="pd-members" class="muted"></div>
+      <h4 style="margin-top:16px;font-size:14px;">Rigs</h4>
+      <div id="pd-rigs" class="muted"></div>
+    </div>
+  </div>
+
+</div>
+
+</main>
+
+<script>
+"use strict";
+
+const userEl = document.getElementById("user");
+const loginCard = document.getElementById("login-card");
+const appEl = document.getElementById("app");
+const devWrap = document.getElementById("dev-login-wrap");
+const devBtn = document.getElementById("dev-login-btn");
+const devName = document.getElementById("dev-name");
+const pairBtn = document.getElementById("pair-btn");
+const copyBtn = document.getElementById("copy-link-btn");
+const pairStatus = document.getElementById("pair-status");
+const rigsEl = document.getElementById("rigs");
+const logEl = document.getElementById("log");
+
+let me = null;
+let ws  = null;
+let lastDeepLink = "";
+
+function logEvent(msg) {
+  const d = document.createElement("div");
+  const t = new Date().toLocaleTimeString();
+  d.textContent = `[${t}] ${msg}`;
+  logEl.prepend(d);
+  while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+}
+
+async function jget(path)  { return (await fetch(path)).json(); }
+async function jpost(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: body ? JSON.stringify(body) : null,
+  });
+  return r.ok ? r.json() : Promise.reject(await r.json().catch(() => r.statusText));
+}
+
+async function init() {
+  // Check dev login availability by probing the endpoint; surface the widget.
+  try {
+    const r = await fetch("/auth/dev", {method:"POST"});
+    if (r.status !== 501) devWrap.hidden = false;
+  } catch(_) {}
+
+  try {
+    me = await jget("/api/me");
+  } catch(_) { me = null; }
+
+  if (!me || me.error) {
+    userEl.textContent = "not signed in";
+    loginCard.hidden = false;
+    return;
+  }
+  userEl.textContent = me.display_name + (me.github_login ? " (@" + me.github_login + ")" : "");
+  appEl.hidden = false;
+
+  connectBrowserWS();
+  await refreshRigs();
+  await refreshPools();
+  initPlayground();
+  await refreshUsage();
+  setInterval(refreshUsage, 15000);
+  await handleInviteParam();
+}
+
+function connectBrowserWS() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(proto + "//" + location.host + "/ws/browser");
+  ws.onopen  = () => logEvent("ws connected");
+  ws.onclose = () => { logEvent("ws closed, reconnecting in 2s"); setTimeout(connectBrowserWS, 2000); };
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
+    handleServerEvent(m);
+  };
+}
+
+function handleServerEvent(m) {
+  logEvent(JSON.stringify(m).slice(0, 500));
+  if (m.kind === "rig_online" || m.kind === "rig_offline" ||
+      m.kind === "agent_message") {
+    refreshRigs();
+  }
+}
+
+async function refreshRigs() {
+  const r = await jget("/api/rigs");
+  const rigs = r.rigs || [];
+  if (rigs.length === 0) {
+    rigsEl.className = "empty";
+    rigsEl.innerHTML = "No rigs yet — pair one above.";
+    return;
+  }
+  rigsEl.className = "";
+  rigsEl.innerHTML = "";
+  for (const rig of rigs) {
+    const el = document.createElement("div");
+    el.className = "rig";
+    el.innerHTML = `
+      <div>
+        <div class="name"><span class="dot ${rig.online ? "online" : ""}"></span>${rig.hostname}</div>
+        <div class="meta">${rig.agent_id} · ${rig.n_gpus} GPU · ${(rig.vram_bytes / (1024*1024*1024)).toFixed(1)} GiB VRAM</div>
+      </div>
+      <div class="meta">${rig.online ? "online" : "offline since " + new Date(rig.last_seen*1000).toLocaleString()}</div>
+    `;
+    rigsEl.appendChild(el);
+  }
+}
+
+pairBtn.onclick = async () => {
+  pairStatus.textContent = "minting pairing token…";
+  try {
+    const r = await jpost("/api/pair");
+    lastDeepLink = r.deep_link;
+    copyBtn.hidden = false;
+    pairStatus.innerHTML = "launching local agent — if nothing happens, <a id='dl' href='#'>copy the link</a> and run it manually.";
+    document.getElementById("dl").onclick = (e) => { e.preventDefault(); copyBtn.click(); };
+    // Navigate to the deep link; the OS will launch the registered handler.
+    window.location.href = r.deep_link;
+  } catch(e) {
+    pairStatus.textContent = "failed: " + (e.error || e);
+  }
+};
+
+copyBtn.onclick = async () => {
+  await navigator.clipboard.writeText(lastDeepLink);
+  pairStatus.textContent = "deep link copied.";
+};
+
+devBtn.onclick = async () => {
+  if (!devName.value.trim()) return;
+  try {
+    await jpost("/auth/dev", {display_name: devName.value.trim()});
+    location.reload();
+  } catch(e) {
+    alert("dev login failed: " + (e.error || e));
+  }
+};
+
+// ─── Pools UI ──────────────────────────────────────────────────────────────
+
+let currentTab = "mine";
+let allPools = [];
+
+function openModal(id)  { document.getElementById(id).classList.add("open"); }
+function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    currentTab = t.dataset.tab;
+    renderPools();
+  };
+});
+
+document.getElementById("new-pool-btn").onclick = () => openModal("new-pool-modal");
+document.getElementById("new-pool-create").onclick = async () => {
+  const name = document.getElementById("new-pool-name").value.trim();
+  const vis  = document.getElementById("new-pool-vis").value;
+  if (!name) return;
+  try {
+    await jpost("/api/pools", {name, visibility: vis});
+    closeModal("new-pool-modal");
+    document.getElementById("new-pool-name").value = "";
+    await refreshPools();
+  } catch(e) { alert("create failed: " + (e.error || e)); }
+};
+
+async function refreshPools() {
+  try {
+    const r = await jget("/api/pools");
+    allPools = r.pools || [];
+    renderPools();
+  } catch(e) { console.error(e); }
+}
+
+function renderPools() {
+  const el = document.getElementById("pools");
+  let filtered;
+  if (currentTab === "mine") {
+    filtered = allPools.filter(p => p.role === "owner" || p.role === "member");
+  } else {
+    filtered = allPools.filter(p => p.visibility === "public");
+  }
+  if (!filtered.length) {
+    el.className = "empty";
+    el.textContent = currentTab === "mine"
+      ? "No pools yet. Click + New pool above."
+      : "No public pools visible.";
+    return;
+  }
+  el.className = "";
+  el.innerHTML = "";
+  for (const p of filtered) {
+    const row = document.createElement("div");
+    row.className = "pool-row";
+    const visPill = `<span class="pill">${p.visibility}</span>`;
+    const rolePill = p.role ? `<span class="pill me">${p.role}</span>` : "";
+    const onlineDot = p.n_online > 0
+      ? `<span class="dot online"></span>${p.n_online} online`
+      : `<span class="dot"></span>${p.n_rigs} rigs`;
+    row.innerHTML = `
+      <div>
+        <div class="title">${p.name}${visPill}${rolePill}</div>
+        <div class="sub">${p.owner_name} · ${p.n_members} member${p.n_members!==1?"s":""} · ${onlineDot}</div>
+      </div>
+      <div>
+        ${(!p.role && p.visibility === "public")
+          ? `<button class="secondary join-btn" data-pid="${p.id}" onclick="event.stopPropagation()">Join</button>`
+          : ""}
+      </div>
+    `;
+    row.onclick = () => openPoolDetail(p.id);
+    el.appendChild(row);
+  }
+  el.querySelectorAll(".join-btn").forEach(b => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      try {
+        await jpost("/api/pools/join", {pool_id: parseInt(b.dataset.pid, 10)});
+        await refreshPools();
+      } catch(err) { alert("join failed: " + (err.error || err)); }
+    };
+  });
+}
+
+async function openPoolDetail(id) {
+  openModal("pool-detail-modal");
+  const title = document.getElementById("pd-title");
+  const sub   = document.getElementById("pd-sub");
+  const acts  = document.getElementById("pd-actions");
+  const memEl = document.getElementById("pd-members");
+  const rigEl = document.getElementById("pd-rigs");
+  title.textContent = "Loading…"; sub.textContent = "";
+  acts.innerHTML = ""; memEl.innerHTML = ""; rigEl.innerHTML = "";
+
+  let d;
+  try { d = await jget("/api/pools/" + id); }
+  catch (e) { title.textContent = "error"; sub.textContent = e.error || "failed"; return; }
+
+  const p = d.pool;
+  title.innerHTML = p.name +
+    ` <span class="pill">${p.visibility}</span>` +
+    (p.role ? ` <span class="pill me">${p.role}</span>` : "");
+  sub.textContent = `owner: ${p.owner_name} · created ${new Date(p.created_at*1000).toLocaleString()}`;
+
+  // Actions: invite (owner), attach rig (member), detach rig.
+  if (p.role === "owner") {
+    const inv = document.createElement("button");
+    inv.className = "secondary";
+    inv.textContent = "Mint invite link";
+    inv.onclick = async () => {
+      try {
+        const r = await jpost("/api/pools/" + id + "/invite");
+        await navigator.clipboard.writeText(r.invite_url);
+        inv.textContent = "copied: " + r.invite_url.slice(0, 40) + "…";
+      } catch(e) { alert("invite failed: " + (e.error || e)); }
+    };
+    acts.appendChild(inv);
+  }
+  if (p.role === "owner" || p.role === "member") {
+    // Attach-rig dropdown: list my rigs not yet in this pool.
+    const myRigs = (await jget("/api/rigs")).rigs || [];
+    const already = new Set(d.rigs.filter(r => r.owner_id === me.id).map(r => r.agent_id));
+    const candidates = myRigs.filter(r => !already.has(r.agent_id));
+    if (candidates.length) {
+      const sel = document.createElement("select");
+      sel.innerHTML = `<option value="">— attach a rig —</option>` +
+        candidates.map(r => `<option value="${r.agent_id}">${r.hostname} (${r.agent_id})</option>`).join("");
+      sel.style.marginLeft = "8px";
+      sel.onchange = async () => {
+        if (!sel.value) return;
+        try {
+          await jpost("/api/pools/" + id + "/rigs", {agent_id: sel.value});
+          openPoolDetail(id);
+          refreshPools();
+        } catch(e) { alert("attach failed: " + (e.error || e)); }
+      };
+      acts.appendChild(sel);
+    }
+  }
+
+  memEl.innerHTML = d.members.map(m =>
+    `<div>${m.display_name} <span class="pill">${m.role}</span></div>`).join("");
+
+  if (!d.rigs.length) {
+    rigEl.innerHTML = `<span class="empty">No rigs attached yet.</span>`;
+  } else {
+    rigEl.innerHTML = d.rigs.map(r => {
+      const detach = (r.owner_id === me.id || p.role === "owner")
+        ? `<button class="secondary" style="font-size:12px;padding:3px 8px;"
+             onclick="detachRig(${id}, ${r.rig_id})">detach</button>`
+        : "";
+      return `<div class="rig">
+        <div>
+          <div class="name"><span class="dot ${r.online?'online':''}"></span>${r.hostname}</div>
+          <div class="meta">${r.agent_id}</div>
+        </div>
+        ${detach}
+      </div>`;
+    }).join("");
+  }
+}
+
+async function detachRig(poolID, rigID) {
+  try {
+    const r = await fetch(`/api/pools/${poolID}/rigs/${rigID}`, {method: "DELETE"});
+    if (!r.ok) throw await r.json();
+    openPoolDetail(poolID);
+    refreshPools();
+  } catch(e) { alert("detach failed: " + (e.error || e)); }
+}
+window.detachRig = detachRig;
+window.closeModal = closeModal;
+
+// ─── Invite handoff via URL ?invite=XXX ────────────────────────────────────
+
+async function handleInviteParam() {
+  const params = new URLSearchParams(location.search);
+  const tok = params.get("invite");
+  if (!tok) return;
+  // Strip the param from the URL so a refresh doesn't re-attempt.
+  history.replaceState({}, "", location.pathname);
+  if (!me) {
+    alert("Sign in first, then click the invite link again.");
+    return;
+  }
+  try {
+    const r = await jpost("/api/pools/join", {invite: tok});
+    logEvent("joined pool " + r.pool_id + " via invite");
+    await refreshPools();
+  } catch(e) {
+    alert("invite failed: " + (e.error || e));
+  }
+}
+
+init();
+</script>
+</body>
+</html>

@@ -3,15 +3,18 @@
  */
 
 #include "coordinator.h"
+#include "node_agent.h"  // for ActivationBatch
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <sys/stat.h>
 
 namespace dist {
 
@@ -32,11 +35,36 @@ Coordinator::~Coordinator() {
 void Coordinator::run() {
     running_.store(true);
 
+    // Load tokens if an auth file was configured.
+    if (!cfg_.token_file.empty()) {
+        if (!tokens_.load(cfg_.token_file)) {
+            std::cerr << "[Coordinator] WARNING: could not read token file "
+                      << cfg_.token_file << " — starting with empty token store\n";
+        }
+        auth_required_ = tokens_.size() > 0;
+        std::cout << "[Coordinator] auth: "
+                  << (auth_required_ ? "ENABLED" : "disabled")
+                  << " (" << tokens_.size() << " tokens loaded)\n";
+    }
+    if (cfg_.issue_receipts) ensure_issuer_secret();
+
     control_listener_.bind_and_listen(cfg_.control_port);
     api_listener_.bind_and_listen(cfg_.api_port);
 
     std::cout << "[Coordinator] control port " << cfg_.control_port
               << ", API port " << cfg_.api_port << "\n";
+
+    // Start dashboard HTTP server
+    if (cfg_.dashboard_port > 0) {
+        DashboardConfig dcfg;
+        dcfg.bind_host    = cfg_.bind_host;
+        dcfg.http_port    = cfg_.dashboard_port;
+        dcfg.public_host  = cfg_.public_host.empty() ? cfg_.bind_host : cfg_.public_host;
+        dcfg.ctrl_port    = cfg_.control_port;
+        dcfg.vm_mode      = cfg_.vm_mode;
+        dashboard_ = std::make_unique<DashboardServer>(std::move(dcfg), monitor_);
+        dashboard_->start();
+    }
 
     accept_thread_     = std::thread([this]{ accept_thread_fn();     });
     api_accept_thread_ = std::thread([this]{ api_accept_thread_fn(); });
@@ -51,6 +79,7 @@ void Coordinator::run() {
 
 void Coordinator::stop() {
     running_.store(false);
+    if (dashboard_) { dashboard_->stop(); dashboard_.reset(); }
     control_listener_.stop();
     api_listener_.stop();
     {
@@ -67,6 +96,14 @@ void Coordinator::accept_thread_fn() {
     while (running_.load()) {
         auto conn = control_listener_.accept_one();
         if (!conn) continue;
+
+        // Gate on auth first (no-op if auth not required).
+        std::string deny_reason;
+        if (!authenticate_incoming(*conn, &deny_reason)) {
+            std::cerr << "[Coordinator] auth rejected: " << deny_reason << "\n";
+            conn->close();
+            continue;
+        }
 
         // Peek the first message to get the NODE_JOIN
         MsgHeader hdr{};
@@ -144,6 +181,16 @@ void Coordinator::node_thread_fn(std::string node_id) {
         case MsgType::NODE_LEAVE:
             remove_dead_node(node_id);
             return;
+        case MsgType::TOPOLOGY_HELLO:
+            if (payload.size() >= sizeof(MsgTopologyHello))
+                handle_topology_hello(
+                    *reinterpret_cast<const MsgTopologyHello*>(payload.data()));
+            break;
+        case MsgType::TOPOLOGY_LATENCY:
+            if (payload.size() >= sizeof(MsgTopologyLatency))
+                handle_topology_latency(
+                    *reinterpret_cast<const MsgTopologyLatency*>(payload.data()));
+            break;
         default:
             break;
         }
@@ -156,8 +203,7 @@ void Coordinator::api_accept_thread_fn() {
     while (running_.load()) {
         auto conn = api_listener_.accept_one();
         if (!conn) continue;
-        auto shared = std::make_shared<Connection>();
-        *shared = std::move(*conn); // move connection into shared_ptr
+        std::shared_ptr<Connection> shared(conn.release());
         std::thread([this, c = std::move(shared)]() mutable {
             client_thread_fn(std::move(c));
         }).detach();
@@ -279,6 +325,8 @@ void Coordinator::handle_node_join(const std::string& addr,
         node.conn               = std::move(conn);
     }
 
+    monitor_.on_node_join(id, addr, msg.cap, msg.data_port);
+
     node_threads_.emplace_back([this, id]{ node_thread_fn(id); });
 
     // If we have a pending plan to push, send assignment to this new node
@@ -292,14 +340,15 @@ void Coordinator::handle_node_join(const std::string& addr,
 
 void Coordinator::handle_heartbeat(const std::string& node_id,
                                    const MsgHeartbeat& msg) {
-    std::lock_guard<std::mutex> lk(nodes_mu_);
-    NodeInfo* n = find_node(node_id);
-    if (!n) return;
-    n->last_heartbeat = Clock::now();
-    // Update free memory
-    for (uint32_t i = 0; i < n->cap.n_gpus && i < 8; ++i) {
-        n->cap.gpu_free_bytes[i] = msg.gpu_free_bytes[i];
+    {
+        std::lock_guard<std::mutex> lk(nodes_mu_);
+        NodeInfo* n = find_node(node_id);
+        if (!n) return;
+        n->last_heartbeat = Clock::now();
+        for (uint32_t i = 0; i < n->cap.n_gpus && i < 8; ++i)
+            n->cap.gpu_free_bytes[i] = msg.gpu_free_bytes[i];
     }
+    monitor_.on_heartbeat(node_id, msg);
 }
 
 void Coordinator::handle_assign_ack(const std::string& node_id,
@@ -317,9 +366,19 @@ void Coordinator::handle_load_ack(const std::string& node_id,
     std::cout << "[Coordinator] node " << node_id
               << " LOAD_ACK: " << (msg.success ? "OK" : "FAIL") << "\n";
     if (msg.success) {
-        std::lock_guard<std::mutex> lk(nodes_mu_);
-        NodeInfo* n = find_node(node_id);
-        if (n) n->model_loaded = true;
+        {
+            std::lock_guard<std::mutex> lk(nodes_mu_);
+            NodeInfo* n = find_node(node_id);
+            if (n) n->model_loaded = true;
+        }
+        std::string mname, mpath;
+        uint32_t n_layers = 0;
+        {
+            std::lock_guard<std::mutex> plk(plan_mu_);
+            mname   = active_plan_.model_name;
+            n_layers = active_plan_.n_layers;
+        }
+        monitor_.on_model_loaded(node_id, mname, n_layers);
     }
 }
 
@@ -332,6 +391,8 @@ void Coordinator::remove_dead_node(const std::string& node_id) {
         if (n->conn) n->conn->close();
     }
     std::cout << "[Coordinator] removed dead node: " << node_id << "\n";
+    monitor_.on_node_left(node_id);
+    topology_.remove(node_id);
     if (vm_hook_) vm_hook_(node_id);  // notify VmCoordinator
 }
 
@@ -432,6 +493,12 @@ void Coordinator::push_plan(const ModelPlan& plan) {
 
         node->conn->send_msg(MsgType::LAYER_ASSIGN,
                              payload.data(), (uint32_t)payload.size());
+
+        // Update monitor with layer assignment
+        if (!ranges.empty()) {
+            monitor_.on_layer_assign(nid, ranges.front().layer_first,
+                                          ranges.back().layer_last);
+        }
     }
 }
 
@@ -528,6 +595,7 @@ void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
     tok.logprob    = 0.0f;
     s.client_conn->send_msg(MsgType::INFER_TOKEN, &tok, sizeof(tok));
     s.tokens_generated++;
+    monitor_.on_token_generated("", 1); // cluster-level accounting
 
     if (is_last || s.tokens_generated >= s.max_gen_tokens) {
         MsgInferDone done{};
@@ -543,6 +611,142 @@ void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
 NodeInfo* Coordinator::find_node(const std::string& id) {
     auto it = nodes_.find(id);
     return (it != nodes_.end()) ? &it->second : nullptr;
+}
+
+// ─── Phase-5: auth + topology ───────────────────────────────────────────────
+
+bool Coordinator::authenticate_incoming(Connection& conn,
+                                         std::string* out_reason) {
+    if (!auth_required_) return true;
+
+    // 1. Generate a fresh nonce and send the challenge.
+    MsgAuthChallenge challenge{};
+    random_bytes(challenge.nonce, sizeof(challenge.nonce));
+    challenge.issued_at_us =
+        (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    try {
+        conn.send_msg(MsgType::AUTH_CHALLENGE, &challenge, sizeof(challenge));
+    } catch (...) {
+        if (out_reason) *out_reason = "failed to send challenge";
+        return false;
+    }
+
+    // 2. Receive the response with a short timeout.
+    MsgHeader hdr{};
+    std::vector<uint8_t> payload;
+    if (!conn.recv_msg(hdr, payload)
+        || static_cast<MsgType>(hdr.msg_type) != MsgType::AUTH_RESPONSE
+        || payload.size() < sizeof(MsgAuthResponse)) {
+        if (out_reason) *out_reason = "no AUTH_RESPONSE received";
+        return false;
+    }
+    const auto& resp = *reinterpret_cast<const MsgAuthResponse*>(payload.data());
+
+    uint64_t now_us =
+        (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    uint32_t granted = 0;
+    std::string reason;
+    bool ok = verify_auth_response(challenge.nonce, resp, tokens_,
+                                    now_us, &granted, &reason);
+
+    MsgAuthResult result{};
+    result.accepted      = ok ? 1 : 0;
+    result.scope_granted = granted;
+    result.expires_at_us = now_us + 3600ull * 1000000ull; // 1h session
+    std::strncpy(result.reason, reason.c_str(), sizeof(result.reason) - 1);
+    conn.send_msg(MsgType::AUTH_RESULT, &result, sizeof(result));
+
+    if (!ok) { if (out_reason) *out_reason = reason; return false; }
+
+    // Require SCOPE_JOIN for a node connection.
+    if ((granted & SCOPE_JOIN) == 0) {
+        if (out_reason) *out_reason = "token lacks SCOPE_JOIN";
+        return false;
+    }
+    return true;
+}
+
+void Coordinator::handle_topology_hello(const MsgTopologyHello& msg) {
+    NodeLocation loc;
+    loc.node_id        = std::string(msg.node_id,
+                                     strnlen(msg.node_id, MAX_NODE_ID_LEN));
+    loc.region         = std::string(msg.region,
+                                     strnlen(msg.region, MAX_REGION_LEN));
+    loc.zone           = std::string(msg.zone,
+                                     strnlen(msg.zone, MAX_ZONE_LEN));
+    loc.rack           = std::string(msg.rack,
+                                     strnlen(msg.rack, MAX_RACK_LEN));
+    loc.lat_deg        = msg.lat_deg;
+    loc.lon_deg        = msg.lon_deg;
+    loc.bandwidth_mbps = msg.bandwidth_mbps_self;
+    loc.behind_nat     = msg.behind_nat != 0;
+    topology_.upsert(loc);
+}
+
+void Coordinator::handle_topology_latency(const MsgTopologyLatency& msg) {
+    std::string a(msg.src_node, strnlen(msg.src_node, MAX_NODE_ID_LEN));
+    std::string b(msg.dst_node, strnlen(msg.dst_node, MAX_NODE_ID_LEN));
+    topology_.record_latency(a, b, msg.rtt_ms);
+}
+
+void Coordinator::ensure_issuer_secret() {
+    if (has_issuer_secret_) return;
+    std::string path = cfg_.token_file.empty()
+                        ? std::string("coordinator.issuer")
+                        : cfg_.token_file + ".issuer";
+
+    // Try to load existing key.
+    {
+        std::ifstream f(path);
+        std::string line;
+        if (f && std::getline(f, line)) {
+            auto raw = from_hex(line);
+            if (raw.size() == 32) {
+                std::memcpy(issuer_secret_.data(), raw.data(), 32);
+                has_issuer_secret_ = true;
+                return;
+            }
+        }
+    }
+
+    // Generate new.
+    random_bytes(issuer_secret_.data(), issuer_secret_.size());
+    std::ofstream f(path);
+    if (f) {
+        f << to_hex(issuer_secret_.data(), issuer_secret_.size()) << "\n";
+        f.close();
+        ::chmod(path.c_str(), 0600);
+    }
+    has_issuer_secret_ = true;
+    std::cout << "[Coordinator] generated issuer secret at " << path << "\n";
+}
+
+MsgContribReceipt Coordinator::make_receipt(const NodeInfo& n,
+                                             uint64_t window_start_us,
+                                             uint64_t window_end_us,
+                                             uint64_t tokens,
+                                             uint64_t bytes) {
+    MsgContribReceipt r{};
+    std::strncpy(r.node_id, n.id.c_str(), MAX_NODE_ID_LEN - 1);
+    // Tenant unknown at this layer (Pass A) — leave blank.
+    r.window_start_us       = window_start_us;
+    r.window_end_us         = window_end_us;
+    r.tokens_processed      = tokens;
+    r.layer_bytes_forwarded = bytes;
+    // layer_seconds = assigned_layers * window_seconds — rough work proxy.
+    uint64_t layers_assigned = 0;
+    for (auto& rng : n.assigned_ranges)
+        layers_assigned += (rng.layer_last - rng.layer_first + 1);
+    r.layer_seconds = layers_assigned *
+                      ((window_end_us - window_start_us) / 1000000ull);
+    std::strncpy(r.issuer_id, cfg_.public_host.c_str(), MAX_TOKEN_ID_LEN - 1);
+
+    if (has_issuer_secret_) sign_receipt(r, issuer_secret_);
+    return r;
 }
 
 } // namespace dist

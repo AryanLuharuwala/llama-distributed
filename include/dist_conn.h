@@ -93,6 +93,24 @@ public:
 
     bool is_connected() const { return connected_.load(); }
 
+    // Set the SO_RCVTIMEO on the underlying socket.  0 = no timeout (blocking).
+    // Returns true if the option was applied.
+    bool set_recv_timeout_ms(uint32_t ms) {
+        sock_t s = fd_.load();
+        if (s == SOCK_INVALID) return false;
+#ifdef _WIN32
+        DWORD tv = ms;
+        return setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
+                          (const char*)&tv, sizeof(tv)) == 0;
+#else
+        struct timeval tv{};
+        tv.tv_sec  = ms / 1000;
+        tv.tv_usec = (ms % 1000) * 1000;
+        return setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
+                          (char*)&tv, sizeof(tv)) == 0;
+#endif
+    }
+
     void close() {
         connected_.store(false);
         sock_t s = fd_.exchange(SOCK_INVALID);

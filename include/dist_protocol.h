@@ -64,7 +64,44 @@ enum class MsgType : uint16_t {
     INFER_TOKEN      = 0x0201,  // Streaming: one generated token
     INFER_DONE       = 0x0202,
     INFER_ERROR      = 0x0203,
+
+    // Dashboard / monitoring plane (HTTP server polls these internally)
+    CLUSTER_STATS_REQ = 0x0300, // request full cluster snapshot
+    CLUSTER_STATS_RSP = 0x0301, // response: MsgClusterStats + NodeStat[]
+    NODE_STATS_REQ    = 0x0302, // request one node's live stats
+    NODE_STATS_RSP    = 0x0303, // response: MsgNodeStats
+
+    // ─── Phase 5: global-scale / production ──────────────────────────────────
+
+    // Auth (node -> coordinator and coordinator -> node)
+    AUTH_CHALLENGE    = 0x0400, // coord asks node to prove token possession
+    AUTH_RESPONSE     = 0x0401, // node replies with HMAC over challenge
+    AUTH_RESULT       = 0x0402, // coord: accepted / denied with reason
+
+    // Topology (node -> coordinator)
+    TOPOLOGY_HELLO    = 0x0410, // node's region/zone/rack/geo hints
+    TOPOLOGY_LATENCY  = 0x0411, // probe round-trip sample, node <-> node
+
+    // Contribution accounting (coordinator -> node)
+    CONTRIB_RECEIPT   = 0x0420, // signed receipt: layers*tokens*uptime
+
+    // Federation (regional coord <-> global coord)
+    FEDERATION_HELLO  = 0x0430, // regional announces itself to global
+    FEDERATION_STATS  = 0x0431, // regional pushes rollup stats upward
+    FEDERATION_ROUTE  = 0x0432, // global steers a client to a region
+
+    // Weight P2P (node <-> node)
+    WEIGHT_PEER_QUERY     = 0x0440, // who has layer L for model M?
+    WEIGHT_PEER_ADVERTISE = 0x0441, // I have layers [a..b] for model M
+    WEIGHT_CHUNK_REQUEST  = 0x0442, // please send me bytes [off..off+len]
+    WEIGHT_CHUNK_DATA     = 0x0443, // here are the bytes
+
+    // Rate limit (coordinator -> client / coordinator -> coordinator)
+    RATE_LIMIT_QUOTA  = 0x0450, // current per-tenant bucket state
 };
+
+// Alias for use outside the dist_protocol.h include (vm_context etc.)
+using MsgTypeEnum = MsgType;
 
 // ─── Packed message header (always first) ───────────────────────────────────
 
@@ -158,7 +195,7 @@ struct TensorHeader {
     // followed by n_tokens * n_embd * sizeof(dtype) bytes
 };
 
-static_assert(sizeof(TensorHeader) == 32, "TensorHeader size changed");
+static_assert(sizeof(TensorHeader) == 28, "TensorHeader size changed");
 
 // ─── API plane: INFER_REQUEST ───────────────────────────────────────────────
 
@@ -220,5 +257,207 @@ inline size_t tensor_payload_bytes(const TensorHeader& th) {
     return sizeof(TensorHeader)
          + (size_t)th.n_tokens * th.n_embd * dtype_size(th.dtype);
 }
+
+// ─── Dashboard / stats structs ───────────────────────────────────────────────
+
+#pragma pack(push, 1)
+
+// Per-node live stats — sent in CLUSTER_STATS_RSP and NODE_STATS_RSP.
+struct NodeStatEntry {
+    char     node_id[MAX_NODE_ID_LEN];
+    char     addr[64];              // IP:port
+    uint32_t n_gpus;
+    uint64_t gpu_vram_total[8];     // bytes
+    uint64_t gpu_vram_free[8];      // bytes
+    float    gpu_util[8];           // 0–1
+    uint64_t cpu_ram_total;
+    uint64_t cpu_ram_free;
+    uint32_t n_cpu_threads;
+    uint32_t network_mbps;
+    uint64_t tokens_total;          // lifetime tokens processed by this node
+    double   tokens_per_second;     // rolling 10-second average
+    uint32_t layer_first;           // first assigned layer
+    uint32_t layer_last;            // last assigned layer
+    uint64_t bytes_received;        // bytes of activation tensors received
+    uint64_t bytes_sent;            // bytes of activation tensors forwarded
+    uint8_t  alive;
+    uint8_t  model_loaded;
+    uint8_t  _pad[6];
+};
+
+struct MsgClusterStats {
+    uint64_t     timestamp_us;        // unix microseconds
+    uint32_t     n_nodes;             // number of NodeStatEntry entries that follow
+    uint32_t     n_active_requests;   // in-flight inference requests right now
+    uint64_t     tokens_total;        // cluster lifetime total
+    double       tokens_per_second;   // cluster aggregate TPS (rolling)
+    char         model_name[128];
+    uint32_t     n_layers_total;
+    // followed by n_nodes * sizeof(NodeStatEntry)
+};
+
+struct MsgNodeStats {
+    NodeStatEntry entry;
+};
+
+// ─── Phase 5: auth, topology, receipts, federation, weight-p2p ──────────────
+
+static constexpr uint32_t AUTH_CHALLENGE_BYTES = 32;
+static constexpr uint32_t AUTH_MAC_BYTES       = 32; // HMAC-SHA256
+static constexpr uint32_t MAX_REGION_LEN       = 32;
+static constexpr uint32_t MAX_ZONE_LEN         = 32;
+static constexpr uint32_t MAX_RACK_LEN         = 32;
+static constexpr uint32_t MAX_TOKEN_ID_LEN     = 64;
+static constexpr uint32_t MAX_TENANT_LEN       = 64;
+
+// Capability scopes bit-encoded in the token; enforced by coordinator.
+enum AuthScope : uint32_t {
+    SCOPE_NONE      = 0,
+    SCOPE_JOIN      = 1u << 0, // may join the pool as a worker
+    SCOPE_CLIENT    = 1u << 1, // may submit inference requests
+    SCOPE_FEDERATE  = 1u << 2, // may act as a regional coordinator uplink
+    SCOPE_ADMIN     = 1u << 3, // may issue new tokens (root only)
+};
+
+// AUTH_CHALLENGE: coord -> node. 32 bytes of random nonce.
+struct MsgAuthChallenge {
+    uint8_t nonce[AUTH_CHALLENGE_BYTES];
+    uint64_t issued_at_us;
+};
+
+// AUTH_RESPONSE: node -> coord. HMAC_SHA256(token_secret, nonce || token_id).
+struct MsgAuthResponse {
+    char     token_id[MAX_TOKEN_ID_LEN];   // which token was used
+    uint8_t  mac[AUTH_MAC_BYTES];          // HMAC over challenge+token_id
+    uint32_t scope_requested;              // bitfield of AuthScope
+    uint8_t  _pad[4];
+};
+
+// AUTH_RESULT: coord -> node.
+struct MsgAuthResult {
+    uint8_t  accepted;          // 1 = ok, 0 = denied
+    uint8_t  _pad[3];
+    uint32_t scope_granted;
+    uint64_t expires_at_us;     // when this session expires
+    char     reason[128];       // human-readable denial reason
+};
+
+// TOPOLOGY_HELLO: node -> coord. Self-reported location + hints.
+struct MsgTopologyHello {
+    char     node_id[MAX_NODE_ID_LEN];
+    char     region[MAX_REGION_LEN];   // e.g. "us-west"
+    char     zone[MAX_ZONE_LEN];       // e.g. "us-west-2a"
+    char     rack[MAX_RACK_LEN];       // free-form; empty if unknown
+    float    lat_deg;                  // GeoIP optional
+    float    lon_deg;
+    uint32_t bandwidth_mbps_self;      // measured, not reported
+    uint8_t  behind_nat;               // 1 = node cannot accept inbound
+    uint8_t  _pad[3];
+};
+
+// TOPOLOGY_LATENCY: a latency probe sample from node A to node B.
+struct MsgTopologyLatency {
+    char     src_node[MAX_NODE_ID_LEN];
+    char     dst_node[MAX_NODE_ID_LEN];
+    float    rtt_ms;
+    uint64_t measured_at_us;
+};
+
+// CONTRIB_RECEIPT: coord -> node. Signed record of work performed in a window.
+// HMAC is over (node_id | window_start | window_end | tokens | layer_bytes).
+struct MsgContribReceipt {
+    char     node_id[MAX_NODE_ID_LEN];
+    char     tenant[MAX_TENANT_LEN];
+    uint64_t window_start_us;
+    uint64_t window_end_us;
+    uint64_t tokens_processed;     // output tokens this node contributed to
+    uint64_t layer_bytes_forwarded;
+    uint64_t layer_seconds;         // layers_assigned * seconds_up (work units)
+    uint8_t  mac[AUTH_MAC_BYTES];   // issuer signature
+    char     issuer_id[MAX_TOKEN_ID_LEN]; // which coordinator signed
+    uint8_t  _pad[4];
+};
+
+// FEDERATION_HELLO: regional coord -> global coord.
+struct MsgFederationHello {
+    char     region[MAX_REGION_LEN];
+    char     coord_id[MAX_NODE_ID_LEN];
+    char     public_host[128];
+    uint16_t ctrl_port;
+    uint16_t api_port;
+    uint16_t dashboard_port;
+    uint8_t  _pad[2];
+    uint8_t  mac[AUTH_MAC_BYTES];
+};
+
+// FEDERATION_STATS: regional -> global rollup.
+struct MsgFederationStats {
+    char     region[MAX_REGION_LEN];
+    uint32_t n_nodes;
+    uint32_t n_active_requests;
+    uint64_t tokens_total;
+    double   tokens_per_second;
+    uint64_t total_vram_bytes;
+    uint64_t free_vram_bytes;
+    uint64_t timestamp_us;
+};
+
+// FEDERATION_ROUTE: global -> client (piggybacked on rendezvous HTTP too).
+struct MsgFederationRoute {
+    char     region[MAX_REGION_LEN];
+    char     coord_host[128];
+    uint16_t api_port;
+    uint16_t dashboard_port;
+    uint8_t  _pad[4];
+    float    score;                // higher = better match
+};
+
+// WEIGHT_PEER_QUERY: node A asks the coord for peers holding a layer range.
+struct MsgWeightPeerQuery {
+    char     model_name[MAX_MODEL_NAME];
+    uint32_t layer_first;
+    uint32_t layer_last;
+};
+
+// WEIGHT_PEER_ADVERTISE: coord replies with a set of peers (one message per
+// peer, or the client concatenates; keep it fixed-size per record).
+struct MsgWeightPeerAdvertise {
+    char     peer_node_id[MAX_NODE_ID_LEN];
+    char     peer_host[128];
+    uint16_t peer_data_port;
+    uint8_t  _pad[2];
+    uint32_t layer_first;
+    uint32_t layer_last;
+    uint64_t total_bytes;
+};
+
+// WEIGHT_CHUNK_REQUEST: node A -> node B.
+struct MsgWeightChunkRequest {
+    char     model_name[MAX_MODEL_NAME];
+    uint32_t layer_index;
+    uint64_t offset;
+    uint64_t length;
+};
+
+// WEIGHT_CHUNK_DATA: node B -> node A. Payload is length bytes of weight data.
+struct MsgWeightChunkData {
+    uint32_t layer_index;
+    uint32_t _pad;
+    uint64_t offset;
+    uint64_t length;
+    // followed by `length` bytes
+};
+
+// RATE_LIMIT_QUOTA: coordinator reports a tenant's current bucket state.
+struct MsgRateLimitQuota {
+    char     tenant[MAX_TENANT_LEN];
+    uint64_t tokens_remaining;
+    uint64_t refill_per_sec;
+    uint64_t reset_at_us;
+    uint8_t  priority;             // 0=low, 1=normal, 2=high
+    uint8_t  _pad[7];
+};
+
+#pragma pack(pop)
 
 } // namespace dist

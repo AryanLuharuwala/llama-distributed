@@ -6,14 +6,16 @@
  * Usage:
  *   dist-vm-coordinator [options]
  *
- *   --host <addr>        bind host (default 0.0.0.0)
- *   --control-port <n>   base coordinator control port (default 7700)
- *   --api-port <n>       inference API port (default 7702)
- *   --vm-port <n>        VM control port (default 7703)
- *   --model <path>       auto-assign model on startup
- *   --model-name <str>   model identifier sent to nodes
- *   --context <n>        context window (default 4096)
- *   --min-nodes <n>      wait for N nodes before auto-assign (default 1)
+ *   --host <addr>          bind host (default 0.0.0.0)
+ *   --control-port <n>     base coordinator control port (default 7700)
+ *   --api-port <n>         inference API port (default 7702)
+ *   --vm-port <n>          VM control port (default 7703)
+ *   --dashboard-port <n>   HTTP dashboard port (default 7780)
+ *   --public-host <host>   host shown in join command on dashboard
+ *   --model <path>         auto-assign model on startup
+ *   --model-name <str>     model identifier sent to nodes
+ *   --context <n>          context window (default 4096)
+ *   --min-nodes <n>        wait for N nodes before auto-assign (default 1)
  */
 
 #include "vm_coordinator.h"
@@ -37,23 +39,28 @@ int main(int argc, char* argv[]) {
             if (i + 1 >= argc) { usage(argv[0]); std::exit(1); }
             return argv[++i];
         };
-        if      (arg == "--host")         cfg.bind_host               = nxt();
-        else if (arg == "--control-port") cfg.base.control_port       = (uint16_t)std::stoi(nxt());
-        else if (arg == "--api-port")     cfg.base.api_port           = (uint16_t)std::stoi(nxt());
-        else if (arg == "--vm-port")      cfg.vm_ctrl_port            = (uint16_t)std::stoi(nxt());
-        else if (arg == "--model")        cfg.base.auto_model_path    = nxt();
-        else if (arg == "--model-name")   cfg.base.auto_model_name    = nxt();
-        else if (arg == "--context")      cfg.base.auto_n_ctx         = (uint32_t)std::stoi(nxt());
-        else if (arg == "--min-nodes")    cfg.base.min_nodes          = (uint32_t)std::stoi(nxt());
+        if      (arg == "--host")             cfg.bind_host                  = nxt();
+        else if (arg == "--control-port")     cfg.base.control_port          = (uint16_t)std::stoi(nxt());
+        else if (arg == "--api-port")         cfg.base.api_port              = (uint16_t)std::stoi(nxt());
+        else if (arg == "--vm-port")          cfg.vm_ctrl_port               = (uint16_t)std::stoi(nxt());
+        else if (arg == "--dashboard-port")   cfg.base.dashboard_port        = (uint16_t)std::stoi(nxt());
+        else if (arg == "--public-host")      cfg.base.public_host           = nxt();
+        else if (arg == "--model")            cfg.base.auto_model_path       = nxt();
+        else if (arg == "--model-name")       cfg.base.auto_model_name       = nxt();
+        else if (arg == "--context")          cfg.base.auto_n_ctx            = (uint32_t)std::stoi(nxt());
+        else if (arg == "--min-nodes")        cfg.base.min_nodes             = (uint32_t)std::stoi(nxt());
         else { std::cerr << "Unknown flag: " << arg << "\n"; usage(argv[0]); return 1; }
     }
 
     cfg.base.bind_host = cfg.bind_host;
 
-    std::cout << "[dist-vm-coordinator] starting\n"
-              << "  control-port : " << cfg.base.control_port  << "\n"
-              << "  api-port     : " << cfg.base.api_port      << "\n"
-              << "  vm-port      : " << cfg.vm_ctrl_port       << "\n";
+    cfg.base.vm_mode = true;  // show dist-vm-node command in dashboard
+
+    std::cout << "=== llama-distributed VM Coordinator ===\n"
+              << "  control-port  : " << cfg.base.control_port   << "\n"
+              << "  api-port      : " << cfg.base.api_port       << "\n"
+              << "  vm-port       : " << cfg.vm_ctrl_port        << "\n"
+              << "  dashboard     : http://0.0.0.0:" << cfg.base.dashboard_port << "\n\n";
 
     dist::VmCoordinator coord(std::move(cfg));
     coord.run();

@@ -26,6 +26,10 @@
 #include "dist_protocol.h"
 #include "dist_conn.h"
 #include "dist_queue.h"
+#include "cluster_monitor.h"
+#include "dashboard_server.h"
+#include "topology.h"
+#include "auth.h"
 
 #include <atomic>
 #include <functional>
@@ -87,6 +91,22 @@ struct CoordinatorConfig {
     std::string auto_model_name;
     uint32_t    auto_n_ctx      = 4096;
     uint32_t    min_nodes       = 1;       // wait for this many nodes before auto-assign
+
+    // Dashboard HTTP server (set http_port=0 to disable)
+    uint16_t    dashboard_port  = 7780;
+    std::string public_host;               // host shown in the join command on the dashboard
+    bool        vm_mode         = false;   // true → show dist-vm-node join command
+
+    // Phase-5: auth + topology (opt-in).
+    // If token_file is non-empty, the coordinator loads tokens from it and
+    // requires every joining node to prove ownership of one via HMAC handshake.
+    std::string token_file;
+    // Region / zone tags baked into contribution receipts (pass-through only).
+    std::string region;
+    std::string zone;
+    // If true, the coordinator runs a 32-byte receipt-signing key and writes
+    // it to <token_file>.issuer on first start (owner-only perms).
+    bool        issue_receipts  = false;
 };
 
 class Coordinator {
@@ -136,12 +156,44 @@ private:
     // ── Helpers ──────────────────────────────────────────────────────────────
     NodeInfo* find_node(const std::string& id);  // call with nodes_mu_ held
 
+    // Run the auth handshake on a freshly-accepted control connection.
+    // Returns true if authentication succeeded (or was not required).
+    // On success, out_reason is left empty; on failure it holds a human message.
+    bool authenticate_incoming(Connection& conn, std::string* out_reason);
+
+    // Handle a TOPOLOGY_HELLO sent by a node on the control channel.
+    void handle_topology_hello(const MsgTopologyHello& msg);
+    // Handle a TOPOLOGY_LATENCY probe from a node.
+    void handle_topology_latency(const MsgTopologyLatency& msg);
+
+    // Build and sign a receipt for `node_id`, covering [last_window, now].
+    // Caller owns the returned struct.
+    MsgContribReceipt make_receipt(const NodeInfo& n,
+                                    uint64_t window_start_us,
+                                    uint64_t window_end_us,
+                                    uint64_t tokens,
+                                    uint64_t bytes);
+
+    // Load or create the issuer secret used to sign receipts.
+    void ensure_issuer_secret();
+
     // Optional hook called when a node is removed (used by VmCoordinator).
     std::function<void(const std::string&)> vm_hook_;
     friend class VmCoordinator;
 
     CoordinatorConfig cfg_;
     std::atomic<bool> running_ { false };
+
+    // ── Monitoring + Dashboard ────────────────────────────────────────────────
+    ClusterMonitor                     monitor_;
+    std::unique_ptr<DashboardServer>   dashboard_;
+
+    // ── Phase-5 auth + topology ──────────────────────────────────────────────
+    TokenStore                         tokens_;
+    TopologyRegistry                   topology_;
+    bool                               auth_required_ = false;
+    std::array<uint8_t, 32>            issuer_secret_{};
+    bool                               has_issuer_secret_ = false;
 
     // Node registry
     mutable std::mutex                           nodes_mu_;

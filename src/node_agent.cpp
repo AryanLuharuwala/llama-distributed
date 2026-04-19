@@ -7,6 +7,8 @@
  */
 
 #include "node_agent.h"
+#include "auth.h"
+#include "topology.h"
 
 // llama.cpp public API
 #include "llama.h"
@@ -73,7 +75,15 @@ void NodeAgent::run() {
     std::cout << "[NodeAgent:" << cfg_.node_id << "] connected to coordinator "
               << cfg_.coordinator_host << ":" << cfg_.coordinator_port << "\n";
 
+    // If the coordinator sends an AUTH_CHALLENGE we handle it *before* JOIN.
+    if (!perform_auth_if_challenged()) {
+        std::cerr << "[NodeAgent:" << cfg_.node_id << "] auth failed — exiting\n";
+        coord_conn_->close();
+        return;
+    }
+
     send_node_join();
+    send_topology_hello();
 
     // Start worker threads
     control_thread_   = std::thread([this]{ control_thread_fn();   });
@@ -323,10 +333,11 @@ void NodeAgent::handle_load_model(const std::string& model_path) {
     }
 
     model_loaded_.store(true);
+    const llama_vocab* vocab = llama_model_get_vocab(lm_);
     std::cout << "[NodeAgent:" << cfg_.node_id << "] model loaded. "
-              << "vocab=" << llama_n_vocab(lm_)
-              << " embd=" << llama_n_embd(lm_)
-              << " layers=" << llama_n_layer(lm_) << "\n";
+              << "vocab=" << llama_vocab_n_tokens(vocab)
+              << " embd=" << llama_model_n_embd(lm_)
+              << " layers=" << llama_model_n_layer(lm_) << "\n";
 }
 
 void NodeAgent::handle_shutdown() {
@@ -396,7 +407,7 @@ ActivationBatch NodeAgent::run_layers(const ActivationBatch& in) {
         if (is_last_stage_) {
             // Single-node: return logits
             const float* logits = llama_get_logits_ith(lctx_, n_tokens - 1);
-            size_t n_vocab = llama_n_vocab(lm_);
+            size_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(lm_));
             out.header.n_embd = (uint32_t)n_vocab;
             out.header.dtype  = 0; // f32
             out.header.is_last = 1;
@@ -441,7 +452,7 @@ ActivationBatch NodeAgent::run_layers(const ActivationBatch& in) {
 
         if (is_last_stage_) {
             const float* logits = llama_get_logits_ith(lctx_, 0);
-            size_t n_vocab = llama_n_vocab(lm_);
+            size_t n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(lm_));
             out.header.n_embd  = (uint32_t)n_vocab;
             out.header.dtype   = 0;
             out.header.is_last = 1;
@@ -491,7 +502,7 @@ NodeCapability NodeAgent::build_capability() const {
     for (size_t i = 0; i < n_devs && cap.n_gpus < 8; ++i) {
         ggml_backend_dev_t dev = ggml_backend_dev_get(i);
         if (ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU ||
-            ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU_FULL) {
+            ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_IGPU) {
             size_t free_b, total_b;
             ggml_backend_dev_memory(dev, &free_b, &total_b);
             cap.gpu_vram_bytes[cap.n_gpus] = total_b;
@@ -515,6 +526,73 @@ void NodeAgent::connect_to_next_node() {
         std::cerr << "[NodeAgent] failed to connect to next node: " << e.what() << "\n";
         next_conn_.reset();
     }
+}
+
+// ─── Phase-5: auth handshake + topology hello ──────────────────────────────
+
+bool NodeAgent::perform_auth_if_challenged() {
+    // If no token is provided locally, skip the handshake entirely.  If the
+    // coordinator requires auth it will send AUTH_CHALLENGE and then close
+    // our connection when we send NODE_JOIN before responding — the normal
+    // error path.  If the coordinator does NOT require auth, it never sends
+    // a challenge and this function is a no-op.
+    if (cfg_.token_id.empty()) return true;
+
+    // Token was provided — expect AUTH_CHALLENGE as the first message.
+    MsgHeader hdr{};
+    std::vector<uint8_t> payload;
+    if (!coord_conn_->recv_msg(hdr, payload)) {
+        std::cerr << "[NodeAgent] coordinator closed before AUTH_CHALLENGE\n";
+        return false;
+    }
+    if (static_cast<MsgType>(hdr.msg_type) != MsgType::AUTH_CHALLENGE
+        || payload.size() < sizeof(MsgAuthChallenge)) {
+        std::cerr << "[NodeAgent] expected AUTH_CHALLENGE, got type "
+                  << hdr.msg_type << "\n";
+        return false;
+    }
+
+    const auto& ch = *reinterpret_cast<const MsgAuthChallenge*>(payload.data());
+
+    if (cfg_.token_secret_hex.size() != 64) {
+        std::cerr << "[NodeAgent] token_secret_hex must be 64 hex chars\n";
+        return false;
+    }
+    auto sec = from_hex(cfg_.token_secret_hex);
+    if (sec.size() != 32) {
+        std::cerr << "[NodeAgent] invalid token_secret_hex (need 64 hex chars)\n";
+        return false;
+    }
+    std::array<uint8_t, 32> secret{};
+    std::memcpy(secret.data(), sec.data(), 32);
+
+    MsgAuthResponse resp{};
+    std::strncpy(resp.token_id, cfg_.token_id.c_str(), MAX_TOKEN_ID_LEN - 1);
+    resp.scope_requested = SCOPE_JOIN;
+    compute_auth_response(ch.nonce, cfg_.token_id, secret, resp.mac);
+    coord_conn_->send_msg(MsgType::AUTH_RESPONSE, &resp, sizeof(resp));
+
+    // Expect AUTH_RESULT next.
+    if (!coord_conn_->recv_msg(hdr, payload)
+        || static_cast<MsgType>(hdr.msg_type) != MsgType::AUTH_RESULT
+        || payload.size() < sizeof(MsgAuthResult)) {
+        std::cerr << "[NodeAgent] no AUTH_RESULT from coordinator\n";
+        return false;
+    }
+    const auto& res = *reinterpret_cast<const MsgAuthResult*>(payload.data());
+    if (!res.accepted) {
+        std::cerr << "[NodeAgent] auth denied: " << res.reason << "\n";
+        return false;
+    }
+    std::cout << "[NodeAgent:" << cfg_.node_id << "] authenticated (scope=0x"
+              << std::hex << res.scope_granted << std::dec << ")\n";
+    return true;
+}
+
+void NodeAgent::send_topology_hello() {
+    if (!coord_conn_ || !coord_conn_->is_connected()) return;
+    auto hello = make_topology_hello(cfg_.node_id);
+    coord_conn_->send_msg(MsgType::TOPOLOGY_HELLO, &hello, sizeof(hello));
 }
 
 } // namespace dist

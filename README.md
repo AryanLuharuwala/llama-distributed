@@ -1,8 +1,136 @@
 # llama-distributed
 
-Distributed inference platform for running large language models across a pool of GPU servers.
+Distributed LLM inference across a pool of GPU servers.
 
-Each server holds a slice of the model's layers. Activation tensors flow through the pipeline stage-by-stage, token by token, allowing models far too large for any single machine to be served collaboratively.
+Models that don't fit on any single machine are split layer-by-layer across
+as many nodes as you have. Each node holds a slice of the weights; activation
+tensors flow through the pipeline stage-by-stage. An optional **VM layer**
+makes the entire cluster appear as one unified computer with a shared virtual
+address space, collective operations (AllReduce / AllGather), and fault tolerance.
+
+---
+
+## Quick start
+
+```bash
+git clone --recursive https://github.com/your-org/llama-distributed
+cd llama-distributed
+./scripts/build.sh          # CPU build (takes ~5 min for llama.cpp)
+./scripts/build.sh --cuda   # CUDA build
+```
+
+Binaries land in `./build/`.
+
+> **No separate llama.cpp checkout needed.** It ships as a git submodule at
+> `third_party/llama.cpp`. A single `--recursive` clone is all that is required.
+
+---
+
+## Running — base pipeline mode
+
+```bash
+# 1. Start the coordinator on one machine
+./build/dist-coordinator \
+  --model  /models/llama-3-70b.gguf \
+  --min-nodes 3
+
+# 2. Start a node agent on each GPU server
+./build/dist-node --server <coordinator-ip>
+
+# 3. Send a prompt from anywhere
+./build/dist-client \
+  --server <coordinator-ip> \
+  --prompt "Explain ring-AllReduce in one paragraph." \
+  --max-tokens 256
+```
+
+Tokens stream to stdout as they are generated.
+
+---
+
+## Running — VM / unified-computer mode
+
+VM mode adds distributed tensor memory, collective ops, and checkpointing on
+top of the base pipeline.
+
+```bash
+# Coordinator with VM layer
+./build/dist-vm-coordinator \
+  --model  /models/llama-3-70b.gguf \
+  --min-nodes 3
+
+# Node agents with VM layer (same flag set as dist-node)
+./build/dist-vm-node --server <coordinator-ip>
+
+# Client API (C++ — VmContext)
+VmContext ctx({"coordinator-ip"});
+ctx.infer(token_ids, 256, [](int32_t tok, bool last){
+    std::cout << tok;
+});
+ctx.checkpoint().wait();   // snapshot entire cluster state
+```
+
+---
+
+## Single-machine test (3 processes, localhost)
+
+```bash
+# Terminal 1
+./build/dist-coordinator --model model.gguf --min-nodes 2
+
+# Terminal 2
+./build/dist-node --server 127.0.0.1 --data-port 7701
+
+# Terminal 3
+./build/dist-node --server 127.0.0.1 --data-port 7704
+
+# Terminal 4
+./build/dist-client --server 127.0.0.1 --prompt "Hello!"
+```
+
+---
+
+## Build options
+
+| CMake flag | Default | Description |
+|---|---|---|
+| `DIST_USE_CUDA` | OFF | CUDA (NVIDIA GPU) acceleration |
+| `DIST_USE_METAL` | OFF | Metal (Apple GPU) acceleration |
+| `DIST_USE_VULKAN` | OFF | Vulkan acceleration |
+| `DIST_LLAMA_SOURCE` | AUTO | `AUTO` = submodule · `SYSTEM` = installed · `/path` = explicit source tree |
+| `DIST_BUILD_TESTS` | OFF | Build unit tests |
+
+### Build script shorthand
+
+```bash
+./scripts/build.sh [flags]
+
+  --cuda            Enable CUDA
+  --metal           Enable Metal
+  --vulkan          Enable Vulkan
+  --debug           Debug build with symbols
+  --jobs N          Parallel build jobs (default: nproc)
+  --prefix PATH     Install prefix (default: ./install)
+  --llama PATH      External llama.cpp source tree instead of the submodule
+```
+
+### Using a pre-installed llama.cpp
+
+```bash
+cmake -S . -B build \
+  -DDIST_LLAMA_SOURCE=SYSTEM \
+  -DLLAMA_INSTALL_PREFIX=/usr/local
+cmake --build build
+```
+
+### Using a custom llama.cpp fork
+
+```bash
+cmake -S . -B build \
+  -DDIST_LLAMA_SOURCE=/path/to/my/llama.cpp \
+  -DDIST_USE_CUDA=ON
+cmake --build build
+```
 
 ---
 
@@ -10,188 +138,90 @@ Each server holds a slice of the model's layers. Activation tensors flow through
 
 ```
   Client
-    │  (TCP :7702)
+    │  TCP :7702  (INFER_REQUEST / INFER_TOKEN)
     ▼
-┌───────────────────────────────────────┐
-│           Coordinator                 │
-│  - Node registry & heartbeat monitor  │
-│  - Layer partitioning planner         │
-│  - Inference request router           │
-└────────────┬──────────────────────────┘
-             │ LAYER_ASSIGN (TCP :7700)
-    ┌────────┴────────┐
-    ▼                 ▼
-┌─────────┐       ┌─────────┐       ┌─────────┐
-│  Node 0 │──────▶│  Node 1 │──────▶│  Node N │
-│ L0..L19 │  act  │ L20..L39│  act  │ L40..L79│
-│  GPU 0  │  ten  │  GPU 1  │  ten  │  GPU 2  │
-└─────────┘  sor  └─────────┘  sor  └─────────┘
-              (TCP :7701)
+┌──────────────────────────────────────────────┐
+│      Coordinator  (or  VmCoordinator)        │
+│  ● node registry & heartbeat monitor         │
+│  ● VRAM-proportional layer planner           │
+│  ● inference request router                  │
+│  ● VM: tensor registry, op scheduler,        │
+│        collective orchestrator, fault mgr    │
+└──────────┬───────────────────────────────────┘
+           │ TCP :7700  LAYER_ASSIGN
+           │ TCP :7703  VM_CTRL  (VM mode)
+     ┌─────┴──────┐
+     ▼            ▼
+┌─────────┐   ┌─────────┐   ┌─────────┐
+│ Node 0  │──▶│ Node 1  │──▶│ Node N  │
+│ L0–L19  │   │ L20–L39 │   │ L40–L79 │
+│  GPU 0  │   │  GPU 1  │   │  GPU 2  │
+└─────────┘   └─────────┘   └─────────┘
+  activations flow right  TCP :7701
+  collectives flow in a ring  (VM mode)
 ```
-
-### Three executables
-
-| Binary | Role |
-|---|---|
-| `dist-coordinator` | Central daemon. Run one per cluster. |
-| `dist-node` | Node agent. Run one per GPU server. |
-| `dist-client` | CLI client that sends prompts and streams tokens. |
 
 ### Layer partitioning
 
-The coordinator measures each node's total VRAM, then assigns layers proportionally. A node with 40 GB VRAM gets twice as many layers as a node with 20 GB. The first node also handles the embedding table; the last node produces logits.
+VRAM-proportional: a 40 GB node gets twice as many layers as a 20 GB node.
+The first node holds the embedding table; the last node produces logits.
 
 ### Double-buffering
 
-Each node has two concurrency domains:
+- **RX thread** fills a bounded queue with incoming activation tensors.
+- **Compute thread** drains it, runs GPU kernels, pushes to the send queue.
+- **TX thread** forwards output activations to the next node.
 
-- **Network RX thread** fills a bounded queue with incoming activation tensors.
-- **Compute thread** drains the queue, runs GPU kernels, pushes to send queue.
-- **Network TX thread** drains the send queue and forwards to the next node.
+GPU compute and NIC receive overlap completely.
 
-While GPU is computing batch N, the NIC is already receiving batch N+1 — zero stall.
+### VM layer — unified-computer mode
 
-### CPU offload (large models)
-
-For models that exceed GPU VRAM, `LayerCache` keeps weights in CPU pinned RAM and streams them to VRAM on demand. A prefetch thread keeps the next N layers warm to hide transfer latency.
-
----
-
-## Build
-
-### Prerequisites
-
-- CMake ≥ 3.14
-- C++17 compiler (GCC ≥ 9, Clang ≥ 10, MSVC 2019)
-- llama.cpp source tree (automatically used if sibling directory)
-
-### Minimal CPU-only build
-
-```bash
-cd llama-distributed
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
-
-### CUDA build
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DDIST_USE_CUDA=ON
-cmake --build build -j$(nproc)
-```
-
-### Custom llama.cpp path
-
-```bash
-cmake -B build -DLLAMA_CPP_DIR=/path/to/llama.cpp
-```
-
----
-
-## Running
-
-### 1. Start the coordinator (any machine, reachable by all nodes)
-
-```bash
-./build/dist-coordinator \
-  --model /data/models/llama3-70b-q4_k_m.gguf \
-  --model-name llama3-70b \
-  --context 8192 \
-  --min-nodes 3
-```
-
-The coordinator waits for `--min-nodes` nodes to connect before assigning layers.
-
-### 2. Start node agents (one per GPU server)
-
-On server 1 (192.168.1.10):
-```bash
-./build/dist-node \
-  --server 192.168.1.100 \
-  --data-port 7701 \
-  --n-gpu-layers 999
-```
-
-On server 2 (192.168.1.11):
-```bash
-./build/dist-node \
-  --server 192.168.1.100 \
-  --data-port 7701 \
-  --n-gpu-layers 999
-```
-
-On server 3 (192.168.1.12):
-```bash
-./build/dist-node \
-  --server 192.168.1.100 \
-  --data-port 7701 \
-  --n-gpu-layers 999
-```
-
-Once all 3 nodes connect, the coordinator assigns layer ranges, each node loads its slice of the model, and the pipeline is ready.
-
-### 3. Send inference requests
-
-```bash
-./build/dist-client \
-  --server 192.168.1.100 \
-  --model llama3-70b \
-  --prompt "Explain quantum entanglement in simple terms." \
-  --max-tokens 512 \
-  --temp 0.7
-```
-
-Tokens stream to stdout as they are generated.
-
----
-
-## Single-machine test (3 processes)
-
-For local testing without multiple servers, run coordinator and nodes all on localhost, using different data ports:
-
-```bash
-# Terminal 1
-./build/dist-coordinator --model model.gguf --model-name test --min-nodes 2
-
-# Terminal 2
-./build/dist-node --server 127.0.0.1 --data-port 7701
-
-# Terminal 3
-./build/dist-node --server 127.0.0.1 --data-port 7703
-
-# Terminal 4
-./build/dist-client --server 127.0.0.1 --model test --prompt "Hello!"
-```
+| Component | Responsibility |
+|---|---|
+| `VmTensorRegistry` | 64-bit virtual address → `(node, bytes, dtype)` |
+| `VmScheduler` | Data-locality op dispatch with automatic retry |
+| `CollectiveEngine` | Ring-AllReduce, AllGather, Broadcast (bandwidth-optimal) |
+| `FaultManager` | Checkpoint 2PC; tensor migration on node failure |
+| `VmCoordinator` | Owns all VM subsystems; listens on PORT_VM_CTRL 7703 |
+| `VmNode` | Local tensor store; executes dispatched ops |
+| `VmContext` | Client-facing C++ API |
 
 ---
 
 ## Wire protocol
 
-All messages are TCP frames:
+All messages are length-prefixed TCP frames:
 
 ```
 [ MsgHeader (24 bytes) ][ payload (variable) ]
 
 MsgHeader:
-  magic       uint32  0xD157C0DE
-  version     uint32  1
-  msg_type    uint16  see MsgType enum
-  flags       uint16  reserved
-  payload_len uint32  bytes after header
-  seq         uint64  per-connection sequence number
+  magic       uint32   0xD157C0DE
+  version     uint32   1
+  msg_type    uint16   MsgType enum
+  flags       uint16   reserved
+  payload_len uint32   bytes after header
+  seq         uint64   per-connection sequence number
 ```
 
-Key message types:
+| Port | Purpose |
+|---|---|
+| 7700 | Coordinator control — NODE_JOIN, HEARTBEAT, LAYER_ASSIGN |
+| 7701 | Data plane — TENSOR_FORWARD (node → node) |
+| 7702 | API plane — INFER_REQUEST / INFER_TOKEN / INFER_DONE |
+| 7703 | VM control — tensor alloc/write/read, op dispatch, collectives, checkpoints |
 
-| Type | Direction | Purpose |
-|---|---|---|
-| `NODE_JOIN` | Node → Coordinator | Registration + capability report |
-| `HEARTBEAT` | Node → Coordinator | Liveness + stats |
-| `LAYER_ASSIGN` | Coordinator → Node | Layer range + model path |
-| `TENSOR_FORWARD` | Node → Node | Activation batch (hidden state) |
-| `INFER_REQUEST` | Client → Coordinator | Prompt tokens + generation params |
-| `INFER_TOKEN` | Coordinator → Client | One generated token (streaming) |
-| `INFER_DONE` | Coordinator → Client | End of generation + stats |
+---
+
+## Relationship to llama.cpp
+
+`llama-distributed` is an **adapter layer on top of llama.cpp**, not a fork:
+
+- llama.cpp is the computation engine (GGUF loading, GPU kernels, quantisation).
+- `NodeAgent` owns a `llama_model*` / `llama_context*` and calls `llama_decode()`
+  on its assigned layer slice.
+- **Zero modifications** to llama.cpp are made. It is used purely as a library.
+- To update llama.cpp: `git -C third_party/llama.cpp pull && cmake --build build`
 
 ---
 
@@ -199,36 +229,53 @@ Key message types:
 
 ```
 llama-distributed/
-├── CMakeLists.txt
+├── CMakeLists.txt                    top-level build (all targets)
+├── cmake/
+│   └── FindLlamaCpp.cmake            find pre-installed llama.cpp
+├── scripts/
+│   └── build.sh                      one-command build helper
+├── third_party/
+│   └── llama.cpp/                    git submodule (ggml-org/llama.cpp)
 ├── include/
-│   ├── dist_protocol.h    # Wire format, all packed structs
-│   ├── dist_conn.h        # TCP connection with framing
-│   ├── dist_queue.h       # Bounded MPMC queue
-│   ├── node_agent.h       # Node agent declaration
-│   ├── coordinator.h      # Coordinator declaration
-│   └── pipeline.h         # Pipeline stage + layer cache
+│   ├── dist_protocol.h               base wire format (ports 7700–7702)
+│   ├── dist_conn.h                   TCP framing + Listener
+│   ├── dist_queue.h                  bounded MPMC queue
+│   ├── node_agent.h                  pipeline worker
+│   ├── coordinator.h                 cluster coordinator
+│   ├── pipeline.h                    layer cache + double-buffering
+│   ├── vm_protocol.h                 VM wire format (port 7703)
+│   ├── vm_tensor_registry.h          virtual address space
+│   ├── vm_scheduler.h                op dispatch + retry
+│   ├── vm_collective.h               ring collectives
+│   ├── vm_fault.h                    checkpoint + fault recovery
+│   ├── vm_coordinator.h              VM coordinator
+│   ├── vm_node.h                     VM worker
+│   └── vm_context.h                  client API
 └── src/
-    ├── node_agent.cpp             # Node agent: load model, run layers, stream tensors
-    ├── coordinator.cpp            # Coordinator: plan, route, monitor
-    ├── pipeline.cpp               # Double-buffering, layer prefetch, stats
-    ├── dist_coordinator_main.cpp  # Coordinator binary entry point
-    ├── dist_node_main.cpp         # Node binary entry point
-    └── dist_client_main.cpp       # Client binary entry point
+    ├── coordinator.cpp
+    ├── node_agent.cpp
+    ├── pipeline.cpp
+    ├── vm_tensor_registry.cpp
+    ├── vm_scheduler.cpp
+    ├── vm_collective.cpp
+    ├── vm_fault.cpp
+    ├── vm_coordinator.cpp
+    ├── vm_node.cpp
+    ├── vm_context.cpp
+    ├── dist_coordinator_main.cpp     → dist-coordinator
+    ├── dist_node_main.cpp            → dist-node
+    ├── dist_client_main.cpp          → dist-client
+    ├── dist_vm_coordinator_main.cpp  → dist-vm-coordinator
+    └── dist_vm_node_main.cpp         → dist-vm-node
 ```
 
 ---
 
-## Limitations and roadmap
+## Roadmap
 
-### Current state
-- Pipeline plumbing, protocol, and threading model are complete.
-- Each node loads the **full model** — true layer-slice loading requires extracting weight tensors by layer range from the GGUF file, which is a straightforward but time-consuming extension.
-- Activation hand-off between nodes uses `llama_get_embeddings_ith()` (the hidden state after the last layer computed). For true mid-model slicing, intercept at the `ggml_backend_sched` graph split boundary — this is being developed upstream (see llama.cpp PR #19378).
-
-### Next steps
-1. **Partial model loading** — use `llama_model_params.tensor_buft_overrides` to keep only assigned layers in VRAM; the rest stays on CPU or is unmapped.
-2. **Persistent data connections** — pre-connect each node to its downstream neighbour at startup rather than per-request.
-3. **Multi-request pipelining** — multiple in-flight requests interleaved across the same pipeline (batched decode).
-4. **RDMA transport** — replace TCP with ibverbs/UCX for sub-microsecond tensor transfer on InfiniBand clusters.
-5. **Fault recovery** — reassign layers from a dead node to remaining nodes.
-6. **Web dashboard** — expose coordinator metrics (node status, VRAM, throughput) via HTTP/SSE.
+- [ ] Partial model loading — assign weight tensors per node via `tensor_buft_overrides`
+- [ ] Pre-connected data sockets — connect node pairs at startup
+- [ ] Multi-request interleaving — batched decode across concurrent sessions
+- [ ] RDMA transport — ibverbs / UCX for InfiniBand
+- [ ] Python bindings for `VmContext`
+- [ ] Web dashboard — node status, VRAM, throughput via HTTP/SSE
