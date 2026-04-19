@@ -11,6 +11,7 @@ option(DIST_USE_CUDA     "Enable CUDA acceleration"               OFF)
 option(DIST_USE_METAL    "Enable Metal acceleration (macOS)"      OFF)
 option(DIST_USE_VULKAN   "Enable Vulkan acceleration"             OFF)
 option(DIST_BUILD_TESTS  "Build unit tests"                       OFF)
+option(DIST_BUILD_VM     "Build the experimental VM layer"        OFF)
 
 # Where to find llama.cpp.
 #   AUTO    — use third_party/llama.cpp submodule (default)
@@ -160,37 +161,39 @@ target_compile_options(dist_common PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wno-unused-parameter>
 )
 
-# ─── dist_vm — VM / unified-computer layer ───────────────────────────────────
+# ─── dist_vm — experimental VM / unified-computer layer ─────────────────────
 #
 # Provides: VmTensorRegistry, VmScheduler, CollectiveEngine, FaultManager,
-#           VmCoordinator, VmNode, VmContext.
-# Depends on dist_common (and through it, llama.cpp).
+#           VmCoordinator, VmNode, VmContext.  Gated behind DIST_BUILD_VM
+# because the VM sources currently lag the base protocol and don't compile.
 
-add_library(dist_vm STATIC
-    src/vm_tensor_registry.cpp
-    src/vm_scheduler.cpp
-    src/vm_collective.cpp
-    src/vm_fault.cpp
-    src/vm_coordinator.cpp
-    src/vm_node.cpp
-    src/vm_context.cpp
-)
+if(DIST_BUILD_VM)
+    add_library(dist_vm STATIC
+        src/vm_tensor_registry.cpp
+        src/vm_scheduler.cpp
+        src/vm_collective.cpp
+        src/vm_fault.cpp
+        src/vm_coordinator.cpp
+        src/vm_node.cpp
+        src/vm_context.cpp
+    )
 
-target_include_directories(dist_vm
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${_LLAMA_INCDIRS}
-)
+    target_include_directories(dist_vm
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${_LLAMA_INCDIRS}
+    )
 
-target_link_libraries(dist_vm
-    PUBLIC  dist_common
-)
+    target_link_libraries(dist_vm
+        PUBLIC  dist_common
+    )
 
-target_compile_options(dist_vm PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wno-unused-parameter>
-)
+    target_compile_options(dist_vm PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wno-unused-parameter>
+    )
+endif()
 
 # ─── Executables ─────────────────────────────────────────────────────────────
 
@@ -204,12 +207,14 @@ target_link_libraries(dist-node  PRIVATE dist_common)
 add_executable(dist-client       src/dist_client_main.cpp)
 target_link_libraries(dist-client PRIVATE dist_common ${_PLATFORM_LIBS})
 
-# VM layer (unified-computer mode)
-add_executable(dist-vm-coordinator src/dist_vm_coordinator_main.cpp)
-target_link_libraries(dist-vm-coordinator PRIVATE dist_vm)
+# VM layer (unified-computer mode) — off by default, see DIST_BUILD_VM above.
+if(DIST_BUILD_VM)
+    add_executable(dist-vm-coordinator src/dist_vm_coordinator_main.cpp)
+    target_link_libraries(dist-vm-coordinator PRIVATE dist_vm)
 
-add_executable(dist-vm-node        src/dist_vm_node_main.cpp)
-target_link_libraries(dist-vm-node PRIVATE dist_vm)
+    add_executable(dist-vm-node        src/dist_vm_node_main.cpp)
+    target_link_libraries(dist-vm-node PRIVATE dist_vm)
+endif()
 
 # dist-join: zero-friction pool membership — queries dashboard, exec's dist-node
 add_executable(dist-join src/dist_join_main.cpp)
@@ -220,10 +225,16 @@ target_link_libraries(dist-join PRIVATE ${_PLATFORM_LIBS})
 
 include(GNUInstallDirs)
 
-install(TARGETS
-    dist_common dist_vm
-    dist-coordinator dist-node dist-client
-    dist-vm-coordinator dist-vm-node dist-join
+set(_DIST_INSTALL_TARGETS
+    dist_common
+    dist-coordinator dist-node dist-client dist-join
+)
+if(DIST_BUILD_VM)
+    list(APPEND _DIST_INSTALL_TARGETS
+        dist_vm dist-vm-coordinator dist-vm-node)
+endif()
+
+install(TARGETS ${_DIST_INSTALL_TARGETS}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

@@ -39,15 +39,17 @@ jobs:
             runner: ubuntu-22.04
             archive: tar.gz
             cmake_flags: "-DDIST_USE_CUDA=ON"
-            cuda: "12.4.0"
+            # Empty → Jimver action picks its default (currently 12.5.x).
+            # Pin only when we need to reproduce a specific build.
+            cuda: "12.5.1"
           - target: macos-arm64-metal
             runner: macos-14
             archive: tar.gz
             cmake_flags: "-DDIST_USE_METAL=ON"
-          - target: windows-x86_64-cpu
-            runner: windows-2022
-            archive: zip
-            cmake_flags: ""
+          # Windows target is disabled until the POSIX-only bits
+          # (arpa/inet.h, sys/file.h, chmod, flock) are ported.  The
+          # install.ps1 / windows-install.ps1 scripts are kept for when
+          # the Windows artifact does ship.
 
     steps:
       - name: Checkout (with submodules)
