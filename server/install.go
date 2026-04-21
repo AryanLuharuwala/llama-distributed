@@ -124,21 +124,34 @@ func (s *server) handleInstallCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Optional body — clients can narrow to one (os, accel) to get a single
-	// "primary" command field they can paste verbatim.
+	// "primary" command field they can paste verbatim, and optionally pin
+	// the pair token to a pool so the rig auto-joins on first connect.
 	var body struct {
-		OS    string `json:"os"`    // linux|macos|windows
-		Accel string `json:"accel"` // cpu|cuda|rocm|metal|vulkan|auto
-		Mode  string `json:"mode"`  // prebuilt|build|auto
+		OS     string `json:"os"`     // linux|macos|windows
+		Accel  string `json:"accel"`  // cpu|cuda|rocm|metal|vulkan|auto
+		Mode   string `json:"mode"`   // prebuilt|build|auto
+		PoolID int64  `json:"pool_id"` // optional: auto-attach on pair
 	}
 	_ = json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&body)
+
+	// Validate pool membership up front so we don't mint a token that points
+	// at a pool the user cannot join.  PoolID=0 means "don't auto-attach".
+	var poolID any
+	if body.PoolID != 0 {
+		if _, isMember := s.userIsMember(body.PoolID, u.ID); !isMember {
+			writeErr(w, 403, "not a member of the selected pool")
+			return
+		}
+		poolID = body.PoolID
+	}
 
 	token := newRandomToken(20)
 	// 30-min TTL for install-command tokens — longer than the raw pairing
 	// flow because the user may walk to a second machine between clicks.
 	expires := time.Now().Add(30 * time.Minute)
 	if _, err := s.db.Exec(
-		`INSERT INTO pair_tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
-		token, u.ID, nowUnix(), expires.Unix(),
+		`INSERT INTO pair_tokens (token, user_id, created_at, expires_at, pool_id) VALUES (?, ?, ?, ?, ?)`,
+		token, u.ID, nowUnix(), expires.Unix(), poolID,
 	); err != nil {
 		writeErr(w, 500, err.Error())
 		return

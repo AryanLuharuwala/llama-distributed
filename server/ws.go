@@ -203,7 +203,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uid, err := s.consumePairToken(hello.Token)
+	uid, preferPoolID, err := s.consumePairToken(hello.Token)
 	if err != nil {
 		_ = wsjsonWrite(ctx, conn, map[string]any{
 			"kind": "error", "message": "bad pair token",
@@ -225,6 +225,28 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("rig upsert: %v", err)
+	}
+
+	// Auto-attach this rig to the pool the browser pre-selected during
+	// install.  Silent no-op if the user is no longer a member of the pool
+	// (e.g. they left between minting and pairing).
+	if preferPoolID != 0 {
+		var rigRowID int64
+		if err := s.db.QueryRow(
+			`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
+			uid, hello.AgentID,
+		).Scan(&rigRowID); err == nil {
+			if _, isMember := s.userIsMember(preferPoolID, uid); isMember {
+				if _, err := s.db.Exec(
+					`INSERT OR IGNORE INTO pool_rigs (pool_id, rig_id, added_at) VALUES (?, ?, ?)`,
+					preferPoolID, rigRowID, nowUnix(),
+				); err != nil {
+					log.Printf("pool auto-attach: %v", err)
+				} else {
+					log.Printf("auto-attached rig %d to pool %d", rigRowID, preferPoolID)
+				}
+			}
+		}
 	}
 
 	// Fetch display name for welcome.

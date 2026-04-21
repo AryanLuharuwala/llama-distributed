@@ -131,6 +131,11 @@
         <option value="prebuilt">Prebuilt (fastest)</option>
         <option value="build">Build from source</option>
       </select>
+
+      <label for="pk-pool">Auto-join pool</label>
+      <select id="pk-pool">
+        <option value="">— none (attach later) —</option>
+      </select>
     </div>
 
     <div id="pk-note" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
@@ -177,14 +182,17 @@
   </div>
 
   <div class="card">
-    <h2>API keys
-      <button id="mint-key-btn" class="secondary" style="float:right;font-size:12px;padding:4px 10px;">+ New key</button>
-    </h2>
+    <h2>API keys</h2>
     <p class="muted">
       Use these with the <code>Authorization: Bearer …</code> header against your
       pool's OpenAI-compatible URL. Each pool exposes <code>/v1/chat/completions</code>
       and <code>/v1/models</code> at its own subdomain — open a pool to copy its URL.
     </p>
+    <div class="row" style="gap:8px;margin-bottom:10px;">
+      <input type="text" id="mint-key-label" placeholder="label (optional, e.g. “laptop”)"
+             style="flex:1;min-width:200px;">
+      <button id="mint-key-btn" class="secondary">+ New key</button>
+    </div>
     <div id="api-keys" class="empty">Loading…</div>
     <div id="new-key-box" hidden style="margin-top:12px;padding:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;">
       <div class="muted" style="font-size:12px;margin-bottom:6px;">Copy this now — it will not be shown again.</div>
@@ -403,6 +411,7 @@ const pkOs     = document.getElementById("pk-os");
 const pkArch   = document.getElementById("pk-arch");
 const pkAccel  = document.getElementById("pk-accel");
 const pkMode   = document.getElementById("pk-mode");
+const pkPool   = document.getElementById("pk-pool");
 const pkNote   = document.getElementById("pk-note");
 const installBtn    = document.getElementById("install-btn");
 const installStatus = document.getElementById("install-status");
@@ -480,7 +489,7 @@ function refreshMode() {
   }
 }
 
-[pkOs, pkArch, pkAccel, pkMode].forEach(el => el.addEventListener("change", () => {
+[pkOs, pkArch, pkAccel, pkMode, pkPool].forEach(el => el.addEventListener("change", () => {
   if (el === pkOs)   refreshArch();
   if (el === pkArch) refreshAccel();
   if (el === pkAccel) refreshMode();
@@ -490,6 +499,20 @@ function refreshMode() {
   installCopy.disabled = true;
   installExpires.textContent = "";
 }));
+
+// Keep the "auto-join pool" dropdown in sync with the pool list.  Called
+// from refreshPools() after /api/pools returns.
+function refreshPoolPicker() {
+  const prev = pkPool.value;
+  const joinable = (typeof allPools !== "undefined" ? allPools : [])
+    .filter(p => p.role === "owner" || p.role === "member");
+  const opts = [`<option value="">— none (attach later) —</option>`];
+  for (const p of joinable) {
+    opts.push(`<option value="${p.id}">${p.name}</option>`);
+  }
+  pkPool.innerHTML = opts.join("");
+  if (prev && joinable.some(p => String(p.id) === prev)) pkPool.value = prev;
+}
 
 async function loadTargets() {
   try {
@@ -506,9 +529,10 @@ installBtn.onclick = async () => {
   const os    = pkOs.value;
   const accel = pkAccel.value;
   const mode  = pkMode.value;
+  const poolID = pkPool.value ? parseInt(pkPool.value, 10) : 0;
   installStatus.textContent = "minting pair token…";
   try {
-    const r = await jpost("/api/install_command", {os, accel, mode});
+    const r = await jpost("/api/install_command", {os, accel, mode, pool_id: poolID});
     // Server returns OS-specific primary under `bash`/`pwsh`; pick by os.
     const isWin = (os === "windows");
     currentCmd = isWin ? (mode === "build" ? r.pwsh_build : r.pwsh_prebuilt)
@@ -588,6 +612,7 @@ async function refreshPools() {
     const r = await jget("/api/pools");
     allPools = r.pools || [];
     renderPools();
+    refreshPoolPicker();
   } catch(e) { console.error(e); }
 }
 
@@ -792,15 +817,23 @@ async function revokeAPIKey(id) {
 }
 window.revokeAPIKey = revokeAPIKey;
 
+const mintKeyLabelEl = document.getElementById("mint-key-label");
+
 mintKeyBtn.onclick = async () => {
-  const label = prompt("Label for this key (optional):", "") || "";
+  const label = (mintKeyLabelEl.value || "").trim();
   try {
     const r = await jpost("/api/api_keys", {label});
     newKeyVal.textContent = r.key || r.plaintext || "";
     newKeyBox.hidden = false;
+    mintKeyLabelEl.value = "";
     await refreshAPIKeys();
   } catch(e) { alert("mint failed: " + (e.error || e)); }
 };
+
+// Enter in the label box = submit.
+mintKeyLabelEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); mintKeyBtn.click(); }
+});
 
 newKeyCopy.onclick = () => copyText(newKeyVal.textContent, newKeyCopy);
 newKeyDismiss.onclick = () => { newKeyBox.hidden = true; newKeyVal.textContent = ""; };

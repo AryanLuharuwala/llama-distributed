@@ -142,10 +142,12 @@ func stripPort(host string) string {
 	return host
 }
 
-// resolvePoolFromHost returns the pool_id for a request, or 0 if the
-// request is on the apex.  Host shape is "<slug>.<apex>" (matched against
-// cfg.apexHost).  Falls back to the X-Pool-Slug header / ?pool=<slug>
-// query for local dev where subdomains aren't available.
+// resolvePoolFromHost returns the pool_id for a request, or 0 if no slug
+// can be resolved.  Resolution order:
+//   1. Subdomain:  <slug>.<apex>/v1/…               (prod)
+//   2. Path param: /v1/<slug>/…                     (works behind any host)
+//   3. Header:     X-Pool-Slug: <slug>              (dev / curl)
+//   4. Query:      ?pool=<slug>                     (dev / curl)
 func (s *server) resolvePoolFromHost(r *http.Request) (int64, string) {
 	host := stripPort(r.Host)
 	apex := stripPort(s.cfg.apexHost)
@@ -153,6 +155,9 @@ func (s *server) resolvePoolFromHost(r *http.Request) (int64, string) {
 	var slug string
 	if apex != "" && host != apex && strings.HasSuffix(host, "."+apex) {
 		slug = strings.TrimSuffix(host, "."+apex)
+	}
+	if slug == "" {
+		slug = r.PathValue("slug") // populated by /v1/{slug}/… mux routes
 	}
 	if slug == "" {
 		slug = r.Header.Get("X-Pool-Slug")

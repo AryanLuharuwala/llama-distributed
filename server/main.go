@@ -21,9 +21,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -113,9 +116,76 @@ func main() {
 		}
 	}()
 
+	// Firewall pre-flight: once the listener is up, try reaching /healthz
+	// over every non-loopback interface IP.  If any fail, print a concrete
+	// hint so the user can open the port before rigs fail to pair.
+	go firewallPreflight(cfg.addr)
+
 	<-ctx.Done()
 	shutdown, c2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer c2()
 	_ = httpSrv.Shutdown(shutdown)
 	fmt.Println("bye")
+}
+
+// firewallPreflight dials /healthz on every non-loopback interface IP.  This
+// catches the "it works on my laptop but not the LAN" case: the server is
+// listening on :8080 but the host firewall silently drops inbound packets.
+// When that happens, print a platform-specific hint with the exact command
+// the user needs to run.  Best-effort; errors are informational only.
+func firewallPreflight(addr string) {
+	// Give the listener a moment to bind.
+	time.Sleep(500 * time.Millisecond)
+
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return
+	}
+	ifaces, err := net.InterfaceAddrs()
+	if err != nil {
+		return
+	}
+
+	var reachable, failed []string
+	for _, a := range ifaces {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() || ipnet.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		ip := ipnet.IP
+		if ip4 := ip.To4(); ip4 != nil {
+			ip = ip4
+		} else {
+			// Skip IPv6 — many home firewalls are v4-only.
+			continue
+		}
+		target := net.JoinHostPort(ip.String(), port)
+		c, err := net.DialTimeout("tcp", target, 750*time.Millisecond)
+		if err != nil {
+			failed = append(failed, target)
+			continue
+		}
+		_ = c.Close()
+		reachable = append(reachable, target)
+	}
+
+	if len(reachable) > 0 {
+		log.Printf("firewall pre-flight: reachable on %s", strings.Join(reachable, ", "))
+	}
+	if len(failed) == 0 {
+		return
+	}
+	log.Printf("firewall pre-flight: NOT reachable on %s — other laptops won't be able to pair",
+		strings.Join(failed, ", "))
+	log.Printf("firewall pre-flight: open the port with:")
+	switch runtime.GOOS {
+	case "linux":
+		log.Printf("    sudo firewall-cmd --add-port=%s/tcp --permanent && sudo firewall-cmd --reload", port)
+		log.Printf("  or, on ufw-based distros:")
+		log.Printf("    sudo ufw allow %s/tcp", port)
+	case "darwin":
+		log.Printf("    macOS firewall: System Settings → Network → Firewall → Options → allow dist-server")
+	case "windows":
+		log.Printf("    New-NetFirewallRule -DisplayName 'distpool' -Direction Inbound -LocalPort %s -Protocol TCP -Action Allow", port)
+	}
 }

@@ -57,12 +57,15 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/api_keys", s.handleListAPIKeys)
 	mux.HandleFunc("DELETE /api/api_keys/{id}", s.handleRevokeAPIKey)
 
-	// OpenAI-compatible endpoints, served on pool subdomains:
-	//   <slug>.<apex>/v1/models
-	//   <slug>.<apex>/v1/chat/completions
-	// Requests to the apex with no slug are 404'd by the handler.
+	// OpenAI-compatible endpoints.  Three addressing modes:
+	//   1. Subdomain: <slug>.<apex>/v1/models                (prod)
+	//   2. Path:      /v1/<slug>/models                      (works anywhere)
+	//   3. Header:    /v1/models + X-Pool-Slug: <slug>       (dev / curl)
+	// Requests to the apex with no slug resolution are 404'd by the handler.
 	mux.HandleFunc("GET /v1/models", s.handleOAIModels)
 	mux.HandleFunc("POST /v1/chat/completions", s.handleOAIChat)
+	mux.HandleFunc("GET /v1/{slug}/models", s.handleOAIModels)
+	mux.HandleFunc("POST /v1/{slug}/chat/completions", s.handleOAIChat)
 
 	// Sessions / me
 	mux.HandleFunc("GET /api/me", s.handleMe)
@@ -374,28 +377,34 @@ func httpToWS(u string) string {
 	return u
 }
 
-// consumePairToken returns the user_id that minted `token`, deletes it (one-shot),
-// or returns 0 if the token is unknown, expired, or already used.
-func (s *server) consumePairToken(token string) (int64, error) {
+// consumePairToken returns (user_id, pool_id, error).  pool_id is 0 when the
+// token was not pinned to a pool.  The token is marked used atomically with
+// the read so it can only succeed once.
+func (s *server) consumePairToken(token string) (int64, int64, error) {
 	var uid, exp int64
+	var poolID sql.NullInt64
 	err := s.db.QueryRow(
-		`SELECT user_id, expires_at FROM pair_tokens
+		`SELECT user_id, expires_at, pool_id FROM pair_tokens
 		 WHERE token = ? AND used_at IS NULL`,
 		token,
-	).Scan(&uid, &exp)
+	).Scan(&uid, &exp, &poolID)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if exp < nowUnix() {
-		return 0, errPairExpired
+		return 0, 0, errPairExpired
 	}
 	if _, err := s.db.Exec(
 		`UPDATE pair_tokens SET used_at = ? WHERE token = ?`,
 		nowUnix(), token,
 	); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return uid, nil
+	var pid int64
+	if poolID.Valid {
+		pid = poolID.Int64
+	}
+	return uid, pid, nil
 }
 
 var errPairExpired = &pairErr{"pair token expired"}

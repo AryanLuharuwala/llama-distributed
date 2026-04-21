@@ -164,6 +164,10 @@ func migrate(db *sql.DB) error {
 		// OpenAI-compatible endpoint for this pool.  Backfilled on start
 		// for any pool that doesn't have one yet.
 		`ALTER TABLE pools ADD COLUMN slug TEXT`,
+		// Optional pool the agent should auto-join when it pairs.  Set
+		// when the browser chose a pool in the install picker; consumed
+		// atomically with the pair token in the WS handshake.
+		`ALTER TABLE pair_tokens ADD COLUMN pool_id INTEGER REFERENCES pools(id) ON DELETE SET NULL`,
 	}
 	for _, s := range alters {
 		if err := addColumnIfMissing(db, s); err != nil {
