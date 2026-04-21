@@ -64,10 +64,14 @@ echo "[install] detected target: $target"
 
 # Resolve download URL.
 if [ "$VERSION" = "latest" ]; then
-  url="https://github.com/${GITHUB_REPO}/releases/latest/download/llama-distributed-${VERSION}-${target}.tar.gz"
-  # "latest" in the filename is ambiguous — ask GitHub for the actual tag.
-  tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
+  # /releases/latest skips prereleases — try it first, then fall back to the
+  # newest release (including prereleases) so dev builds still install.
+  tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null |
          sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+  if [ -z "$tag" ]; then
+    tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=1" 2>/dev/null |
+           sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+  fi
   [ -n "$tag" ] || { echo "could not resolve latest release" >&2; exit 1; }
   VERSION="$tag"
 fi

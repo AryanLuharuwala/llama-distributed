@@ -45,16 +45,21 @@ Write-Host "[install] detected target: $target"
 # Resolve version — GitHub's "latest" alias redirects, but we need the concrete tag
 # for the filename so we fetch the release JSON.
 if ($Version -eq "latest") {
-    $api = "https://api.github.com/repos/$GithubRepo/releases/latest"
+    # /releases/latest skips prereleases — try it first, then fall back to the
+    # newest release (including prereleases) so dev builds install too.
+    $Version = $null
     try {
-        $rel = Invoke-RestMethod -UseBasicParsing -Uri $api
-        $Version = $rel.tag_name
-    } catch {
-        Write-Error "could not resolve latest release from $api : $_"
-        exit 1
+        $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$GithubRepo/releases/latest"
+        if ($rel.tag_name) { $Version = $rel.tag_name }
+    } catch { }
+    if ([string]::IsNullOrEmpty($Version)) {
+        try {
+            $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$GithubRepo/releases?per_page=1"
+            if ($rel -and $rel.Count -gt 0) { $Version = $rel[0].tag_name }
+        } catch { }
     }
     if ([string]::IsNullOrEmpty($Version)) {
-        Write-Error "empty tag_name in GitHub release response"
+        Write-Error "could not resolve latest release for $GithubRepo"
         exit 1
     }
 }

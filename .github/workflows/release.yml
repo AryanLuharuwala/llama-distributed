@@ -50,6 +50,11 @@ jobs:
             runner: windows-2022
             archive: zip
             cmake_flags: ""
+          - target: windows-x86_64-cuda
+            runner: windows-2022
+            archive: zip
+            cmake_flags: "-DDIST_USE_CUDA=ON"
+            cuda: "12.5.1"
 
     steps:
       - name: Checkout (with submodules)
@@ -113,8 +118,10 @@ jobs:
             fi
           done
           # Bundle shared libraries produced by llama.cpp where needed.
-          # (CPU/Metal builds are fully static; CUDA builds pull in libs that
-          # already live in CUDA_HOME at runtime, so we don't ship them.)
+          # (CPU/Metal are fully static; linux-cuda expects the user's
+          # system CUDA runtime in CUDA_HOME; windows-cuda gets its DLLs
+          # copied into stage/bin by the dedicated "Bundle CUDA runtime
+          # DLLs" step below.)
           if [ -d scripts/package ]; then
             cp -r scripts/package/* "$STAGE/" 2>/dev/null || true
           fi
@@ -123,6 +130,26 @@ jobs:
           cp -r scripts/install/* "$STAGE/scripts/install/" 2>/dev/null || true
           cp README.md "$STAGE/" 2>/dev/null || true
           echo "STAGE=$STAGE" >> $GITHUB_ENV
+
+      - name: Bundle CUDA runtime DLLs (windows-cuda only)
+        if: matrix.target == 'windows-x86_64-cuda'
+        shell: pwsh
+        run: |
+          $stage = $env:STAGE
+          $bin   = Join-Path $stage "bin"
+          if (-not $env:CUDA_PATH) { throw "CUDA_PATH not set — Jimver step failed?" }
+          $cudaBin = Join-Path $env:CUDA_PATH "bin"
+          # Runtime DLLs we need next to dist-node.exe.  Version suffixes
+          # drift between CUDA releases (cudart64_12.dll, cublas64_12.dll
+          # on CUDA 12.x) so glob rather than enumerate.
+          $patterns = @("cudart64_*.dll","cublas64_*.dll","cublasLt64_*.dll")
+          foreach ($p in $patterns) {
+              $hits = Get-ChildItem -Path $cudaBin -Filter $p -ErrorAction SilentlyContinue
+              if (-not $hits) { Write-Warning "no match for $p in $cudaBin" ; continue }
+              foreach ($f in $hits) { Copy-Item $f.FullName -Destination $bin }
+          }
+          Write-Host "[bundle] staged DLLs:"
+          Get-ChildItem $bin -Filter "*.dll" | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Archive (tar.gz)
         if: matrix.archive == 'tar.gz'

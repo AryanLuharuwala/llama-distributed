@@ -47,7 +47,10 @@ func (s *server) router() http.Handler {
 	// Install flow
 	mux.HandleFunc("GET /install.sh", s.handleInstallSh)
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
+	mux.HandleFunc("GET /build.sh", s.handleBuildSh)
+	mux.HandleFunc("GET /build.ps1", s.handleBuildPs1)
 	mux.HandleFunc("POST /api/install_command", s.handleInstallCommand)
+	mux.HandleFunc("GET /api/install_targets", s.handleInstallTargets)
 
 	// API keys (dashboard-minted, used on /v1/* subdomain endpoints).
 	mux.HandleFunc("POST /api/api_keys", s.handleMintAPIKey)

@@ -103,6 +103,7 @@ func main() {
 	defer cancel()
 
 	go srv.reapLoop(ctx)
+	go refreshTargets(srv)
 
 	go func() {
 		log.Printf("listening on %s (public %s, dev=%v)",

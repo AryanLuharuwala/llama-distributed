@@ -109,26 +109,39 @@
 <div id="app" hidden>
 
   <div class="card">
-    <h2>Install agent</h2>
+    <h2>Add a rig</h2>
     <p class="muted">
-      First time on this machine? Pick your OS and paste the one-liner. The
-      script downloads <code>dist-node</code>, registers a per-user service,
-      and immediately pairs with your account.
+      Pick what the machine has. The dashboard mints a one-shot pair token,
+      the installer registers a user service, and the agent shows up below
+      once it connects.
     </p>
-    <div class="row" style="margin-bottom:8px;">
-      <button id="install-btn">Generate install command</button>
-      <span id="install-status" class="muted"></span>
+
+    <div id="picker" style="display:grid;grid-template-columns:max-content 1fr;gap:8px 14px;align-items:center;margin-bottom:12px;">
+      <label for="pk-os">OS</label>
+      <select id="pk-os"></select>
+
+      <label for="pk-arch">Architecture</label>
+      <select id="pk-arch"></select>
+
+      <label for="pk-accel">Accelerator</label>
+      <select id="pk-accel"></select>
+
+      <label for="pk-mode">Install type</label>
+      <select id="pk-mode">
+        <option value="prebuilt">Prebuilt (fastest)</option>
+        <option value="build">Build from source</option>
+      </select>
     </div>
-    <div id="install-out" hidden>
-      <div class="tabs" style="margin-top:10px;">
-        <div class="tab active" data-os="bash">Linux / macOS</div>
-        <div class="tab" data-os="pwsh">Windows (PowerShell)</div>
-      </div>
-      <pre id="install-cmd" style="white-space:pre-wrap;margin:0;padding:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></pre>
-      <div class="row" style="margin-top:6px;">
-        <button id="install-copy" class="secondary">Copy</button>
-        <span class="muted" style="font-size:12px;">expires in 5&nbsp;min — regenerate if it times out</span>
-      </div>
+
+    <div id="pk-note" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+
+    <pre id="install-cmd" style="white-space:pre-wrap;margin:0;padding:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;min-height:60px;">Select options above to generate a one-liner.</pre>
+
+    <div class="row" style="margin-top:8px;gap:8px;align-items:center;">
+      <button id="install-btn">Generate one-liner</button>
+      <button id="install-copy" class="secondary" disabled>Copy</button>
+      <span id="install-status" class="muted" style="font-size:12px;"></span>
+      <span id="install-expires" class="muted" style="font-size:12px;margin-left:auto;"></span>
     </div>
   </div>
 
@@ -315,6 +328,7 @@ async function init() {
   await refreshRigs();
   await refreshPools();
   await refreshAPIKeys();
+  await loadTargets();
   initPlayground();
   await refreshUsage();
   setInterval(refreshUsage, 15000);
@@ -384,45 +398,150 @@ copyBtn.onclick = async () => {
   pairStatus.textContent = "deep link copied.";
 };
 
-// ─── Install command ─────────────────────────────────────────────────────
+// ─── Install picker (PyTorch-style) ──────────────────────────────────────
+const pkOs     = document.getElementById("pk-os");
+const pkArch   = document.getElementById("pk-arch");
+const pkAccel  = document.getElementById("pk-accel");
+const pkMode   = document.getElementById("pk-mode");
+const pkNote   = document.getElementById("pk-note");
 const installBtn    = document.getElementById("install-btn");
 const installStatus = document.getElementById("install-status");
-const installOut    = document.getElementById("install-out");
 const installCmdEl  = document.getElementById("install-cmd");
 const installCopy   = document.getElementById("install-copy");
-let installCmds = { bash: "", pwsh: "" };
-let installOS = "bash";
+const installExpires = document.getElementById("install-expires");
+
+const ACCEL_LABEL = { cpu:"CPU", cuda:"CUDA", rocm:"ROCm", metal:"Metal", vulkan:"Vulkan" };
+const OS_LABEL    = { linux:"Linux", macos:"macOS", windows:"Windows" };
+
+let targets = [];         // from /api/install_targets
+let serverRef = "";
+let currentCmd = "";      // last-generated one-liner
+let expiresAt = 0;        // unix seconds
+let expiryTicker = null;
+
+function detectDefaultOS() {
+  const p = (navigator.platform || navigator.userAgent || "").toLowerCase();
+  if (p.includes("win")) return "windows";
+  if (p.includes("mac")) return "macos";
+  return "linux";
+}
+
+function uniq(vals) { return Array.from(new Set(vals)); }
+
+function populatePicker() {
+  // OS
+  const oses = uniq(targets.map(t => t.os));
+  pkOs.innerHTML = oses.map(o =>
+    `<option value="${o}">${OS_LABEL[o]||o}</option>`).join("");
+  const def = detectDefaultOS();
+  if (oses.includes(def)) pkOs.value = def;
+  refreshArch();
+}
+
+function refreshArch() {
+  const os = pkOs.value;
+  const arches = uniq(targets.filter(t => t.os === os).map(t => t.arch));
+  pkArch.innerHTML = arches.map(a =>
+    `<option value="${a}">${a}</option>`).join("");
+  refreshAccel();
+}
+
+function refreshAccel() {
+  const os = pkOs.value, arch = pkArch.value;
+  const accels = uniq(targets.filter(t => t.os === os && t.arch === arch).map(t => t.accel));
+  pkAccel.innerHTML = accels.map(a =>
+    `<option value="${a}">${ACCEL_LABEL[a]||a}</option>`).join("");
+  refreshMode();
+}
+
+function currentTarget() {
+  return targets.find(t =>
+    t.os === pkOs.value && t.arch === pkArch.value && t.accel === pkAccel.value);
+}
+
+function refreshMode() {
+  const t = currentTarget();
+  // Flip Prebuilt option disabled when there is no prebuilt asset.
+  const opts = pkMode.querySelectorAll("option");
+  const prebuiltOpt = Array.from(opts).find(o => o.value === "prebuilt");
+  const buildOpt    = Array.from(opts).find(o => o.value === "build");
+  if (t) {
+    prebuiltOpt.disabled = !t.prebuilt;
+    buildOpt.disabled    = !t.build;
+    if (pkMode.value === "prebuilt" && !t.prebuilt) pkMode.value = "build";
+    if (pkMode.value === "build"    && !t.build)    pkMode.value = "prebuilt";
+    if (!t.prebuilt && t.build) {
+      pkNote.textContent = "No prebuilt binary for this target — we'll compile from source on the rig (pinned to commit " + (serverRef||"?").slice(0,7) + ").";
+    } else if (t.prebuilt && !t.build) {
+      pkNote.textContent = "";
+    } else {
+      pkNote.textContent = "";
+    }
+  }
+}
+
+[pkOs, pkArch, pkAccel, pkMode].forEach(el => el.addEventListener("change", () => {
+  if (el === pkOs)   refreshArch();
+  if (el === pkArch) refreshAccel();
+  if (el === pkAccel) refreshMode();
+  // Any change invalidates the previously-minted command.
+  currentCmd = "";
+  installCmdEl.textContent = "Click “Generate one-liner” below.";
+  installCopy.disabled = true;
+  installExpires.textContent = "";
+}));
+
+async function loadTargets() {
+  try {
+    const r = await jget("/api/install_targets");
+    targets   = r.targets || [];
+    serverRef = r.server_ref || "";
+    populatePicker();
+  } catch(e) {
+    pkNote.textContent = "couldn't load targets matrix: " + (e.error || e);
+  }
+}
 
 installBtn.onclick = async () => {
-  installStatus.textContent = "minting pairing token…";
+  const os    = pkOs.value;
+  const accel = pkAccel.value;
+  const mode  = pkMode.value;
+  installStatus.textContent = "minting pair token…";
   try {
-    const r = await jpost("/api/install_command");
-    installCmds.bash = r.bash;
-    installCmds.pwsh = r.pwsh;
-    installOut.hidden = false;
+    const r = await jpost("/api/install_command", {os, accel, mode});
+    // Server returns OS-specific primary under `bash`/`pwsh`; pick by os.
+    const isWin = (os === "windows");
+    currentCmd = isWin ? (mode === "build" ? r.pwsh_build : r.pwsh_prebuilt)
+                       : (mode === "build" ? r.bash_build : r.bash_prebuilt);
+    installCmdEl.textContent = currentCmd;
+    installCopy.disabled = false;
     installStatus.textContent = "";
-    renderInstallCmd();
+    expiresAt = r.expires_at || 0;
+    startExpiryTicker();
   } catch(e) {
     installStatus.textContent = "failed: " + (e.error || e);
   }
 };
 
-function renderInstallCmd() {
-  installCmdEl.textContent = installCmds[installOS] || "";
-  document.querySelectorAll('#install-out .tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.os === installOS);
-  });
+installCopy.onclick = () => copyText(currentCmd, installCopy);
+
+function startExpiryTicker() {
+  if (expiryTicker) clearInterval(expiryTicker);
+  const tick = () => {
+    if (!expiresAt) { installExpires.textContent = ""; return; }
+    const secs = expiresAt - Math.floor(Date.now()/1000);
+    if (secs <= 0) {
+      installExpires.textContent = "expired — regenerate";
+      installCopy.disabled = true;
+      clearInterval(expiryTicker); expiryTicker = null;
+      return;
+    }
+    const m = Math.floor(secs/60), s = secs % 60;
+    installExpires.textContent = `expires in ${m}:${String(s).padStart(2,"0")}`;
+  };
+  tick();
+  expiryTicker = setInterval(tick, 1000);
 }
-
-document.querySelectorAll('#install-out .tab').forEach(t => {
-  t.onclick = () => { installOS = t.dataset.os; renderInstallCmd(); };
-});
-
-installCopy.onclick = async () => {
-  await navigator.clipboard.writeText(installCmds[installOS] || "");
-  installStatus.textContent = "copied.";
-  setTimeout(() => installStatus.textContent = "", 1500);
-};
 
 devBtn.onclick = async () => {
   if (!devName.value.trim()) return;
