@@ -15,6 +15,7 @@ Makefile
 # Server build outputs (checked-in binaries are a footgun)
 server/server
 server/distpool-server
+server/dist-server
 
 # Local database + WAL — may contain tokens, user data
 server/*.sqlite

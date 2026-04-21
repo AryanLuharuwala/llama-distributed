@@ -98,6 +98,12 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		body.TPSize = 1
 	}
 
+	slug, err := s.pickPoolSlug(userHandle(u), body.Name, 0)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -107,10 +113,10 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 
 	res, err := tx.Exec(
 		`INSERT INTO pools (owner_id, name, visibility, created_at,
-		                    parallelism, pp_stages, tp_size)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		                    parallelism, pp_stages, tp_size, slug)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		u.ID, body.Name, body.Visibility, nowUnix(),
-		body.Parallelism, body.PPStages, body.TPSize,
+		body.Parallelism, body.PPStages, body.TPSize, slug,
 	)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -130,10 +136,35 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]any{
-		"id":         pid,
-		"name":       body.Name,
-		"visibility": body.Visibility,
+		"id":          pid,
+		"name":        body.Name,
+		"visibility":  body.Visibility,
+		"slug":        slug,
+		"base_url":    s.poolBaseURL(slug),
 	})
+}
+
+// poolBaseURL returns the OpenAI base URL clients should configure
+// for the pool.  Uses HTTPS on the apex when publicURL is HTTPS,
+// otherwise falls back to the apex's scheme (useful for local dev
+// where apex == "localhost:8080" and scheme is http).
+func (s *server) poolBaseURL(slug string) string {
+	if slug == "" {
+		return ""
+	}
+	scheme := "https"
+	if strings.HasPrefix(s.cfg.publicURL, "http://") {
+		scheme = "http"
+	}
+	// Dev shortcut: when apex is a bare hostname like localhost[:port]
+	// subdomains won't resolve.  Fall back to the public URL itself
+	// plus a ?pool= query — resolvePoolFromHost honours that.
+	apex := s.cfg.apexHost
+	if apex == "" || strings.HasPrefix(apex, "localhost") ||
+		strings.HasPrefix(apex, "127.") {
+		return strings.TrimRight(s.cfg.publicURL, "/") + "/v1?pool=" + slug
+	}
+	return scheme + "://" + slug + "." + apex + "/v1"
 }
 
 // ─── GET /api/pools — list mine + public ───────────────────────────────────
@@ -144,6 +175,8 @@ type poolInfo struct {
 	OwnerName  string `json:"owner_name"`
 	Name       string `json:"name"`
 	Visibility string `json:"visibility"`
+	Slug       string `json:"slug"`
+	BaseURL    string `json:"base_url"`
 	Role       string `json:"role,omitempty"` // owner|member|"" if not a member
 	NMembers   int    `json:"n_members"`
 	NRigs      int    `json:"n_rigs"`
@@ -159,7 +192,8 @@ func (s *server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	}
 	// Pools visible to u: ones they are a member of, PLUS public ones.
 	rows, err := s.db.Query(`
-		SELECT p.id, p.owner_id, COALESCE(o.display_name, ''), p.name, p.visibility, p.created_at,
+		SELECT p.id, p.owner_id, COALESCE(o.display_name, ''), p.name, p.visibility,
+		       COALESCE(p.slug, ''), p.created_at,
 		       COALESCE(m.role, '') AS my_role
 		FROM pools p
 		JOIN users o ON o.id = p.owner_id
@@ -176,9 +210,10 @@ func (s *server) handleListPools(w http.ResponseWriter, r *http.Request) {
 	var pools []poolInfo
 	for rows.Next() {
 		var p poolInfo
-		if err := rows.Scan(&p.ID, &p.OwnerID, &p.OwnerName, &p.Name, &p.Visibility, &p.CreatedAt, &p.Role); err != nil {
+		if err := rows.Scan(&p.ID, &p.OwnerID, &p.OwnerName, &p.Name, &p.Visibility, &p.Slug, &p.CreatedAt, &p.Role); err != nil {
 			continue
 		}
+		p.BaseURL = s.poolBaseURL(p.Slug)
 		// Member / rig counts.
 		_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, p.ID).Scan(&p.NMembers)
 		_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, p.ID).Scan(&p.NRigs)
@@ -216,13 +251,15 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 	p.ID = pid
 	p.Role = role
 	err = s.db.QueryRow(`
-		SELECT p.owner_id, COALESCE(o.display_name,''), p.name, p.visibility, p.created_at
+		SELECT p.owner_id, COALESCE(o.display_name,''), p.name, p.visibility,
+		       COALESCE(p.slug,''), p.created_at
 		FROM pools p JOIN users o ON o.id = p.owner_id WHERE p.id = ?`, pid,
-	).Scan(&p.OwnerID, &p.OwnerName, &p.Name, &p.Visibility, &p.CreatedAt)
+	).Scan(&p.OwnerID, &p.OwnerName, &p.Name, &p.Visibility, &p.Slug, &p.CreatedAt)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	p.BaseURL = s.poolBaseURL(p.Slug)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, pid).Scan(&p.NMembers)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, pid).Scan(&p.NRigs)
 	p.NOnline = s.countOnlineRigsInPool(pid)

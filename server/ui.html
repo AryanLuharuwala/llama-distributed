@@ -164,6 +164,26 @@
   </div>
 
   <div class="card">
+    <h2>API keys
+      <button id="mint-key-btn" class="secondary" style="float:right;font-size:12px;padding:4px 10px;">+ New key</button>
+    </h2>
+    <p class="muted">
+      Use these with the <code>Authorization: Bearer …</code> header against your
+      pool's OpenAI-compatible URL. Each pool exposes <code>/v1/chat/completions</code>
+      and <code>/v1/models</code> at its own subdomain — open a pool to copy its URL.
+    </p>
+    <div id="api-keys" class="empty">Loading…</div>
+    <div id="new-key-box" hidden style="margin-top:12px;padding:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;">
+      <div class="muted" style="font-size:12px;margin-bottom:6px;">Copy this now — it will not be shown again.</div>
+      <pre id="new-key-val" style="margin:0;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></pre>
+      <div class="row" style="margin-top:8px;">
+        <button id="new-key-copy" class="secondary">Copy</button>
+        <button id="new-key-dismiss" class="secondary">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Playground
       <span id="usage-meter" class="muted" style="float:right;font-size:12px;font-weight:400;"></span>
     </h2>
@@ -260,6 +280,18 @@ async function jpost(path, body) {
   return r.ok ? r.json() : Promise.reject(await r.json().catch(() => r.statusText));
 }
 
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = "copied";
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    }
+  } catch(_) {}
+}
+window.copyText = copyText;
+
 async function init() {
   // Check dev login availability by probing the endpoint; surface the widget.
   try {
@@ -282,6 +314,7 @@ async function init() {
   connectBrowserWS();
   await refreshRigs();
   await refreshPools();
+  await refreshAPIKeys();
   initPlayground();
   await refreshUsage();
   setInterval(refreshUsage, 15000);
@@ -507,7 +540,16 @@ async function openPoolDetail(id) {
   title.innerHTML = p.name +
     ` <span class="pill">${p.visibility}</span>` +
     (p.role ? ` <span class="pill me">${p.role}</span>` : "");
-  sub.textContent = `owner: ${p.owner_name} · created ${new Date(p.created_at*1000).toLocaleString()}`;
+  sub.innerHTML =
+    `owner: ${p.owner_name} · created ${new Date(p.created_at*1000).toLocaleString()}` +
+    (p.base_url
+      ? `<div style="margin-top:8px;padding:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;">
+           <div style="font-size:11px;margin-bottom:4px;">OpenAI base URL</div>
+           <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;">${p.base_url}</div>
+           <button class="secondary" style="margin-top:6px;font-size:12px;padding:3px 8px;"
+             onclick="copyText('${p.base_url.replace(/'/g, "\\'")}', this)">Copy</button>
+         </div>`
+      : "");
 
   // Actions: invite (owner), attach rig (member), detach rig.
   if (p.role === "owner") {
@@ -577,6 +619,72 @@ async function detachRig(poolID, rigID) {
 }
 window.detachRig = detachRig;
 window.closeModal = closeModal;
+
+// ─── API keys ──────────────────────────────────────────────────────────────
+
+const keysEl       = document.getElementById("api-keys");
+const mintKeyBtn   = document.getElementById("mint-key-btn");
+const newKeyBox    = document.getElementById("new-key-box");
+const newKeyVal    = document.getElementById("new-key-val");
+const newKeyCopy   = document.getElementById("new-key-copy");
+const newKeyDismiss= document.getElementById("new-key-dismiss");
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+
+async function refreshAPIKeys() {
+  let keys;
+  try { keys = await jget("/api/api_keys"); } catch(_) { keys = []; }
+  if (!Array.isArray(keys)) keys = keys.keys || [];
+  if (!keys.length) {
+    keysEl.className = "empty";
+    keysEl.textContent = "No API keys yet. Click “+ New key” to create one.";
+    return;
+  }
+  keysEl.className = "";
+  keysEl.innerHTML = keys.map(k => {
+    const last = k.last_used_at
+      ? new Date(k.last_used_at * 1000).toLocaleString()
+      : "never";
+    const created = new Date(k.created_at * 1000).toLocaleString();
+    const label = escapeHTML(k.label || "(unnamed)");
+    const prefix = escapeHTML(k.prefix || "");
+    return `<div class="row" style="justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-weight:500;">${label}</div>
+        <div class="muted" style="font-size:11px;font-family:ui-monospace,Menlo,Consolas,monospace;">${prefix}…</div>
+        <div class="muted" style="font-size:11px;">created ${created} · last used ${last}</div>
+      </div>
+      <button class="secondary" style="font-size:12px;padding:4px 10px;" onclick="revokeAPIKey(${k.id})">Revoke</button>
+    </div>`;
+  }).join("");
+}
+
+async function revokeAPIKey(id) {
+  if (!confirm("Revoke this key? Any client using it will stop working.")) return;
+  try {
+    const r = await fetch(`/api/api_keys/${id}`, {method: "DELETE"});
+    if (!r.ok) throw await r.json().catch(() => ({error: r.statusText}));
+    await refreshAPIKeys();
+  } catch(e) { alert("revoke failed: " + (e.error || e)); }
+}
+window.revokeAPIKey = revokeAPIKey;
+
+mintKeyBtn.onclick = async () => {
+  const label = prompt("Label for this key (optional):", "") || "";
+  try {
+    const r = await jpost("/api/api_keys", {label});
+    newKeyVal.textContent = r.key || r.plaintext || "";
+    newKeyBox.hidden = false;
+    await refreshAPIKeys();
+  } catch(e) { alert("mint failed: " + (e.error || e)); }
+};
+
+newKeyCopy.onclick = () => copyText(newKeyVal.textContent, newKeyCopy);
+newKeyDismiss.onclick = () => { newKeyBox.hidden = true; newKeyVal.textContent = ""; };
 
 // ─── Invite handoff via URL ?invite=XXX ────────────────────────────────────
 

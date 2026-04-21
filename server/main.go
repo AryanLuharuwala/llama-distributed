@@ -37,6 +37,7 @@ type config struct {
 	addr          string
 	dbPath        string
 	publicURL     string // e.g. http://localhost:8080 — used in deep links
+	apexHost      string // e.g. surds.co.in — dashboard here, <slug>.apex for pools
 	devMode       bool   // enables a "dev login" endpoint (no GitHub needed)
 	githubClient  string
 	githubSecret  string
@@ -50,6 +51,7 @@ func loadConfig() config {
 		addr:          envOr("DIST_ADDR", ":8080"),
 		dbPath:        envOr("DIST_DB", "distpool.sqlite"),
 		publicURL:     envOr("DIST_PUBLIC_URL", "http://localhost:8080"),
+		apexHost:      envOr("DIST_APEX_HOST", "surds.co.in"),
 		githubClient:  os.Getenv("DIST_GITHUB_CLIENT"),
 		githubSecret:  os.Getenv("DIST_GITHUB_SECRET"),
 		sessionSecret: envOr("DIST_SESSION_SECRET", "dev-secret-change-me"),
@@ -59,6 +61,7 @@ func loadConfig() config {
 	flag.StringVar(&c.addr, "addr", c.addr, "listen address")
 	flag.StringVar(&c.dbPath, "db", c.dbPath, "SQLite path")
 	flag.StringVar(&c.publicURL, "public-url", c.publicURL, "public URL for deep links")
+	flag.StringVar(&c.apexHost, "apex", c.apexHost, "apex domain — dashboard here, <slug>.apex for pool endpoints")
 	flag.StringVar(&c.modelsDir, "models-dir", c.modelsDir, "dir to store model shards")
 	flag.StringVar(&c.splitterBin, "splitter", c.splitterBin, "path to llama-split-gguf")
 	flag.BoolVar(&c.devMode, "dev", c.githubClient == "", "dev mode: enable /auth/dev endpoint")
@@ -86,6 +89,9 @@ func main() {
 	}
 
 	srv := newServer(cfg, db)
+	if err := srv.backfillSlugs(); err != nil {
+		log.Fatalf("backfill slugs: %v", err)
+	}
 	httpSrv := &http.Server{
 		Addr:              cfg.addr,
 		Handler:           srv.router(),

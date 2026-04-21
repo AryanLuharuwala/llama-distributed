@@ -49,6 +49,18 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
 	mux.HandleFunc("POST /api/install_command", s.handleInstallCommand)
 
+	// API keys (dashboard-minted, used on /v1/* subdomain endpoints).
+	mux.HandleFunc("POST /api/api_keys", s.handleMintAPIKey)
+	mux.HandleFunc("GET /api/api_keys", s.handleListAPIKeys)
+	mux.HandleFunc("DELETE /api/api_keys/{id}", s.handleRevokeAPIKey)
+
+	// OpenAI-compatible endpoints, served on pool subdomains:
+	//   <slug>.<apex>/v1/models
+	//   <slug>.<apex>/v1/chat/completions
+	// Requests to the apex with no slug are 404'd by the handler.
+	mux.HandleFunc("GET /v1/models", s.handleOAIModels)
+	mux.HandleFunc("POST /v1/chat/completions", s.handleOAIChat)
+
 	// Sessions / me
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/rigs", s.handleListRigs)

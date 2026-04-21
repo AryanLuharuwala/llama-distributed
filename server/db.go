@@ -160,9 +160,39 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE pools ADD COLUMN tp_size     INTEGER NOT NULL DEFAULT 1`,
 		// Rig capability fields needed by the planner.
 		`ALTER TABLE rigs  ADD COLUMN n_gpus_available INTEGER NOT NULL DEFAULT 0`,
+		// Pool slug — the <slug>.<apex> subdomain that serves the
+		// OpenAI-compatible endpoint for this pool.  Backfilled on start
+		// for any pool that doesn't have one yet.
+		`ALTER TABLE pools ADD COLUMN slug TEXT`,
 	}
 	for _, s := range alters {
 		if err := addColumnIfMissing(db, s); err != nil {
+			return err
+		}
+	}
+
+	// New tables that live outside the initial CREATE block.
+	more := []string{
+		// API keys for programmatic access via /v1/* on pool subdomains.
+		// We store only the prefix (for display, "sk-abcd…") and a sha256
+		// of the full key; the plaintext key is returned once at creation.
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			label        TEXT NOT NULL DEFAULT '',
+			prefix       TEXT NOT NULL,
+			hash         TEXT NOT NULL UNIQUE,
+			created_at   INTEGER NOT NULL,
+			last_used_at INTEGER
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)`,
+
+		// Unique index on pools.slug.  NULLs are allowed (pre-migration
+		// pools) — SQLite ignores NULLs in UNIQUE indexes by default.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_pools_slug ON pools(slug) WHERE slug IS NOT NULL`,
+	}
+	for _, s := range more {
+		if _, err := db.Exec(s); err != nil {
 			return err
 		}
 	}
