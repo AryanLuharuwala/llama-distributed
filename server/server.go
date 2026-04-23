@@ -51,6 +51,9 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /build.ps1", s.handleBuildPs1)
 	mux.HandleFunc("POST /api/install_command", s.handleInstallCommand)
 	mux.HandleFunc("GET /api/install_targets", s.handleInstallTargets)
+	// Release tarball proxy — rigs fetch short-name tarballs from the control
+	// plane rather than GitHub.  Cache on disk.
+	mux.HandleFunc("GET /releases/{name}", s.handleReleaseAsset)
 
 	// API keys (dashboard-minted, used on /v1/* subdomain endpoints).
 	mux.HandleFunc("POST /api/api_keys", s.handleMintAPIKey)

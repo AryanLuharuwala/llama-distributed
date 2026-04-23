@@ -252,6 +252,7 @@
       <span class="close" onclick="closeModal('pool-detail-modal')">✕</span>
       <h3 id="pd-title">Pool</h3>
       <div class="muted" id="pd-sub"></div>
+      <div id="pd-snippets" style="margin-top:14px;"></div>
       <div id="pd-actions" style="margin-top:16px;"></div>
       <h4 style="margin-top:18px;font-size:14px;">Members</h4>
       <div id="pd-members" class="muted"></div>
@@ -547,16 +548,29 @@ installBtn.onclick = async () => {
   }
 };
 
-installCopy.onclick = () => copyText(currentCmd, installCopy);
+// Copy auto-regenerates if the current token has expired — a click on
+// "Copy" never fails with a stale token, the user just waits one extra
+// round-trip.
+installCopy.onclick = async () => {
+  const secs = expiresAt ? (expiresAt - Math.floor(Date.now()/1000)) : 0;
+  if (!currentCmd || secs <= 0) {
+    installStatus.textContent = "regenerating…";
+    await installBtn.onclick();
+  }
+  if (currentCmd) copyText(currentCmd, installCopy);
+};
 
 function startExpiryTicker() {
   if (expiryTicker) clearInterval(expiryTicker);
   const tick = () => {
-    if (!expiresAt) { installExpires.textContent = ""; return; }
+    if (!expiresAt) { installExpires.innerHTML = ""; return; }
     const secs = expiresAt - Math.floor(Date.now()/1000);
     if (secs <= 0) {
-      installExpires.textContent = "expired — regenerate";
-      installCopy.disabled = true;
+      installExpires.innerHTML =
+        `expired — <a href="#" id="regen-link" style="color:var(--accent);">regenerate</a>`;
+      installCopy.disabled = false; // clicking Copy will regenerate
+      const link = document.getElementById("regen-link");
+      if (link) link.onclick = (e) => { e.preventDefault(); installBtn.click(); };
       clearInterval(expiryTicker); expiryTicker = null;
       return;
     }
@@ -670,10 +684,12 @@ async function openPoolDetail(id) {
   openModal("pool-detail-modal");
   const title = document.getElementById("pd-title");
   const sub   = document.getElementById("pd-sub");
+  const snip  = document.getElementById("pd-snippets");
   const acts  = document.getElementById("pd-actions");
   const memEl = document.getElementById("pd-members");
   const rigEl = document.getElementById("pd-rigs");
   title.textContent = "Loading…"; sub.textContent = "";
+  snip.innerHTML = "";
   acts.innerHTML = ""; memEl.innerHTML = ""; rigEl.innerHTML = "";
 
   let d;
@@ -694,6 +710,8 @@ async function openPoolDetail(id) {
              onclick="copyText('${p.base_url.replace(/'/g, "\\'")}', this)">Copy</button>
          </div>`
       : "");
+
+  if (p.base_url) renderPoolSnippets(snip, p.base_url);
 
   // Actions: invite (owner), attach rig (member), detach rig.
   if (p.role === "owner") {
@@ -764,6 +782,83 @@ async function detachRig(poolID, rigID) {
 window.detachRig = detachRig;
 window.closeModal = closeModal;
 
+// ─── "Use with" code snippets on the pool detail modal ──────────────────────
+//
+// Three languages (python / curl / node) pre-filled with the pool's base_url.
+// The API key slot is filled with the last plaintext key minted this session,
+// or a `sk-dist-…` placeholder otherwise — users paste their own if they need
+// to come back later.
+function renderPoolSnippets(container, baseURL) {
+  const key = lastMintedKey || "sk-dist-…";
+  const snippets = {
+    python:
+      'from openai import OpenAI\n' +
+      'client = OpenAI(\n' +
+      '    base_url="' + baseURL + '",\n' +
+      '    api_key="' + key + '",\n' +
+      ')\n' +
+      'resp = client.chat.completions.create(\n' +
+      '    model="distpool-default",\n' +
+      '    messages=[{"role":"user","content":"hello"}],\n' +
+      ')\n' +
+      'print(resp.choices[0].message.content)',
+    curl:
+      'curl ' + baseURL + '/chat/completions \\\n' +
+      '  -H "Authorization: Bearer ' + key + '" \\\n' +
+      '  -H "Content-Type: application/json" \\\n' +
+      '  -d \'{"model":"distpool-default","messages":[{"role":"user","content":"hello"}]}\'',
+    node:
+      'import OpenAI from "openai";\n' +
+      'const client = new OpenAI({\n' +
+      '  baseURL: "' + baseURL + '",\n' +
+      '  apiKey: "' + key + '",\n' +
+      '});\n' +
+      'const resp = await client.chat.completions.create({\n' +
+      '  model: "distpool-default",\n' +
+      '  messages: [{ role: "user", content: "hello" }],\n' +
+      '});\n' +
+      'console.log(resp.choices[0].message.content);',
+  };
+
+  const tabs = [
+    {id: "python", label: "Python"},
+    {id: "curl",   label: "curl"},
+    {id: "node",   label: "Node"},
+  ];
+  const hint = lastMintedKey
+    ? `using last-minted key (${lastMintedKey.slice(0,8)}…)`
+    : `paste your <code>sk-dist-…</code> key in place of the placeholder`;
+
+  container.innerHTML =
+    `<div style="font-size:12px;margin-bottom:6px;" class="muted">Use with — ${hint}</div>` +
+    `<div class="row" id="pd-snip-tabs" style="gap:6px;margin-bottom:6px;">` +
+      tabs.map((t, i) =>
+        `<div class="tab ${i===0?'active':''}" data-snip="${t.id}">${t.label}</div>`
+      ).join("") +
+    `</div>` +
+    `<pre id="pd-snip-code" style="white-space:pre-wrap;margin:0;padding:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></pre>` +
+    `<div class="row" style="margin-top:6px;gap:8px;">` +
+      `<button class="secondary" id="pd-snip-copy" style="font-size:12px;padding:3px 8px;">Copy</button>` +
+      `<span class="muted" id="pd-snip-status" style="font-size:12px;"></span>` +
+    `</div>`;
+
+  const codeEl = container.querySelector("#pd-snip-code");
+  const tabsEl = container.querySelector("#pd-snip-tabs");
+  const copyEl = container.querySelector("#pd-snip-copy");
+  let active = "python";
+  const render = () => { codeEl.textContent = snippets[active]; };
+  render();
+  tabsEl.querySelectorAll(".tab").forEach(t => {
+    t.onclick = () => {
+      active = t.dataset.snip;
+      tabsEl.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      render();
+    };
+  });
+  copyEl.onclick = () => copyText(snippets[active], copyEl);
+}
+
 // ─── API keys ──────────────────────────────────────────────────────────────
 
 const keysEl       = document.getElementById("api-keys");
@@ -819,12 +914,19 @@ window.revokeAPIKey = revokeAPIKey;
 
 const mintKeyLabelEl = document.getElementById("mint-key-label");
 
+// Last API key plaintext shown this session.  Used to pre-fill the "Use with"
+// snippets on the pool detail modal so the user doesn't have to paste twice.
+// Cleared on logout; never persisted.
+let lastMintedKey = "";
+
 mintKeyBtn.onclick = async () => {
   const label = (mintKeyLabelEl.value || "").trim();
   try {
     const r = await jpost("/api/api_keys", {label});
-    newKeyVal.textContent = r.key || r.plaintext || "";
+    const plain = r.key || r.plaintext || "";
+    newKeyVal.textContent = plain;
     newKeyBox.hidden = false;
+    if (plain) lastMintedKey = plain;
     mintKeyLabelEl.value = "";
     await refreshAPIKeys();
   } catch(e) { alert("mint failed: " + (e.error || e)); }

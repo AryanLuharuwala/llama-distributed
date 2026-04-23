@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -50,6 +54,9 @@ func (s *server) handleInstallSh(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// Point the rig at our /releases proxy so it doesn't hit the GitHub API.
+	// The user can still override by setting DIST_SERVER= on the command line.
+	b = injectShellDefault(b, "DIST_SERVER", strings.TrimRight(s.cfg.publicURL, "/"))
 	writeScript(w, "text/x-shellscript; charset=utf-8", b)
 }
 
@@ -383,4 +390,220 @@ func fetchJSON(c *http.Client, url string, v any) bool {
 		return false
 	}
 	return json.NewDecoder(resp.Body).Decode(v) == nil
+}
+
+// ─── /releases proxy ──────────────────────────────────────────────────────
+//
+// The installer on a rig asks us for <target>.tar.gz (e.g. linux-x86_64-cuda.tar.gz)
+// rather than the full versioned GitHub asset name.  We look the target up in
+// the cached GitHub release probe, fetch the tarball on first miss, and serve
+// subsequent requests straight from disk.  This means:
+//   - rigs don't need to hit api.github.com (LAN-only installs work)
+//   - a single GitHub egress bills the server instead of every rig
+//   - the cache keys by the actual asset name so a tag bump invalidates.
+
+// releaseFetchLock serialises concurrent fetches of the same asset so we
+// don't download the same tarball ten times when ten rigs come up at once.
+var releaseFetchLock sync.Map // assetName (string) -> *sync.Mutex
+
+var errNoReleaseAsset = errors.New("no matching release asset")
+
+// shortTargetOK matches installer-style short target names we'll accept:
+//   linux-x86_64-cpu.tar.gz, macos-arm64-metal.tar.gz, windows-x86_64-cuda.zip, …
+// Returns (os, arch, accel, ext, ok).
+func parseShortTarget(name string) (string, string, string, string, bool) {
+	var ext string
+	switch {
+	case strings.HasSuffix(name, ".tar.gz"):
+		ext = ".tar.gz"
+	case strings.HasSuffix(name, ".zip"):
+		ext = ".zip"
+	default:
+		return "", "", "", "", false
+	}
+	stem := strings.TrimSuffix(name, ext)
+	parts := strings.Split(stem, "-")
+	if len(parts) != 3 {
+		return "", "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], ext, true
+}
+
+// findRelease returns the full GitHub asset name for a short target (or "" if
+// we haven't seen a release that carries it).  Also returns the release tag.
+func findRelease(os_, arch, accel, ext string) (string, string) {
+	gTargets.mu.RLock()
+	defer gTargets.mu.RUnlock()
+	for _, t := range gTargets.targets {
+		if t.OS == os_ && t.Arch == arch && t.Accel == accel && t.Prebuilt {
+			// Confidence check: the asset extension must match what we claim.
+			if ext == ".tar.gz" && !strings.HasSuffix(t.Asset, ".tar.gz") {
+				continue
+			}
+			if ext == ".zip" && !strings.HasSuffix(t.Asset, ".zip") {
+				continue
+			}
+			return t.Asset, gTargets.ref
+		}
+	}
+	return "", ""
+}
+
+// cachedPathFor returns the absolute path we use for a given GitHub asset
+// name.  Flat dir, filename is the asset name verbatim.
+func (s *server) cachedPathFor(assetName string) string {
+	return filepath.Join(s.cfg.releasesDir, assetName)
+}
+
+// ensureReleaseCached downloads `assetName` from GitHub Releases into the
+// cache dir if it isn't already there.  Concurrent calls for the same asset
+// block on a per-asset mutex.
+func (s *server) ensureReleaseCached(assetName string) (string, error) {
+	dest := s.cachedPathFor(assetName)
+	if fi, err := os.Stat(dest); err == nil && fi.Size() > 0 {
+		return dest, nil
+	}
+
+	muAny, _ := releaseFetchLock.LoadOrStore(assetName, &sync.Mutex{})
+	mu := muAny.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	// Double-check after taking the lock — a sibling goroutine may have
+	// finished while we were waiting.
+	if fi, err := os.Stat(dest); err == nil && fi.Size() > 0 {
+		return dest, nil
+	}
+
+	if err := os.MkdirAll(s.cfg.releasesDir, 0o755); err != nil {
+		return "", err
+	}
+
+	repo := "AryanLuharuwala/llama-distributed"
+	if v := os.Getenv("DIST_REPO"); v != "" {
+		repo = v
+	}
+	// We need the tag — `gTargets.ref` holds the server's git SHA, not the
+	// release tag.  Re-derive from the targets cache via the asset name.
+	tag := ""
+	gTargets.mu.RLock()
+	for _, t := range gTargets.targets {
+		if t.Asset == assetName {
+			// We stored the tag as gTargets.ref separately; that's the
+			// server git SHA, not the release tag.  The tag name isn't
+			// kept on each target today; re-probe is cheap but wasteful,
+			// so we store the tag globally in refreshTargets via a new
+			// field.  For now, fall back to pulling the assets list.
+			break
+		}
+	}
+	gTargets.mu.RUnlock()
+
+	_ = tag // filled below
+
+	// Ask GitHub for the current release (prerelease-aware) and pull the
+	// matching asset's browser_download_url.  We don't rely on asset IDs so
+	// the URL stays stable across re-uploads.
+	client := &http.Client{Timeout: 30 * time.Second}
+	var rel struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if !fetchJSON(client, "https://api.github.com/repos/"+repo+"/releases/latest", &rel) || rel.TagName == "" {
+		var list []struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name string `json:"name"`
+				URL  string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if !fetchJSON(client, "https://api.github.com/repos/"+repo+"/releases?per_page=1", &list) || len(list) == 0 {
+			return "", errNoReleaseAsset
+		}
+		rel.TagName = list[0].TagName
+		rel.Assets = list[0].Assets
+	}
+
+	var dlURL string
+	for _, a := range rel.Assets {
+		if a.Name == assetName {
+			dlURL = a.URL
+			break
+		}
+	}
+	if dlURL == "" {
+		return "", errNoReleaseAsset
+	}
+
+	// Download to a sibling .part file, then atomic rename.  Avoids serving
+	// a half-written tarball if we crash mid-fetch.
+	part := dest + ".part"
+	resp, err := client.Get(dlURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("github returned %d", resp.StatusCode)
+	}
+	f, err := os.Create(part)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(part)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(part, dest); err != nil {
+		return "", err
+	}
+	log.Printf("cached release asset %s (%d bytes)", assetName, fileSize(dest))
+	return dest, nil
+}
+
+func fileSize(p string) int64 {
+	if fi, err := os.Stat(p); err == nil {
+		return fi.Size()
+	}
+	return 0
+}
+
+// handleReleaseAsset serves short-name tarballs from the control plane.
+// GET /releases/{name}  e.g. /releases/linux-x86_64-cuda.tar.gz
+func (s *server) handleReleaseAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	os_, arch, accel, ext, ok := parseShortTarget(name)
+	if !ok {
+		writeErr(w, 400, "bad asset name; expected <os>-<arch>-<accel>.tar.gz|.zip")
+		return
+	}
+	assetName, _ := findRelease(os_, arch, accel, ext)
+	if assetName == "" {
+		// Targets cache may be cold — kick a refresh and retry once.
+		refreshTargets(s)
+		assetName, _ = findRelease(os_, arch, accel, ext)
+	}
+	if assetName == "" {
+		writeErr(w, 404, "no release asset for "+name)
+		return
+	}
+
+	path, err := s.ensureReleaseCached(assetName)
+	if err != nil {
+		log.Printf("release fetch %s: %v", assetName, err)
+		writeErr(w, 502, "upstream fetch failed")
+		return
+	}
+	// Serve with ETag == asset name so rigs cache by asset identity; a new
+	// release (different asset name) always bypasses the cache.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("ETag", `"`+assetName+`"`)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, path)
 }

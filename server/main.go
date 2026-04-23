@@ -47,6 +47,7 @@ type config struct {
 	sessionSecret string
 	modelsDir     string // root dir where model shards live
 	splitterBin   string // path to llama-split-gguf binary
+	releasesDir   string // on-disk cache for GitHub release tarballs
 }
 
 func loadConfig() config {
@@ -60,6 +61,7 @@ func loadConfig() config {
 		sessionSecret: envOr("DIST_SESSION_SECRET", "dev-secret-change-me"),
 		modelsDir:     envOr("DIST_MODELS_DIR", "./models-store"),
 		splitterBin:   envOr("DIST_SPLITTER", "/home/boom/startup/Project/llama.cpp/build/bin/llama-split-gguf"),
+		releasesDir:   envOr("DIST_RELEASES_DIR", "./releases-cache"),
 	}
 	flag.StringVar(&c.addr, "addr", c.addr, "listen address")
 	flag.StringVar(&c.dbPath, "db", c.dbPath, "SQLite path")
@@ -67,6 +69,7 @@ func loadConfig() config {
 	flag.StringVar(&c.apexHost, "apex", c.apexHost, "apex domain — dashboard here, <slug>.apex for pool endpoints")
 	flag.StringVar(&c.modelsDir, "models-dir", c.modelsDir, "dir to store model shards")
 	flag.StringVar(&c.splitterBin, "splitter", c.splitterBin, "path to llama-split-gguf")
+	flag.StringVar(&c.releasesDir, "releases-dir", c.releasesDir, "on-disk cache dir for release tarballs")
 	flag.BoolVar(&c.devMode, "dev", c.githubClient == "", "dev mode: enable /auth/dev endpoint")
 	flag.Parse()
 	return c

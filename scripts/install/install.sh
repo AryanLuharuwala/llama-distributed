@@ -15,6 +15,11 @@ set -eu
 
 GITHUB_REPO="${GITHUB_REPO:-AryanLuharuwala/llama-distributed}"
 VERSION="${VERSION:-latest}"
+# DIST_SERVER, when set, points at a control-plane that proxies release
+# downloads — lets the installer work on LAN-only networks and keeps the
+# rig from hitting the GitHub API on every install.  Injected by the server
+# when it serves this script; empty otherwise (→ fall back to GitHub).
+DIST_SERVER="${DIST_SERVER:-}"
 PAIR=""
 TOKEN=""
 SERVER=""
@@ -62,22 +67,31 @@ fi
 target="${target_os}-${target_arch}-${variant}"
 echo "[install] detected target: $target"
 
-# Resolve download URL.
-if [ "$VERSION" = "latest" ]; then
-  # /releases/latest skips prereleases — try it first, then fall back to the
-  # newest release (including prereleases) so dev builds still install.
-  tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null |
-         sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
-  if [ -z "$tag" ]; then
-    tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=1" 2>/dev/null |
+# Resolve download URL.  Preference order:
+#   1. ${DIST_SERVER}/releases/<target>.tar.gz  (control-plane proxy; no
+#      GitHub hop from the rig, works offline / behind NAT)
+#   2. GitHub Releases (public, direct)
+if [ -n "$DIST_SERVER" ]; then
+  asset="${target}.tar.gz"
+  url="${DIST_SERVER%/}/releases/${asset}"
+  echo "[install] using control-plane proxy $url"
+else
+  if [ "$VERSION" = "latest" ]; then
+    # /releases/latest skips prereleases — try it first, then fall back to the
+    # newest release (including prereleases) so dev builds still install.
+    tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null |
            sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+    if [ -z "$tag" ]; then
+      tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=1" 2>/dev/null |
+             sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+    fi
+    [ -n "$tag" ] || { echo "could not resolve latest release" >&2; exit 1; }
+    VERSION="$tag"
   fi
-  [ -n "$tag" ] || { echo "could not resolve latest release" >&2; exit 1; }
-  VERSION="$tag"
-fi
 
-asset="llama-distributed-${VERSION}-${target}.tar.gz"
-url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset}"
+  asset="llama-distributed-${VERSION}-${target}.tar.gz"
+  url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${asset}"
+fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -86,7 +100,11 @@ curl -fSL "$url" -o "$tmp/$asset"
 
 echo "[install] extracting"
 tar -xzf "$tmp/$asset" -C "$tmp"
-pkg="$tmp/llama-distributed-${VERSION}-${target}"
+# Tarball has a single versioned top-level dir (llama-distributed-<tag>-<target>);
+# resolve it by listing rather than reconstructing the name so this works for
+# both the GitHub-direct and the control-plane-proxied paths.
+pkg="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+[ -n "$pkg" ] || { echo "extracted tarball had no top-level dir" >&2; exit 1; }
 
 echo "[install] running platform installer"
 if [ -n "$PAIR" ]; then
