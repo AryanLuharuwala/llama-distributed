@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>About — llama-distributed</title>
+<meta name="description" content="About the llama-distributed project — what it is, who builds it, license, and how to get in touch.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="docs/">Learn</a></li>
+      <li><a href="community.html">Community</a></li>
+      <li><a href="docs/architecture.html">How it works</a></li>
+      <li><a href="docs/">Docs</a></li>
+      <li><a href="blog/">Blog</a></li>
+      <li><a href="about.html" class="active">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="hero" style="padding: 4rem 0 2rem;">
+  <div class="container container-narrow">
+    <span class="badge badge-orange">About</span>
+    <h1 style="margin-top: 1rem;">An open-source project for pooling your GPUs.</h1>
+    <p class="lede">
+      llama-distributed is an open-source system for running large language models across a heterogeneous pool of GPU machines. Apache 2.0, community-developed, maintained on GitHub.
+    </p>
+  </div>
+</section>
+
+<section class="section section-tight">
+  <div class="container container-narrow">
+    <h2 id="what">What we're building</h2>
+    <p>Three things, in descending order of maturity:</p>
+    <ol>
+      <li>A <strong>layer-parallel inference pipeline</strong> in C++ on top of llama.cpp — production-ready for single-pool deployments.</li>
+      <li>A <strong>Go control plane</strong> that does OAuth, pool routing, API key management, and exposes OpenAI-compat endpoints — stable.</li>
+      <li>An experimental <strong>VM layer</strong> adding distributed tensor memory, collective ops (ring-AllReduce, AllGather), and checkpointing — not production-ready, currently gated off in CI.</li>
+    </ol>
+
+    <h2 id="principles">Principles</h2>
+    <ul>
+      <li><strong>Works with what you have.</strong> Mix CUDA, Metal, Vulkan, and CPU rigs. Don't assume NVLink, InfiniBand, or homogeneous hardware.</li>
+      <li><strong>OpenAI SDK drop-in.</strong> If we change the API, we've failed. Users shouldn't know they're talking to a distributed system.</li>
+      <li><strong>Zero-friction onboarding.</strong> One command to install, one click to pair, one copy-paste for the OpenAI snippet. Anything longer is a bug.</li>
+      <li><strong>Pure library usage of llama.cpp.</strong> We don't fork or patch upstream. Updates are one <code>git pull</code>.</li>
+      <li><strong>Plain HTML for this site.</strong> No framework, no bundler, no 200 MB of node_modules. Open the file, it works.</li>
+    </ul>
+
+    <h2 id="license">License</h2>
+    <p>Apache 2.0. The full text is in the <a href="https://github.com/AryanLuharuwala/llama-distributed/blob/main/LICENSE" target="_blank" rel="noopener">LICENSE file</a>. You can use this in commercial products, fork it, rebrand it — just keep the copyright notice and don't sue us.</p>
+    <p>llama.cpp (vendored as a submodule) is MIT-licensed. Both are compatible.</p>
+
+    <h2 id="maintainers">Maintainers</h2>
+    <ul>
+      <li><strong>Aryan Luharuwala</strong> &mdash; <a href="https://github.com/AryanLuharuwala" target="_blank" rel="noopener">GitHub</a>, <a href="mailto:aryanluharuwala@gmail.com">email</a></li>
+    </ul>
+    <p>If you'd like to become a maintainer, the path is: sustained contributions (~5+ merged PRs over a few months), take ownership of a subsystem, join the weekly triage call.</p>
+
+    <h2 id="press">Press &amp; talks</h2>
+    <ul>
+      <li>Nothing yet. If you write about the project, we'll link it here.</li>
+    </ul>
+
+    <h2 id="contact">Contact</h2>
+    <ul>
+      <li><strong>Bugs</strong>: <a href="https://github.com/AryanLuharuwala/llama-distributed/issues" target="_blank" rel="noopener">GitHub Issues</a></li>
+      <li><strong>Discussion</strong>: <a href="https://github.com/AryanLuharuwala/llama-distributed/discussions" target="_blank" rel="noopener">GitHub Discussions</a></li>
+      <li><strong>Security reports</strong>: <a href="mailto:aryanluharuwala@gmail.com">aryanluharuwala@gmail.com</a> (PGP on request)</li>
+      <li><strong>Everything else</strong>: same email.</li>
+    </ul>
+
+    <div class="callout mt-3" style="margin-top: 3rem;">
+      <h2>Ready to pool your GPUs?</h2>
+      <p>The install picker on the homepage generates the exact command for your setup.</p>
+      <a class="btn btn-primary btn-lg" href="index.html#install">Get Started</a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a href="index.html" class="footer-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          llama-distributed
+        </a>
+        <p>Distributed LLM inference across heterogeneous GPU pools. Apache 2.0 licensed.</p>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="docs/quickstart.html">Quickstart</a></li>
+          <li><a href="docs/install.html">Install</a></li>
+          <li><a href="docs/architecture.html">Architecture</a></li>
+          <li><a href="docs/protocol.html">Wire protocol</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="community.html">Discord / Slack</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/discussions" target="_blank" rel="noopener">Discussions</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/issues" target="_blank" rel="noopener">Issues</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="about.html">About</a></li>
+          <li><a href="blog/">Blog</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="docs/flow.html">User flow</a></li>
+          <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">llama.cpp</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/nav.js"></script>
+</body>
+</html>

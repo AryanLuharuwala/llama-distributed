@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>llama-distributed — Run any LLM across any pool of GPUs</title>
+<meta name="description" content="Open-source distributed LLM inference. Layer-split models across a pool of heterogeneous GPU rigs. OpenAI-compatible endpoints. CUDA, Metal, Vulkan, and CPU support.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<meta property="og:title" content="llama-distributed">
+<meta property="og:description" content="Run any LLM across any pool of GPUs. OpenAI-compatible. Open source.">
+<meta property="og:image" content="assets/img/og-image.svg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/picker.css">
+</head>
+<body>
+
+<div class="annc">
+  <div class="container">
+    <span class="badge">v0.3</span>
+    Friction-removal release is out — path-form pool URLs, auto-join, firewall preflight.
+    <a href="blog/posts/friction-removal.html">Read the notes &rarr;</a>
+  </div>
+</div>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="index.html" aria-label="llama-distributed home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      llama-distributed
+    </a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="docs/">Learn</a></li>
+      <li><a href="community.html">Community</a></li>
+      <li><a href="docs/architecture.html">How it works</a></li>
+      <li><a href="docs/">Docs</a></li>
+      <li><a href="blog/">Blog</a></li>
+      <li><a href="about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .3C5.4.3 0 5.7 0 12.3c0 5.3 3.4 9.8 8.2 11.4.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.3v3.3c0 .3.2.7.8.6 4.8-1.6 8.2-6.1 8.2-11.4C24 5.7 18.6.3 12 .3z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary btn-sm" href="#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <span class="badge badge-orange">Open source &middot; Apache 2.0</span>
+      <h1>Run any LLM across <span class="accent">any pool</span> of GPUs.</h1>
+      <p class="lede">
+        llama-distributed splits models layer-by-layer across a cluster of heterogeneous
+        GPU rigs, streams activations between nodes, and exposes the whole pool as a
+        single OpenAI-compatible endpoint. No tensor-wise sharding dance, no custom SDK.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="#install">Get Started</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <div class="hero-meta">
+        <span><span class="dot active"></span>Stable v0.3</span>
+        <span><span class="dot"></span>CUDA / Metal / Vulkan / CPU</span>
+        <span><span class="dot"></span>OpenAI SDK drop-in</span>
+      </div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="hero-visual-head">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="title">client.py</span>
+      </div>
+      <pre><span class="c-com"># point any OpenAI SDK at your rig pool</span>
+<span class="c-key">from</span> openai <span class="c-key">import</span> OpenAI
+
+client = <span class="c-fn">OpenAI</span>(
+    base_url=<span class="c-str">"https://alice-alpha.dist.dev/v1"</span>,
+    api_key=<span class="c-str">"sk-dist-…"</span>,
+)
+
+resp = client.chat.completions.<span class="c-fn">create</span>(
+    model=<span class="c-str">"llama-3-70b"</span>,
+    messages=[{<span class="c-str">"role"</span>: <span class="c-str">"user"</span>,
+               <span class="c-str">"content"</span>: <span class="c-str">"Explain ring-AllReduce."</span>}],
+    stream=<span class="c-key">True</span>,
+)
+<span class="c-key">for</span> chunk <span class="c-key">in</span> resp:
+    <span class="c-fn">print</span>(chunk.choices[<span class="c-str">0</span>].delta.content, end=<span class="c-str">""</span>)</pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Why it's different</span>
+      <h2>Built for heterogeneous GPU pools, not just homogeneous clusters.</h2>
+      <p>Four guarantees that make llama-distributed viable as the shared inference layer for any team.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </div>
+        <h3>Layer-split distribution</h3>
+        <p>Split a 70B model across a 24&nbsp;GB laptop and a 40&nbsp;GB workstation. VRAM-proportional planner picks the cuts.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
+        </div>
+        <h3>OpenAI SDK drop-in</h3>
+        <p>Every pool gets a <code>base_url</code> and an API key. Existing OpenAI code works unchanged.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <h3>Multi-accelerator</h3>
+        <p>Mix CUDA, Metal, Vulkan, and CPU rigs in the same pool. The protocol is platform-agnostic.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M12 8v4l3 2"/></svg>
+        </div>
+        <h3>Zero-friction onboarding</h3>
+        <p>One-liner installs, WebSocket auto-pair, pool auto-join, built-in firewall preflight.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt" id="install">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Install</span>
+      <h2>Get running in under a minute.</h2>
+      <p>Pick your target — the command is generated live, ready to paste.</p>
+    </div>
+
+    <div class="picker" data-picker>
+      <div class="picker-head">
+        <div>
+          <h3>Install llama-distributed</h3>
+          <p>Same five-axis picker the control plane generates on your dashboard.</p>
+        </div>
+      </div>
+      <div class="picker-body" data-picker-body>
+        <!-- rows injected by installer.js -->
+        <div class="picker-out" style="margin-top: 1.8rem;">
+          <div class="picker-out-head">
+            <span class="title">Run this</span>
+            <button type="button" class="copy-btn" data-picker-copy aria-label="Copy command">Copy</button>
+          </div>
+          <pre class="picker-cmd" data-picker-cmd></pre>
+          <textarea data-picker-raw style="position:absolute;left:-9999px" aria-hidden="true" tabindex="-1"></textarea>
+        </div>
+        <div class="picker-note" data-picker-note hidden></div>
+        <div class="picker-prereq" data-picker-prereq></div>
+      </div>
+    </div>
+
+    <div class="cloud-grid">
+      <a class="cloud-card" href="docs/install.html#aws">
+        <strong>AWS</strong>
+        <span>Deep Learning AMI + ECS template</span>
+      </a>
+      <a class="cloud-card" href="docs/install.html#gcp">
+        <strong>Google Cloud</strong>
+        <span>GCE + Deep Learning VM</span>
+      </a>
+      <a class="cloud-card" href="docs/install.html#azure">
+        <strong>Azure</strong>
+        <span>ML instance + template</span>
+      </a>
+      <a class="cloud-card" href="docs/install.html#runpod">
+        <strong>RunPod / Lambda</strong>
+        <span>Community GPU rentals</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">How it works</span>
+      <h2>A control plane and a pool of dumb workers.</h2>
+      <p>The Go server handles auth, pool routing, and OpenAI-compat endpoints. C++ rigs just run their assigned layers.</p>
+    </div>
+    <div class="arch">
+      <div class="arch-row center">
+        <div class="arch-box"><strong>Browser / OpenAI SDK</strong><small>OAuth or API key</small></div>
+      </div>
+      <div class="arch-arrow">&darr; <small>HTTPS / WebSocket</small></div>
+      <div class="arch-row center">
+        <div class="arch-box control"><strong>dist-server</strong><small>dashboard &middot; pools &middot; routing &middot; SQLite</small></div>
+      </div>
+      <div class="arch-arrow">&darr; <small>WebSocket (control) &middot; TCP :7701 (data plane)</small></div>
+      <div class="arch-nodes">
+        <div class="arch-box rig"><strong>dist-node 0</strong><small>Layers 0&ndash;19<br>CUDA RTX 4090</small></div>
+        <div class="arch-box rig"><strong>dist-node 1</strong><small>Layers 20&ndash;39<br>Metal M3 Max</small></div>
+        <div class="arch-box rig"><strong>dist-node 2</strong><small>Layers 40&ndash;79<br>Vulkan RX 7900</small></div>
+      </div>
+      <div class="arch-caption">Activations stream right-to-left over TCP :7701 &middot; logits return to the client via the control plane.</div>
+    </div>
+    <div style="text-align:center; margin-top: 2rem;">
+      <a class="btn btn-ghost" href="docs/architecture.html">Read the architecture doc &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Single-machine demo</span>
+      <h2>Test the whole pipeline on one laptop.</h2>
+      <p>Three processes on localhost: coordinator, two nodes, client.</p>
+    </div>
+    <div class="grid-2">
+      <div class="codebox">
+        <div class="codebox-head">
+          <span class="filename">Terminal 1 &middot; Terminal 2 &middot; Terminal 3</span>
+          <button type="button" class="copy-btn" data-target="#demo-cmd">Copy</button>
+        </div>
+<pre id="demo-cmd"><span style="color:#8A9979"># build (takes ~5 min for llama.cpp)</span>
+./scripts/build.sh --cuda
+
+<span style="color:#8A9979"># 1. coordinator (terminal 1)</span>
+./build/dist-coordinator --model model.gguf --min-nodes 2
+
+<span style="color:#8A9979"># 2. two node agents (terminals 2+3)</span>
+./build/dist-node --server 127.0.0.1 --data-port 7701
+./build/dist-node --server 127.0.0.1 --data-port 7704
+
+<span style="color:#8A9979"># 3. send a prompt (terminal 4)</span>
+./build/dist-client --server 127.0.0.1 \
+    --prompt "Explain ring-AllReduce."</pre>
+      </div>
+      <div>
+        <h3 style="color: var(--olive-900)">What you'll see</h3>
+        <p>Tokens stream to stdout as they're generated. The coordinator picks layer assignments from VRAM, the two nodes pair up, and activations hop between them.</p>
+        <ul>
+          <li>Cluster boots in &lt; 5 seconds on a warm cache.</li>
+          <li>Pipeline overhead is dominated by NIC latency, not GPU compute.</li>
+          <li><code>--min-nodes</code> blocks inference until the quorum is green.</li>
+        </ul>
+        <p style="margin-top: 1rem;">
+          <a class="btn btn-ghost btn-sm" href="docs/quickstart.html">Full quickstart &rarr;</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Ecosystem</span>
+      <h2>Plays nicely with the stack you already have.</h2>
+    </div>
+    <div class="eco-grid">
+      <div class="eco-item">OpenAI SDK<span class="label">Python / Node / Go</span></div>
+      <div class="eco-item">llama.cpp<span class="label">GGUF runtime</span></div>
+      <div class="eco-item">CUDA 12.5<span class="label">NVIDIA</span></div>
+      <div class="eco-item">Metal 3<span class="label">Apple Silicon</span></div>
+      <div class="eco-item">Vulkan 1.3<span class="label">AMD / Intel</span></div>
+      <div class="eco-item">systemd / launchd<span class="label">Auto-start</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Latest from the blog</span>
+      <h2>Engineering updates.</h2>
+    </div>
+    <div class="post-grid">
+      <a class="post-card" href="blog/posts/friction-removal.html">
+        <div class="date">Apr 22, 2026</div>
+        <h3>Friction-removal pass: path-form pools, auto-join, preflight</h3>
+        <p>Three small changes that turn a 10-click onboarding into a 3-click one. Why wildcard DNS is sometimes the enemy.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+      <a class="post-card" href="blog/posts/install-picker.html">
+        <div class="date">Apr 18, 2026</div>
+        <h3>Building a PyTorch-style install picker for a C++ project</h3>
+        <p>How the 5-axis picker on the dashboard generates a correct command for 72 combinations without a backend round-trip.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+      <a class="post-card" href="blog/posts/why-llama-distributed.html">
+        <div class="date">Apr 02, 2026</div>
+        <h3>Why we built llama-distributed</h3>
+        <p>Tensor-parallel needs NVLink. Layer-parallel works over a switch. Here's why we bet on the second one.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+    </div>
+    <div style="text-align: center; margin-top: 2rem;">
+      <a class="btn btn-ghost" href="blog/">All posts &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="callout">
+      <h2>Ready to pool your GPUs?</h2>
+      <p>Spin up a control plane, paste the installer on each rig, hand out an OpenAI-compatible URL.</p>
+      <a class="btn btn-primary btn-lg" href="#install">Get Started</a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a href="index.html" class="footer-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          llama-distributed
+        </a>
+        <p>Distributed LLM inference across heterogeneous GPU pools. Apache 2.0 licensed.</p>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="docs/quickstart.html">Quickstart</a></li>
+          <li><a href="docs/install.html">Install</a></li>
+          <li><a href="docs/architecture.html">Architecture</a></li>
+          <li><a href="docs/protocol.html">Wire protocol</a></li>
+          <li><a href="docs/reference.html">Reference</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="community.html">Discord / Slack</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/discussions" target="_blank" rel="noopener">GitHub Discussions</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/issues" target="_blank" rel="noopener">Issues</a></li>
+          <li><a href="community.html#contribute">Contribute</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="about.html">About</a></li>
+          <li><a href="blog/">Blog</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/blob/main/LICENSE" target="_blank" rel="noopener">License</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="docs/flow.html">User flow</a></li>
+          <li><a href="docs/install.html#cloud">Cloud quick-starts</a></li>
+          <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">llama.cpp upstream</a></li>
+          <li><a href="https://pytorch.org" target="_blank" rel="noopener">PyTorch</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div class="footer-social">
+        <a href="https://github.com/AryanLuharuwala/llama-distributed" aria-label="GitHub" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3C5.4.3 0 5.7 0 12.3c0 5.3 3.4 9.8 8.2 11.4.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.3v3.3c0 .3.2.7.8.6 4.8-1.6 8.2-6.1 8.2-11.4C24 5.7 18.6.3 12 .3z"/></svg>
+        </a>
+        <a href="community.html" aria-label="Discord">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4c-1.5-.7-3.1-1.2-4.8-1.5-.2.4-.5.9-.6 1.3-1.8-.3-3.6-.3-5.4 0-.2-.4-.4-.9-.6-1.3-1.7.3-3.3.8-4.8 1.5C1.3 9 .5 13.4.9 17.8c2 1.5 3.9 2.4 5.8 3 .5-.6.9-1.3 1.3-2-.7-.3-1.4-.6-2-1 .2-.1.3-.2.5-.3 3.9 1.8 8.1 1.8 11.9 0 .2.1.3.2.5.3-.6.4-1.3.7-2 1 .4.7.8 1.4 1.3 2 1.9-.6 3.8-1.5 5.8-3 .5-5-.8-9.4-3.7-13.4zM8.3 15.1c-1.1 0-2.1-1.1-2.1-2.4 0-1.3 1-2.4 2.1-2.4s2.1 1.1 2.1 2.4c0 1.3-1 2.4-2.1 2.4zm7.4 0c-1.1 0-2.1-1.1-2.1-2.4 0-1.3 1-2.4 2.1-2.4s2.1 1.1 2.1 2.4c0 1.3-1 2.4-2.1 2.4z"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/nav.js"></script>
+<script src="assets/js/installer.js"></script>
+</body>
+</html>

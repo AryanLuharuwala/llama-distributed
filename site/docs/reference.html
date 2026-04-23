@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Design notes — llama-distributed docs</title>
+<meta name="description" content="Why llama-distributed looks the way it does — the original design doc and open questions.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html">How it works</a></li>
+      <li><a href="../docs/" class="active">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container docs-shell">
+
+  <aside class="docs-side">
+    <h5>Getting Started</h5>
+    <ul>
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="install.html">Install</a></li>
+    </ul>
+    <h5>How it works</h5>
+    <ul>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="protocol.html">Wire protocol</a></li>
+      <li><a href="flow.html">End-to-end flow</a></li>
+    </ul>
+    <h5>Reference</h5>
+    <ul>
+      <li><a href="reference.html" class="active">Design notes</a></li>
+    </ul>
+  </aside>
+
+  <main class="docs-main">
+    <div class="docs-breadcrumb"><a href="../docs/">Docs</a> &rsaquo; Design notes</div>
+    <h1>Design notes</h1>
+    <p class="text-muted" style="font-size: var(--fs-md)">The original framing, the tradeoffs, and what's still open.</p>
+
+    <h2 id="motivation">Motivation</h2>
+    <p>llama.cpp started as a single-node server or CLI to run inference on local machines. It operates on GGUF files — quantized or full-weight models, trained or fine-tuned with tools like Unsloth.</p>
+    <p>The issue with multi-host rollouts is that they are generally distributed over a <strong>network switch</strong> rather than over the internet. The switch provides fast transfer using NCCL or MPI, but there's no complete story for moving packets over secure public channels.</p>
+    <p>llama-distributed solves that with TCP transfer wrapped in WebSocket relays, peer to peer. A <strong>coordinator</strong> handles signaling, relays, and scheduling of the nodes based on VRAM availability (and token usage — TODO), to ensure each GPU sustains maximum useful compute.</p>
+
+    <h2 id="heterogeneity">Heterogeneity</h2>
+    <p>Some GPUs speak Vulkan, some Metal, some CUDA. The protocol has to be platform-agnostic on Windows, macOS, and Linux, handled by a single web interface that manages the pool.</p>
+    <p>The <code>llama_decode</code> public API uses the graph generated during model registration and supports model-graph splitting so only a few layers run on any single node. The first node holds the tokenizer and token embedding; the last node holds the output embedding.</p>
+
+    <h2 id="objectives">Objectives</h2>
+    <ul>
+      <li><code>llama_decode</code> runs configurable layer ranges instead of requiring hardcoded layer assignments — fully configurable graph.</li>
+      <li>Coordinator schedules layers so utilization is equated across nodes; falls back to idle nodes when more than one hosts the same layers.</li>
+      <li>DNS-like system (Vercel-style) so each pool gets its own <code>OPENAI_BASE_URL</code>. Bearer-token auth for AI requests, email-based pool ownership.</li>
+      <li>TURN / STUN server for NAT'd rigs — P2P connections between networks behind firewalls.</li>
+      <li>Intuitive Web UI — users connect their own server in under 4 clicks.</li>
+      <li>Single download script (<code>curl install.sh | bash</code>, <code>.dmg</code>, <code>.msi</code>) that auto-detects OS, installs the program, and has the dashboard generate a deep-link URL that opens in the native installer.</li>
+      <li>Deep link connects the backend to the server; the frontend is disentangled from using a localhost address so it fetches live data from our public server.</li>
+    </ul>
+
+    <h2 id="open-questions">Open questions</h2>
+    <ul>
+      <li><strong>Partial model loading</strong> — assign weight tensors per node via <code>tensor_buft_overrides</code>. Today, every node loads the full GGUF and only uses its assigned layers. Wasteful for large quantized models.</li>
+      <li><strong>Pre-connected data sockets</strong> — connect node pairs at startup so the first tensor hop doesn't pay a TCP handshake.</li>
+      <li><strong>Multi-request interleaving</strong> — batched decode across concurrent sessions to push utilization when one request stalls.</li>
+      <li><strong>RDMA transport</strong> — ibverbs / UCX for InfiniBand deployments.</li>
+      <li><strong>Python bindings</strong> for <code>VmContext</code>.</li>
+      <li><strong>Web dashboard improvements</strong> — node status, VRAM, throughput via HTTP/SSE.</li>
+    </ul>
+
+    <h2 id="build-options">Build options</h2>
+    <table>
+      <thead><tr><th>CMake flag</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>DIST_USE_CUDA</code></td><td>OFF</td><td>CUDA (NVIDIA GPU) acceleration</td></tr>
+        <tr><td><code>DIST_USE_METAL</code></td><td>OFF</td><td>Metal (Apple GPU) acceleration</td></tr>
+        <tr><td><code>DIST_USE_VULKAN</code></td><td>OFF</td><td>Vulkan acceleration</td></tr>
+        <tr><td><code>DIST_LLAMA_SOURCE</code></td><td>AUTO</td><td><code>AUTO</code> = submodule &middot; <code>SYSTEM</code> = installed &middot; <code>/path</code> = explicit source tree</td></tr>
+        <tr><td><code>DIST_BUILD_TESTS</code></td><td>OFF</td><td>Build unit tests</td></tr>
+        <tr><td><code>DIST_BUILD_VM</code></td><td>OFF</td><td>Build experimental VM layer binaries</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="build-sh">Build script shorthand</h2>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">scripts/build.sh</span></div>
+<pre>./scripts/build.sh [flags]
+
+  --cuda            Enable CUDA
+  --metal           Enable Metal
+  --vulkan          Enable Vulkan
+  --debug           Debug build with symbols
+  --jobs N          Parallel build jobs (default: nproc)
+  --prefix PATH     Install prefix (default: ./install)
+  --llama PATH      External llama.cpp source tree instead of the submodule</pre>
+    </div>
+
+    <h2 id="roadmap">Roadmap</h2>
+    <ul>
+      <li>Partial model loading — per-node weight assignment via <code>tensor_buft_overrides</code></li>
+      <li>Pre-connected data sockets — connect node pairs at startup</li>
+      <li>Multi-request interleaving — batched decode across concurrent sessions</li>
+      <li>RDMA transport — ibverbs / UCX for InfiniBand</li>
+      <li>Python bindings for <code>VmContext</code></li>
+      <li>Web dashboard — node status, VRAM, throughput via HTTP/SSE</li>
+      <li>TURN / STUN for NAT traversal on public deployments</li>
+    </ul>
+
+    <div class="docs-footer-nav">
+      <a href="flow.html"><span class="dir">&larr; Previous</span>End-to-end flow</a>
+      <a class="next" href="../docs/"><span class="dir">Next &rarr;</span>All docs</a>
+    </div>
+  </main>
+
+  <aside class="docs-toc">
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#motivation">Motivation</a></li>
+      <li><a href="#heterogeneity">Heterogeneity</a></li>
+      <li><a href="#objectives">Objectives</a></li>
+      <li><a href="#open-questions">Open questions</a></li>
+      <li><a href="#build-options">Build options</a></li>
+      <li><a href="#build-sh">Build script</a></li>
+      <li><a href="#roadmap">Roadmap</a></li>
+    </ul>
+  </aside>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../index.html">Home</a> &middot; <a href="../blog/">Blog</a> &middot; <a href="../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+</body>
+</html>

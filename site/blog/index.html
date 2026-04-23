@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blog — llama-distributed</title>
+<meta name="description" content="Engineering updates, release notes, and deep-dives from the llama-distributed team.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="../docs/architecture.html">How it works</a></li>
+      <li><a href="../docs/">Docs</a></li>
+      <li><a href="../blog/" class="active">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="docs-hero" style="background: linear-gradient(180deg, var(--olive-100), transparent);">
+  <div class="container">
+    <h1>Blog</h1>
+    <p>Release notes, engineering deep-dives, and design rationales.</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top: 2.5rem;">
+  <div class="container">
+    <div class="post-grid">
+      <a class="post-card" href="posts/friction-removal.html">
+        <div class="date">Apr 22, 2026 &middot; Release</div>
+        <h3>Friction-removal pass: path-form pools, auto-join, preflight</h3>
+        <p>Three small changes that turn a 10-click onboarding into a 3-click one. And why wildcard DNS is sometimes the enemy.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+      <a class="post-card" href="posts/install-picker.html">
+        <div class="date">Apr 18, 2026 &middot; Eng</div>
+        <h3>Building a PyTorch-style install picker for a C++ project</h3>
+        <p>How the 5-axis picker on the dashboard generates a correct command for 72 combinations without a backend round-trip.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+      <a class="post-card" href="posts/why-llama-distributed.html">
+        <div class="date">Apr 02, 2026 &middot; Intro</div>
+        <h3>Why we built llama-distributed</h3>
+        <p>Tensor-parallel needs NVLink. Layer-parallel works over a switch. Here's why we bet on the second one.</p>
+        <span class="readmore">Read &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a href="../index.html" class="footer-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          llama-distributed
+        </a>
+        <p>Distributed LLM inference across heterogeneous GPU pools. Apache 2.0 licensed.</p>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="../docs/quickstart.html">Quickstart</a></li>
+          <li><a href="../docs/install.html">Install</a></li>
+          <li><a href="../docs/architecture.html">Architecture</a></li>
+          <li><a href="../docs/protocol.html">Wire protocol</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="../community.html">Discord / Slack</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/discussions" target="_blank" rel="noopener">Discussions</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../about.html">About</a></li>
+          <li><a href="../blog/">Blog</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="../docs/flow.html">User flow</a></li>
+          <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">llama.cpp</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+</body>
+</html>
