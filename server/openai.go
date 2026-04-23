@@ -457,6 +457,11 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "no online rigs in pool")
 		return
 	}
+	// Mark this rig busy for the duration of the request so the next picker
+	// call sees current load.  Paired with the defer below — same lifetime as
+	// the inferPeer slot.
+	ac.incInflight()
+	defer ac.decInflight()
 
 	// Attach inference peer.
 	ip := &inferPeer{

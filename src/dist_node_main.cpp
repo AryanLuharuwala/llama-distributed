@@ -27,7 +27,10 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -108,8 +111,92 @@ static std::string default_agent_id() {
     return std::string(host) + ":" + std::to_string(::getpid());
 }
 
+// State directory — where we persist agent_key across restarts so the rig
+// can resume without burning a new pair token.  Order:
+//   $DIST_STATE_DIR       (explicit override)
+//   $XDG_STATE_HOME/llama-distributed       (linux)
+//   $HOME/Library/Application Support/llama-distributed (mac)
+//   %LOCALAPPDATA%\llama-distributed        (windows)
+//   $HOME/.local/state/llama-distributed    (linux fallback)
+static std::string state_dir() {
+    if (const char* s = std::getenv("DIST_STATE_DIR"); s && *s) return s;
+#ifdef _WIN32
+    if (const char* s = std::getenv("LOCALAPPDATA"); s && *s)
+        return std::string(s) + "\\llama-distributed";
+#endif
+    if (const char* s = std::getenv("XDG_STATE_HOME"); s && *s)
+        return std::string(s) + "/llama-distributed";
+    if (const char* h = std::getenv("HOME"); h && *h) {
+#ifdef __APPLE__
+        return std::string(h) + "/Library/Application Support/llama-distributed";
+#else
+        return std::string(h) + "/.local/state/llama-distributed";
+#endif
+    }
+    return "./llama-distributed-state";
+}
+
+static std::string state_path(const std::string& name) {
+    return state_dir() + "/" + name;
+}
+
+// Load a small UTF-8 value from disk; returns empty on any error.  Used for
+// agent.id and agent.key.  Trailing newline (if present) is stripped.
+static std::string state_read(const std::string& name) {
+    std::ifstream f(state_path(name), std::ios::binary);
+    if (!f.good()) return "";
+    std::ostringstream buf;
+    buf << f.rdbuf();
+    std::string s = buf.str();
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+    return s;
+}
+
+// Persist a small value atomically (write to .tmp, rename).  Returns true on
+// success — caller should log but tolerate failures so a pair still completes
+// even if the state dir is read-only.
+static bool state_write(const std::string& name, const std::string& value) {
+    std::error_code ec;
+    std::filesystem::create_directories(state_dir(), ec);
+    (void)ec;
+    const std::string dest = state_path(name);
+    const std::string tmp  = dest + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f.good()) return false;
+        f << value;
+    }
+    std::filesystem::rename(tmp, dest, ec);
+    return !ec;
+}
+
+// Extract a JSON string value, very permissively.  Returns "" on not-found.
+// Only works for flat string fields; fine for welcome {"agent_key":"…"}.
+static std::string json_peek_string(const std::string& msg, const std::string& key) {
+    std::string needle = "\"" + key + "\":\"";
+    size_t p = msg.find(needle);
+    if (p == std::string::npos) return "";
+    p += needle.size();
+    std::string out;
+    while (p < msg.size() && msg[p] != '"') {
+        if (msg[p] == '\\' && p + 1 < msg.size()) { out += msg[p + 1]; p += 2; continue; }
+        out += msg[p++];
+    }
+    return out;
+}
+
 // Enter pair mode: connect to the server WebSocket, send hello, and loop on
 // status updates.  Returns process exit code.
+//
+// Reconnection model:
+//   - On first run we have a pair token; send {kind:"hello"}, parse the
+//     returned agent_key out of the welcome frame, and persist it to the
+//     state dir alongside agent_id.
+//   - On every subsequent run (the service restart case) we read both files
+//     and send {kind:"resume"} — no pair token, no round-trip to the dash.
+//   - If the server rejects the resume (bad agent_key → StatusPolicyViolation)
+//     we delete the local state and fall back to the pair token so the rig
+//     repairs itself on the next try.
 static int run_pair_mode(const std::string& token, const std::string& server,
                          const std::string& agent_id_override,
                          int n_gpu_layers) {
@@ -120,17 +207,37 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     }
     std::cout << "[pair] connected to " << server << "\n";
 
-    // GPU / VRAM introspection is deferred (Milestone 2) — report 0 for M1.
-    std::string agent_id = agent_id_override.empty() ? default_agent_id() : agent_id_override;
+    // Agent identity: prefer explicit override; otherwise prefer the id we
+    // persisted on a prior successful pair; fall back to hostname:pid only on
+    // a truly first boot so the id stays stable across restarts.
+    std::string saved_agent_id  = state_read("agent.id");
+    std::string saved_agent_key = state_read("agent.key");
+    std::string agent_id        = !agent_id_override.empty() ? agent_id_override
+                                   : !saved_agent_id.empty()  ? saved_agent_id
+                                   : default_agent_id();
+
     char hostname[256] = {};
     ::gethostname(hostname, sizeof(hostname));
 
+    const bool have_resume = !saved_agent_key.empty() && !saved_agent_id.empty()
+                             && agent_id_override.empty();
+
     std::ostringstream hello;
-    hello << "{\"kind\":\"hello\","
-          << "\"token\":\""    << json_escape(token)    << "\","
-          << "\"agent_id\":\"" << json_escape(agent_id) << "\","
-          << "\"hostname\":\"" << json_escape(hostname) << "\","
-          << "\"n_gpus\":0,\"vram_bytes\":0}";
+    if (have_resume) {
+        std::cout << "[pair] resuming as agent_id=" << agent_id
+                  << " (using saved agent_key)\n";
+        hello << "{\"kind\":\"resume\","
+              << "\"agent_key\":\"" << json_escape(saved_agent_key) << "\","
+              << "\"agent_id\":\""  << json_escape(agent_id)        << "\","
+              << "\"hostname\":\""  << json_escape(hostname)        << "\","
+              << "\"n_gpus\":0,\"vram_bytes\":0}";
+    } else {
+        hello << "{\"kind\":\"hello\","
+              << "\"token\":\""    << json_escape(token)    << "\","
+              << "\"agent_id\":\"" << json_escape(agent_id) << "\","
+              << "\"hostname\":\"" << json_escape(hostname) << "\","
+              << "\"n_gpus\":0,\"vram_bytes\":0}";
+    }
 
     if (!ws.send_text(hello.str())) {
         std::cerr << "[pair] send hello failed\n";
@@ -144,8 +251,51 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     }
     std::cout << "[pair] server reply: " << msg << "\n";
     if (msg.find("\"kind\":\"welcome\"") == std::string::npos) {
+        // Resume failed (most likely the server lost the rig row — user
+        // probably reset the DB or the key is stale).  Scrub local state so
+        // the next launch does a fresh pair instead of looping on bad key.
+        if (have_resume) {
+            std::cerr << "[pair] resume rejected; clearing saved agent_key\n";
+            std::error_code ec;
+            std::filesystem::remove(state_path("agent.key"),    ec);
+            std::filesystem::remove(state_path("agent.id"),     ec);
+            std::filesystem::remove(state_path("agent.server"), ec);
+        }
+        // Specific hint for the common first-pair failure mode: a stale
+        // one-liner (the user waited past the 30-min token TTL before
+        // pasting, or already consumed it from another machine).  The
+        // operator-facing remedy is always the same — regenerate from the
+        // dashboard — so surface it prominently.
+        if (msg.find("bad pair token") != std::string::npos) {
+            std::cerr << "[pair] pair token rejected — it may be stale or already used.\n"
+                      << "[pair] open the dashboard and click 'Generate one-liner' again,\n"
+                      << "[pair] then re-run this installer with the new command.\n";
+        }
         std::cerr << "[pair] not welcomed — exiting\n";
+        // Sleep briefly so systemd's restart backoff picks up the log line
+        // instead of spamming on instant exit.
+        std::this_thread::sleep_for(std::chrono::seconds(3));
         return 1;
+    }
+
+    // First-pair path: persist the agent_key that came back in welcome so the
+    // next launch can resume without a pair token.  Also persist the server
+    // URL we dialed so the service can relaunch with no arguments at all.
+    // On resume welcomes the server does not re-emit agent_key; the files
+    // stay as-is.
+    if (!have_resume) {
+        std::string fresh_key = json_peek_string(msg, "agent_key");
+        if (!fresh_key.empty()) {
+            bool ok = state_write("agent.key",    fresh_key) &&
+                      state_write("agent.id",     agent_id)  &&
+                      state_write("agent.server", server);
+            if (!ok) {
+                std::cerr << "[pair] WARN: could not persist agent_key to "
+                          << state_dir() << " — restarts will re-pair\n";
+            } else {
+                std::cout << "[pair] persisted agent_key to " << state_dir() << "\n";
+            }
+        }
     }
 
     std::cout << "[pair] paired successfully; entering heartbeat loop\n";
@@ -822,7 +972,10 @@ int main(int argc, char* argv[]) {
     }
 
     // Deep-link pair mode: talks to the control-plane server over WebSocket.
-    if (!pair_url.empty()) {
+    // Skip if the arg was passed but empty (common from systemd templates
+    // where DIST_PAIR is cleared after the first successful pair — we then
+    // fall through to auto-resume below).
+    if (!pair_url.empty() && pair_url != "\"\"") {
         std::string tok, srv;
         if (!parse_pair_url(pair_url, tok, srv)) {
             fprintf(stderr, "Error: invalid --pair URL (expected distpool://pair?token=...&server=...)\n");
@@ -831,8 +984,22 @@ int main(int argc, char* argv[]) {
         return run_pair_mode(tok, srv, cfg.node_id, cfg.n_gpu_layers);
     }
 
+    // Auto-resume: --pair was omitted but a prior successful pair left an
+    // agent_key + server URL behind.  This is how the per-user service unit
+    // relaunches across reboots — the installer wrote --pair once, we dropped
+    // state, and now every restart reads state and reconnects silently.
+    {
+        const std::string saved_key    = state_read("agent.key");
+        const std::string saved_server = state_read("agent.server");
+        if (!saved_key.empty() && !saved_server.empty()) {
+            std::cout << "[pair] no --pair given, auto-resuming from "
+                      << state_dir() << "\n";
+            return run_pair_mode(std::string(), saved_server, cfg.node_id, cfg.n_gpu_layers);
+        }
+    }
+
     if (cfg.coordinator_host.empty()) {
-        fprintf(stderr, "Error: --server is required\n");
+        fprintf(stderr, "Error: --server is required (or pass --pair the first time)\n");
         print_usage(argv[0]);
         return 1;
     }

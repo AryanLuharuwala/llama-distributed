@@ -145,9 +145,11 @@
     <div class="row" style="margin-top:8px;gap:8px;align-items:center;">
       <button id="install-btn">Generate one-liner</button>
       <button id="install-copy" class="secondary" disabled>Copy</button>
+      <button id="firewall-btn" class="secondary" title="Dial every interface IP from this host — tells you if a firewall is blocking inbound connections">Test LAN reachability</button>
       <span id="install-status" class="muted" style="font-size:12px;"></span>
       <span id="install-expires" class="muted" style="font-size:12px;margin-left:auto;"></span>
     </div>
+    <div id="firewall-result" class="muted" style="font-size:12px;margin-top:6px;"></div>
   </div>
 
   <div class="card">
@@ -361,6 +363,14 @@ function handleServerEvent(m) {
       m.kind === "agent_message") {
     refreshRigs();
   }
+  // First-pair notification: flip the install card into a success state
+  // so the user sees "rig connected" the moment the agent boots up.
+  if (m.kind === "rig_online" && m.payload && m.payload.is_first_pair) {
+    const host = m.payload.hostname || m.payload.agent_id || "rig";
+    installStatus.textContent = `✓ ${host} paired — ready to route`;
+    installCmdEl.style.borderColor = "var(--accent)";
+    setTimeout(() => { installCmdEl.style.borderColor = ""; }, 8000);
+  }
 }
 
 async function refreshRigs() {
@@ -545,6 +555,27 @@ installBtn.onclick = async () => {
     startExpiryTicker();
   } catch(e) {
     installStatus.textContent = "failed: " + (e.error || e);
+  }
+};
+
+// On-demand firewall / LAN reachability check.  Calls GET /api/firewall_check
+// which re-runs the boot-time probe and returns reachable/failed interface
+// IPs plus a platform-specific hint when any fail.
+const firewallBtn    = document.getElementById("firewall-btn");
+const firewallResult = document.getElementById("firewall-result");
+firewallBtn.onclick = async () => {
+  firewallResult.textContent = "probing interfaces…";
+  try {
+    const r = await jget("/api/firewall_check");
+    const ok   = r.reachable || [];
+    const bad  = r.failed    || [];
+    const parts = [];
+    if (ok.length)  parts.push(`<span style="color:var(--accent);">✓ reachable: ${ok.join(", ")}</span>`);
+    if (bad.length) parts.push(`<span style="color:#e55;">✗ blocked: ${bad.join(", ")}</span>`);
+    if (r.hint)     parts.push(`<div style="margin-top:4px;font-family:ui-monospace,Menlo,Consolas,monospace;">${r.hint}</div>`);
+    firewallResult.innerHTML = parts.join(" · ") || "no interfaces found";
+  } catch(e) {
+    firewallResult.textContent = "check failed: " + (e.error || e);
   }
 };
 

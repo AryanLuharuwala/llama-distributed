@@ -217,6 +217,8 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "no online rigs in pool")
 		return
 	}
+	ac.incInflight()
+	defer ac.decInflight()
 
 	// SSE response.
 	w.Header().Set("Content-Type", "text/event-stream")

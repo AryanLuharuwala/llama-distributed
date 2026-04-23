@@ -375,12 +375,22 @@ func refreshTargets(s *server) {
 	gTargets.mu.Unlock()
 }
 
+// githubAuth adds Authorization: Bearer when GITHUB_TOKEN is set.  Raises the
+// anonymous 60/hr rate limit to 5000/hr so burst installs (a whole lab
+// spinning up at once) don't drain the quota.
+func githubAuth(req *http.Request) {
+	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+}
+
 func fetchJSON(c *http.Client, url string, v any) bool {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return false
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	githubAuth(req)
 	resp, err := c.Do(req)
 	if err != nil {
 		return false
@@ -467,7 +477,14 @@ func (s *server) ensureReleaseCached(assetName string) (string, error) {
 	muAny, _ := releaseFetchLock.LoadOrStore(assetName, &sync.Mutex{})
 	mu := muAny.(*sync.Mutex)
 	mu.Lock()
-	defer mu.Unlock()
+	// Cleanup: whoever holds the mutex at the end of the function deletes it
+	// from the map.  A late concurrent caller will allocate a fresh mutex via
+	// LoadOrStore; correct because only file-system state, not the mutex,
+	// gates the fetch, and the disk double-check below catches that case.
+	defer func() {
+		releaseFetchLock.Delete(assetName)
+		mu.Unlock()
+	}()
 	// Double-check after taking the lock — a sibling goroutine may have
 	// finished while we were waiting.
 	if fi, err := os.Stat(dest); err == nil && fi.Size() > 0 {
@@ -540,7 +557,14 @@ func (s *server) ensureReleaseCached(assetName string) (string, error) {
 	// Download to a sibling .part file, then atomic rename.  Avoids serving
 	// a half-written tarball if we crash mid-fetch.
 	part := dest + ".part"
-	resp, err := client.Get(dlURL)
+	dlReq, err := http.NewRequest("GET", dlURL, nil)
+	if err != nil {
+		return "", err
+	}
+	// Bearer on the download too — required for private repos, harmless on
+	// public S3 URLs.
+	githubAuth(dlReq)
+	resp, err := client.Do(dlReq)
 	if err != nil {
 		return "", err
 	}

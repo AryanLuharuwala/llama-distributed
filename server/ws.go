@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,11 +22,16 @@ type browserConn struct {
 	once   sync.Once
 }
 
+// send tries a non-blocking enqueue first; if the buffer is full the browser
+// is too slow to keep up and we close the socket so the client reconnects and
+// re-fetches state on open rather than silently missing events.  Much better
+// than the previous silent drop, which left dashboards permanently stale.
 func (b *browserConn) send(v any) {
 	select {
 	case b.outCh <- v:
 	default:
-		// drop — slow client
+		log.Printf("browser uid=%d: outCh full, closing to force client re-sync", b.userID)
+		b.close()
 	}
 }
 
@@ -119,6 +125,12 @@ type agentConn struct {
 	closed   chan struct{}
 	once     sync.Once
 
+	// Load tracking for request routing.  Incremented by the dispatcher before
+	// a request is forwarded to this agent, decremented when the response
+	// finishes (success, error, or client disconnect).  Read lock-free via
+	// atomic.Int32.
+	inflight atomic.Int32
+
 	// Relay binding: if non-nil, binary frames from this agent are forwarded
 	// to the bound client.  Protected by peerMu.
 	peerMu    sync.RWMutex
@@ -126,6 +138,10 @@ type agentConn struct {
 	inferPeer *inferPeer // set while an /api/infer request is in flight
 	ppPeer    *ppPeer    // set while this agent is a stage in an /api/infer_pp request
 }
+
+func (a *agentConn) incInflight() { a.inflight.Add(1) }
+func (a *agentConn) decInflight() { a.inflight.Add(-1) }
+func (a *agentConn) loadInflight() int32 { return a.inflight.Load() }
 
 func (a *agentConn) send(v any) {
 	select {
@@ -159,9 +175,14 @@ func (a *agentConn) close() {
 	a.once.Do(func() { close(a.closed) })
 }
 
+// agentHello is the first WS frame sent by dist-node.  Two shapes share the
+// struct:
+//   {kind:"hello",  token:"…",     agent_id, hostname, …}  — pair bootstrap
+//   {kind:"resume", agent_key:"…", agent_id, hostname, …}  — every reconnect
 type agentHello struct {
 	Kind      string `json:"kind"`
-	Token     string `json:"token"`
+	Token     string `json:"token,omitempty"`
+	AgentKey  string `json:"agent_key,omitempty"`
 	AgentID   string `json:"agent_id"`
 	Hostname  string `json:"hostname"`
 	NGPUs     int    `json:"n_gpus"`
@@ -190,47 +211,87 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// First message must be hello within 10s.
+	// First message must arrive within 10s.  Accept either hello (first-time
+	// pair) or resume (every subsequent reconnect).
 	readCtx, rc := context.WithTimeout(ctx, 10*time.Second)
 	var hello agentHello
 	err = wsjsonRead(readCtx, conn, &hello)
 	rc()
-	if err != nil || hello.Kind != "hello" || hello.Token == "" || hello.AgentID == "" {
+	if err != nil || hello.AgentID == "" ||
+		(hello.Kind != "hello" && hello.Kind != "resume") ||
+		(hello.Kind == "hello" && hello.Token == "") ||
+		(hello.Kind == "resume" && hello.AgentKey == "") {
 		_ = wsjsonWrite(ctx, conn, map[string]any{
-			"kind": "error", "message": "expected hello",
+			"kind": "error", "message": "expected hello or resume frame",
 		})
 		_ = conn.Close(websocket.StatusPolicyViolation, "bad hello")
 		return
 	}
 
-	uid, preferPoolID, err := s.consumePairToken(hello.Token)
-	if err != nil {
-		_ = wsjsonWrite(ctx, conn, map[string]any{
-			"kind": "error", "message": "bad pair token",
-		})
-		_ = conn.Close(websocket.StatusPolicyViolation, "bad token")
-		return
+	var (
+		uid           int64
+		preferPoolID  int64
+		agentKey      string // sent back in welcome on first pair only
+		isFirstPair   bool
+	)
+
+	if hello.Kind == "hello" {
+		var err2 error
+		uid, preferPoolID, err2 = s.consumePairToken(hello.Token)
+		if err2 != nil {
+			_ = wsjsonWrite(ctx, conn, map[string]any{
+				"kind": "error", "message": "bad pair token",
+			})
+			_ = conn.Close(websocket.StatusPolicyViolation, "bad token")
+			return
+		}
+		// Mint a fresh agent_key that the rig persists for future reconnects.
+		agentKey = newRandomToken(24)
+		isFirstPair = true
+	} else {
+		// resume: look up (agent_id, agent_key) → user_id.  Constant-time-ish
+		// match on a 48-char random token; not meaningfully attackable.
+		err2 := s.db.QueryRow(
+			`SELECT user_id FROM rigs WHERE agent_id = ? AND agent_key = ?`,
+			hello.AgentID, hello.AgentKey,
+		).Scan(&uid)
+		if err2 != nil {
+			_ = wsjsonWrite(ctx, conn, map[string]any{
+				"kind": "error", "message": "bad agent_key — re-run the pair flow from the dashboard",
+			})
+			_ = conn.Close(websocket.StatusPolicyViolation, "bad agent_key")
+			return
+		}
 	}
 
-	// Upsert the rig.
-	_, err = s.db.Exec(`INSERT INTO rigs
-		(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (user_id, agent_id)
-		DO UPDATE SET hostname = excluded.hostname,
-		              n_gpus = excluded.n_gpus,
-		              vram_bytes = excluded.vram_bytes,
-		              last_seen = excluded.last_seen`,
-		uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(),
-	)
+	// Upsert the rig.  On first pair, also persist the new agent_key; on
+	// resume, leave it in place.
+	if isFirstPair {
+		_, err = s.db.Exec(`INSERT INTO rigs
+			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (user_id, agent_id)
+			DO UPDATE SET hostname   = excluded.hostname,
+			              n_gpus     = excluded.n_gpus,
+			              vram_bytes = excluded.vram_bytes,
+			              last_seen  = excluded.last_seen,
+			              agent_key  = excluded.agent_key`,
+			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), agentKey,
+		)
+	} else {
+		_, err = s.db.Exec(`UPDATE rigs SET hostname = ?, n_gpus = ?, vram_bytes = ?, last_seen = ?
+			WHERE user_id = ? AND agent_id = ?`,
+			hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), uid, hello.AgentID,
+		)
+	}
 	if err != nil {
 		log.Printf("rig upsert: %v", err)
 	}
 
 	// Auto-attach this rig to the pool the browser pre-selected during
-	// install.  Silent no-op if the user is no longer a member of the pool
-	// (e.g. they left between minting and pairing).
-	if preferPoolID != 0 {
+	// install.  Only runs on first pair — resume reconnects keep whatever
+	// pool_rigs rows already exist.
+	if isFirstPair && preferPoolID != 0 {
 		var rigRowID int64
 		if err := s.db.QueryRow(
 			`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
@@ -254,11 +315,17 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).
 		Scan(&displayName)
 
-	_ = wsjsonWrite(ctx, conn, map[string]any{
+	welcome := map[string]any{
 		"kind":         "welcome",
 		"user_id":      uid,
 		"display_name": displayName,
-	})
+	}
+	if isFirstPair {
+		// Only surface the key on the frame that mints it.  On resume we
+		// don't re-emit — the rig already has it on disk.
+		welcome["agent_key"] = agentKey
+	}
+	_ = wsjsonWrite(ctx, conn, welcome)
 
 	ac := &agentConn{
 		userID:   uid,
@@ -272,13 +339,43 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	s.hub.registerAgent(ac)
 	defer s.hub.unregisterAgent(ac)
 
-	// Tell the browser(s) the rig came online.
+	// Tell the browser(s) the rig came online.  is_first_pair lets the UI
+	// flip the install card to a ✅ ("rig paired!") without waiting for a
+	// manual refresh — see the install picker status line.
 	s.hub.broadcastToUser(uid, "rig_online", map[string]any{
-		"agent_id":   hello.AgentID,
-		"hostname":   hello.Hostname,
-		"n_gpus":     hello.NGPUs,
-		"vram_bytes": hello.VRAMBytes,
+		"agent_id":      hello.AgentID,
+		"hostname":      hello.Hostname,
+		"n_gpus":        hello.NGPUs,
+		"vram_bytes":    hello.VRAMBytes,
+		"is_first_pair": isFirstPair,
 	})
+
+	// Ping loop — catches half-open TCP connections (the peer NIC went away
+	// but no RST arrived).  A failed Ping closes ac.closed which unblocks the
+	// reader loop on the next Read.  Ping/pong is concurrency-safe on
+	// coder/websocket, so we don't need to route it through the writer.
+	go func() {
+		t := time.NewTicker(20 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ac.closed:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pctx, pc := context.WithTimeout(ctx, 10*time.Second)
+				err := conn.Ping(pctx)
+				pc()
+				if err != nil {
+					log.Printf("agent %s: ping failed, closing: %v", hello.AgentID, err)
+					ac.close()
+					_ = conn.Close(websocket.StatusGoingAway, "ping timeout")
+					return
+				}
+			}
+		}
+	}()
 
 	// Writer — serialises JSON control frames AND relay binary frames on the
 	// single WS connection.  Concurrent writes on *websocket.Conn are unsafe,
@@ -324,8 +421,8 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if kind, _ := msg["kind"].(string); kind == "status" {
-				_, _ = s.db.Exec(`UPDATE rigs SET last_seen = ? WHERE user_id = ? AND agent_id = ?`,
-					nowUnix(), uid, hello.AgentID)
+				// Hot path: coalesce into in-memory map, flushed every 1s.
+				s.markLastSeen(uid, hello.AgentID)
 			}
 			if deliverSignalAnswer(msg) {
 				continue

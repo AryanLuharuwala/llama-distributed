@@ -21,10 +21,70 @@ type server struct {
 	cfg config
 	db  *sql.DB
 	hub *hub
+
+	// Pending last_seen updates, batched to cut SQLite WAL contention under
+	// load.  Key is (user_id, agent_id); value is the latest unix timestamp
+	// we observed on that agent's status frame.  Flushed every 1s by
+	// reapLoop into a single multi-row UPDATE.
+	lastSeenMu sync.Mutex
+	lastSeen   map[agentKey]int64
 }
 
 func newServer(cfg config, db *sql.DB) *server {
-	return &server{cfg: cfg, db: db, hub: newHub()}
+	return &server{
+		cfg:      cfg,
+		db:       db,
+		hub:      newHub(),
+		lastSeen: make(map[agentKey]int64),
+	}
+}
+
+// markLastSeen records that (uid, agentID) was heard from at now.  O(1),
+// lock-free on the hot path after taking a single mutex.
+func (s *server) markLastSeen(uid int64, agentID string) {
+	s.lastSeenMu.Lock()
+	s.lastSeen[agentKey{uid, agentID}] = nowUnix()
+	s.lastSeenMu.Unlock()
+}
+
+// flushLastSeen writes all pending last_seen updates in one transaction.
+// Called from reapLoop every 1s and once more on shutdown.
+func (s *server) flushLastSeen() {
+	s.lastSeenMu.Lock()
+	if len(s.lastSeen) == 0 {
+		s.lastSeenMu.Unlock()
+		return
+	}
+	pending := s.lastSeen
+	s.lastSeen = make(map[agentKey]int64, len(pending))
+	s.lastSeenMu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		// Put everything back; we'll retry next tick.
+		s.lastSeenMu.Lock()
+		for k, v := range pending {
+			if cur, ok := s.lastSeen[k]; !ok || v > cur {
+				s.lastSeen[k] = v
+			}
+		}
+		s.lastSeenMu.Unlock()
+		return
+	}
+	stmt, err := tx.Prepare(`UPDATE rigs SET last_seen = ? WHERE user_id = ? AND agent_id = ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	defer stmt.Close()
+	for k, t := range pending {
+		if _, err := stmt.Exec(t, k.userID, k.agentID); err != nil {
+			log.Printf("flushLastSeen: %v", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("flushLastSeen commit: %v", err)
+	}
 }
 
 func (s *server) router() http.Handler {
@@ -106,6 +166,17 @@ func (s *server) router() http.Handler {
 	// Health
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok"))
+	})
+
+	// On-demand LAN reachability check.  Re-runs the boot-time firewall
+	// probe; used by the dashboard's "Test LAN reachability" button so
+	// users can verify a fix without restarting the server.
+	mux.HandleFunc("GET /api/firewall_check", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := s.userFromRequest(r); !ok {
+			writeErr(w, 401, "not logged in")
+			return
+		}
+		writeJSON(w, 200, firewallProbe(s.cfg.addr))
 	})
 
 	return withLogging(mux)
@@ -381,26 +452,28 @@ func httpToWS(u string) string {
 }
 
 // consumePairToken returns (user_id, pool_id, error).  pool_id is 0 when the
-// token was not pinned to a pool.  The token is marked used atomically with
-// the read so it can only succeed once.
+// token was not pinned to a pool.  Uses UPDATE ... RETURNING so the read and
+// the "mark used" write are a single atomic statement — two concurrent
+// consumers of the same token can never both succeed.
 func (s *server) consumePairToken(token string) (int64, int64, error) {
 	var uid, exp int64
 	var poolID sql.NullInt64
+	now := nowUnix()
 	err := s.db.QueryRow(
-		`SELECT user_id, expires_at, pool_id FROM pair_tokens
-		 WHERE token = ? AND used_at IS NULL`,
-		token,
+		`UPDATE pair_tokens
+		    SET used_at = ?
+		  WHERE token = ? AND used_at IS NULL AND expires_at >= ?
+		  RETURNING user_id, expires_at, pool_id`,
+		now, token, now,
 	).Scan(&uid, &exp, &poolID)
-	if err != nil {
-		return 0, 0, err
-	}
-	if exp < nowUnix() {
+	if err == sql.ErrNoRows {
+		// Row either doesn't exist, was already used, or expired.  We can
+		// disambiguate expiry vs missing/used with a follow-up read, but the
+		// caller treats both the same way (prompt the user to regenerate),
+		// so keep it one round-trip.
 		return 0, 0, errPairExpired
 	}
-	if _, err := s.db.Exec(
-		`UPDATE pair_tokens SET used_at = ? WHERE token = ?`,
-		nowUnix(), token,
-	); err != nil {
+	if err != nil {
 		return 0, 0, err
 	}
 	var pid int64
@@ -419,13 +492,18 @@ func (e *pairErr) Error() string { return e.msg }
 // ─── Reap loop ──────────────────────────────────────────────────────────────
 
 func (s *server) reapLoop(ctx context.Context) {
-	t := time.NewTicker(1 * time.Minute)
-	defer t.Stop()
+	reap := time.NewTicker(1 * time.Minute)
+	defer reap.Stop()
+	flush := time.NewTicker(1 * time.Second)
+	defer flush.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			s.flushLastSeen()
 			return
-		case <-t.C:
+		case <-flush.C:
+			s.flushLastSeen()
+		case <-reap.C:
 			_, _ = s.db.Exec(`DELETE FROM sessions    WHERE expires_at < ?`, nowUnix())
 			_, _ = s.db.Exec(`DELETE FROM pair_tokens WHERE expires_at < ?`, nowUnix())
 		}
@@ -508,27 +586,45 @@ func (s *server) countOnlineRigsInPool(poolID int64) int {
 	return n
 }
 
-// pickOnlineRigInPool returns a live agentConn in the pool (for relay target
-// selection).  Returns (nil, false) if none are online.
+// pickOnlineRigInPool returns the least-loaded live agentConn in the pool.
+// Load == number of in-flight requests the server has dispatched to that
+// agent.  Ties are broken by RANDOM() order in the DB scan so a cold pool
+// doesn't always route to the same rig.  Caller MUST call incInflight()
+// before dispatching and decInflight() when the request terminates.
 func (s *server) pickOnlineRigInPool(poolID int64) (*agentConn, bool) {
 	rows, err := s.db.Query(`
 		SELECT r.user_id, r.agent_id FROM pool_rigs pr
-		JOIN rigs r ON r.id = pr.rig_id WHERE pr.pool_id = ?`, poolID)
+		JOIN rigs r ON r.id = pr.rig_id
+		WHERE pr.pool_id = ?
+		ORDER BY RANDOM()`, poolID)
 	if err != nil {
 		return nil, false
 	}
 	defer rows.Close()
+	var best *agentConn
+	var bestLoad int32 = 1<<30
 	for rows.Next() {
 		var uid int64
 		var aid string
 		if err := rows.Scan(&uid, &aid); err != nil {
 			continue
 		}
-		if a, ok := s.hub.findAgent(uid, aid); ok {
-			return a, true
+		a, ok := s.hub.findAgent(uid, aid)
+		if !ok {
+			continue
+		}
+		if load := a.loadInflight(); load < bestLoad {
+			best = a
+			bestLoad = load
+			if load == 0 {
+				break // can't beat zero; stop scanning
+			}
 		}
 	}
-	return nil, false
+	if best == nil {
+		return nil, false
+	}
+	return best, true
 }
 
 func (h *hub) registerBrowser(b *browserConn) {

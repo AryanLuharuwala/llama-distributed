@@ -168,6 +168,11 @@ func migrate(db *sql.DB) error {
 		// when the browser chose a pool in the install picker; consumed
 		// atomically with the pair token in the WS handshake.
 		`ALTER TABLE pair_tokens ADD COLUMN pool_id INTEGER REFERENCES pools(id) ON DELETE SET NULL`,
+		// Persistent agent credential.  Generated at first-pair success
+		// and returned in the welcome frame; the rig stores it locally
+		// and replays it on every reconnect, so pair tokens become a
+		// one-shot bootstrap rather than a per-restart requirement.
+		`ALTER TABLE rigs ADD COLUMN agent_key TEXT`,
 	}
 	for _, s := range alters {
 		if err := addColumnIfMissing(db, s); err != nil {

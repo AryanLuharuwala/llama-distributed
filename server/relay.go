@@ -99,7 +99,7 @@ func (s *server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pick any online rig in the pool.
+	// Pick the least-loaded online rig in the pool.
 	ac, ok := s.pickOnlineRigInPool(open.PoolID)
 	if !ok {
 		_ = wsjsonWrite(ctx, conn, map[string]any{
@@ -108,6 +108,8 @@ func (s *server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "no rigs")
 		return
 	}
+	ac.incInflight()
+	defer ac.decInflight()
 
 	// Bind client to agent.  Refuse if the agent already has a peer.
 	ac.peerMu.Lock()
