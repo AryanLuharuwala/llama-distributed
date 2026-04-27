@@ -56,15 +56,15 @@
   </div>
 </header>
 
-<section class="hero">
-  <div class="container hero-grid">
-    <div>
+<section class="hero primer-section" id="primer">
+  <div class="container">
+    <div class="primer-intro">
       <span class="badge badge-orange">Open source &middot; Apache 2.0</span>
-      <h1>Run any LLM across <span class="accent">any pool</span> of GPUs.</h1>
+      <h1>One prompt. <span class="accent">Any pool</span> of GPUs.</h1>
       <p class="lede">
-        llama-distributed splits models layer-by-layer across a cluster of heterogeneous
-        GPU rigs, streams activations between nodes, and exposes the whole pool as a
-        single OpenAI-compatible endpoint. No tensor-wise sharding dance, no custom SDK.
+        llama-distributed splits a model layer-by-layer across a network of heterogeneous
+        GPU rigs, streams activations between nodes, and exposes the whole pool as a single
+        OpenAI-compatible endpoint. No tensor-wise sharding dance, no custom SDK.
       </p>
       <div class="hero-ctas">
         <a class="btn btn-primary btn-lg" href="#install">Get Started</a>
@@ -72,31 +72,431 @@
       </div>
       <div class="hero-meta">
         <span><span class="dot active"></span>Stable v0.3</span>
-        <span><span class="dot"></span>CUDA / Metal / Vulkan / CPU</span>
+        <span><span class="dot"></span>CUDA &middot; Metal &middot; Vulkan &middot; CPU</span>
         <span><span class="dot"></span>OpenAI SDK drop-in</span>
       </div>
     </div>
-    <div class="hero-visual" aria-hidden="true">
-      <div class="hero-visual-head">
-        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="title">client.py</span>
+
+    <div class="primer">
+      <svg class="primer-svg" viewBox="0 0 1200 400" preserveAspectRatio="xMidYMid meet" data-primer aria-label="Animated diagram of an inference request flowing through llama-distributed">
+        <defs>
+          <radialGradient id="primerHaloOlive" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#3A4A1F" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#3A4A1F" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="primerHaloOrange" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#EA580C" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+
+        <g class="primer-halos">
+          <circle cx="140" cy="200" r="140" fill="url(#primerHaloOlive)"/>
+          <circle cx="420" cy="120" r="100" fill="url(#primerHaloOlive)"/>
+          <circle cx="800" cy="220" r="170" fill="url(#primerHaloOrange)"/>
+          <circle cx="1100" cy="130" r="100" fill="url(#primerHaloOlive)"/>
+        </g>
+
+        <g class="primer-edges" data-primer-edges></g>
+        <g class="primer-packets" data-primer-packets></g>
+
+        <g class="primer-chat" transform="translate(30, 30)">
+          <rect class="chat-shadow" x="3" y="6" width="220" height="330" rx="20"/>
+          <rect class="chat-bg" x="0" y="0" width="220" height="330" rx="20"/>
+          <rect class="chat-header" x="14" y="14" width="192" height="32" rx="8"/>
+          <circle class="chat-status" cx="30" cy="30" r="5"/>
+          <text class="chat-header-text" x="46" y="34">your app · OpenAI SDK</text>
+
+          <rect class="chat-user" x="58" y="62" width="148" height="68" rx="14"/>
+          <text class="chat-user-text" x="146" y="84" text-anchor="end">
+            <tspan x="194" dy="0">Explain ring-</tspan>
+            <tspan x="194" dy="14">AllReduce in</tspan>
+            <tspan x="194" dy="14">one sentence.</tspan>
+          </text>
+
+          <rect class="chat-asst" x="14" y="155" width="186" height="68" rx="14"/>
+          <g class="chat-typing">
+            <circle cx="36" cy="189" r="4"/>
+            <circle cx="52" cy="189" r="4"/>
+            <circle cx="68" cy="189" r="4"/>
+          </g>
+          <text class="chat-asst-text" x="86" y="194">tokens streaming…</text>
+
+          <text class="chat-foot" x="110" y="288" text-anchor="middle">live · sk-dist-…</text>
+        </g>
+
+        <g class="primer-server" transform="translate(310, 60)">
+          <rect class="server-shadow" x="3" y="5" width="200" height="110" rx="14"/>
+          <rect class="server-bg" x="0" y="0" width="200" height="110" rx="14"/>
+          <rect class="server-stripe" x="0" y="0" width="200" height="4" rx="2"/>
+          <text class="server-title" x="100" y="44" text-anchor="middle">dist-server</text>
+          <text class="server-sub" x="100" y="64" text-anchor="middle">Go · :8080</text>
+          <text class="server-sub2" x="100" y="84" text-anchor="middle">auth · routing · SSE</text>
+          <circle class="server-pulse" cx="100" cy="100" r="3"/>
+        </g>
+
+        <g class="primer-sqlite" transform="translate(350, 230)">
+          <rect class="sqlite-bg" x="0" y="0" width="130" height="50" rx="10"/>
+          <text class="sqlite-title" x="65" y="22" text-anchor="middle">SQLite</text>
+          <text class="sqlite-sub" x="65" y="38" text-anchor="middle">pools · keys · rigs</text>
+        </g>
+
+        <g class="primer-rigs">
+          <g class="primer-rig rig-cuda" transform="translate(570, 100)">
+            <rect class="rig-shadow" x="3" y="5" width="130" height="220" rx="12"/>
+            <rect class="rig-bg" x="0" y="0" width="130" height="220" rx="12"/>
+            <rect class="rig-stripe" x="0" y="0" width="130" height="6" rx="3"/>
+            <g class="rig-chip" transform="translate(53, 28)">
+              <rect width="24" height="24" rx="4"/>
+              <line x1="2" y1="-4" x2="2" y2="0"/><line x1="8" y1="-4" x2="8" y2="0"/><line x1="16" y1="-4" x2="16" y2="0"/><line x1="22" y1="-4" x2="22" y2="0"/>
+              <line x1="2" y1="24" x2="2" y2="28"/><line x1="8" y1="24" x2="8" y2="28"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="22" y1="24" x2="22" y2="28"/>
+            </g>
+            <text class="rig-title" x="65" y="92" text-anchor="middle">rig 0</text>
+            <text class="rig-accel" x="65" y="112" text-anchor="middle">CUDA · 4090</text>
+            <text class="rig-layers" x="65" y="148" text-anchor="middle">L 0–19</text>
+            <circle class="rig-status-dot" cx="50" cy="188" r="4"/>
+            <text class="rig-status" x="60" y="192" text-anchor="start">online</text>
+          </g>
+          <g class="primer-rig rig-metal" transform="translate(720, 100)">
+            <rect class="rig-shadow" x="3" y="5" width="130" height="220" rx="12"/>
+            <rect class="rig-bg" x="0" y="0" width="130" height="220" rx="12"/>
+            <rect class="rig-stripe" x="0" y="0" width="130" height="6" rx="3"/>
+            <g class="rig-chip" transform="translate(53, 28)">
+              <rect width="24" height="24" rx="4"/>
+              <line x1="2" y1="-4" x2="2" y2="0"/><line x1="8" y1="-4" x2="8" y2="0"/><line x1="16" y1="-4" x2="16" y2="0"/><line x1="22" y1="-4" x2="22" y2="0"/>
+              <line x1="2" y1="24" x2="2" y2="28"/><line x1="8" y1="24" x2="8" y2="28"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="22" y1="24" x2="22" y2="28"/>
+            </g>
+            <text class="rig-title" x="65" y="92" text-anchor="middle">rig 1</text>
+            <text class="rig-accel" x="65" y="112" text-anchor="middle">Metal · M3 Max</text>
+            <text class="rig-layers" x="65" y="148" text-anchor="middle">L 20–39</text>
+            <circle class="rig-status-dot" cx="50" cy="188" r="4"/>
+            <text class="rig-status" x="60" y="192" text-anchor="start">online</text>
+          </g>
+          <g class="primer-rig rig-vulkan" transform="translate(870, 100)">
+            <rect class="rig-shadow" x="3" y="5" width="130" height="220" rx="12"/>
+            <rect class="rig-bg" x="0" y="0" width="130" height="220" rx="12"/>
+            <rect class="rig-stripe" x="0" y="0" width="130" height="6" rx="3"/>
+            <g class="rig-chip" transform="translate(53, 28)">
+              <rect width="24" height="24" rx="4"/>
+              <line x1="2" y1="-4" x2="2" y2="0"/><line x1="8" y1="-4" x2="8" y2="0"/><line x1="16" y1="-4" x2="16" y2="0"/><line x1="22" y1="-4" x2="22" y2="0"/>
+              <line x1="2" y1="24" x2="2" y2="28"/><line x1="8" y1="24" x2="8" y2="28"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="22" y1="24" x2="22" y2="28"/>
+            </g>
+            <text class="rig-title" x="65" y="92" text-anchor="middle">rig 2</text>
+            <text class="rig-accel" x="65" y="112" text-anchor="middle">Vulkan · 7900</text>
+            <text class="rig-layers" x="65" y="148" text-anchor="middle">L 40–59</text>
+            <circle class="rig-status-dot" cx="50" cy="188" r="4"/>
+            <text class="rig-status" x="60" y="192" text-anchor="start">online</text>
+          </g>
+          <g class="primer-rig rig-cpu" transform="translate(1020, 100)">
+            <rect class="rig-shadow" x="3" y="5" width="150" height="220" rx="12"/>
+            <rect class="rig-bg" x="0" y="0" width="150" height="220" rx="12"/>
+            <rect class="rig-stripe" x="0" y="0" width="150" height="6" rx="3"/>
+            <g class="rig-chip" transform="translate(63, 28)">
+              <rect width="24" height="24" rx="4"/>
+              <line x1="2" y1="-4" x2="2" y2="0"/><line x1="8" y1="-4" x2="8" y2="0"/><line x1="16" y1="-4" x2="16" y2="0"/><line x1="22" y1="-4" x2="22" y2="0"/>
+              <line x1="2" y1="24" x2="2" y2="28"/><line x1="8" y1="24" x2="8" y2="28"/><line x1="16" y1="24" x2="16" y2="28"/><line x1="22" y1="24" x2="22" y2="28"/>
+            </g>
+            <text class="rig-title" x="75" y="92" text-anchor="middle">rig 3</text>
+            <text class="rig-accel" x="75" y="112" text-anchor="middle">CPU · Ryzen</text>
+            <text class="rig-layers" x="75" y="148" text-anchor="middle">L 60–79</text>
+            <circle class="rig-status-dot" cx="60" cy="188" r="4"/>
+            <text class="rig-status" x="70" y="192" text-anchor="start">online</text>
+          </g>
+        </g>
+      </svg>
+
+      <div class="primer-legend">
+        <span class="leg-item"><span class="leg-dot leg-dot-control"></span> control plane &middot; HTTPS &middot; WebSocket &middot; SSE</span>
+        <span class="leg-item"><span class="leg-dot leg-dot-data"></span> data plane &middot; TCP :7701 &middot; 4 KB activations</span>
       </div>
-      <pre><span class="c-com"># point any OpenAI SDK at your rig pool</span>
-<span class="c-key">from</span> openai <span class="c-key">import</span> OpenAI
+    </div>
 
-client = <span class="c-fn">OpenAI</span>(
-    base_url=<span class="c-str">"https://alice-alpha.dist.dev/v1"</span>,
-    api_key=<span class="c-str">"sk-dist-…"</span>,
-)
+    <div class="concepts">
+      <article class="concept-card">
+        <div class="concept-visual concept-visual-split">
+          <svg viewBox="0 0 220 90" aria-hidden="true">
+            <text x="0" y="14" class="concept-cap">70B model</text>
+            <rect x="0" y="22" width="220" height="34" rx="6" class="model-bar"/>
+            <rect x="0"   y="22" width="55" height="34" class="model-seg seg-1"/>
+            <rect x="55"  y="22" width="55" height="34" class="model-seg seg-2"/>
+            <rect x="110" y="22" width="55" height="34" class="model-seg seg-3"/>
+            <rect x="165" y="22" width="55" height="34" class="model-seg seg-4"/>
+            <text x="27"  y="44" class="seg-label" text-anchor="middle">L 0–19</text>
+            <text x="82"  y="44" class="seg-label" text-anchor="middle">L 20–39</text>
+            <text x="137" y="44" class="seg-label" text-anchor="middle">L 40–59</text>
+            <text x="192" y="44" class="seg-label" text-anchor="middle">L 60–79</text>
+            <text x="27"  y="76" class="seg-foot" text-anchor="middle">rig 0</text>
+            <text x="82"  y="76" class="seg-foot" text-anchor="middle">rig 1</text>
+            <text x="137" y="76" class="seg-foot" text-anchor="middle">rig 2</text>
+            <text x="192" y="76" class="seg-foot" text-anchor="middle">rig 3</text>
+          </svg>
+        </div>
+        <h3>Layer-split, not tensor-split</h3>
+        <p>The model is sliced at layer boundaries. A 24&nbsp;GB rig and a 40&nbsp;GB rig can serve the same 70B model — the planner gives more VRAM more layers.</p>
+      </article>
 
-resp = client.chat.completions.<span class="c-fn">create</span>(
-    model=<span class="c-str">"llama-3-70b"</span>,
-    messages=[{<span class="c-str">"role"</span>: <span class="c-str">"user"</span>,
-               <span class="c-str">"content"</span>: <span class="c-str">"Explain ring-AllReduce."</span>}],
-    stream=<span class="c-key">True</span>,
-)
-<span class="c-key">for</span> chunk <span class="c-key">in</span> resp:
-    <span class="c-fn">print</span>(chunk.choices[<span class="c-str">0</span>].delta.content, end=<span class="c-str">""</span>)</pre>
+      <article class="concept-card">
+        <div class="concept-visual concept-visual-accel">
+          <svg viewBox="0 0 220 90" aria-hidden="true">
+            <g transform="translate(10, 22)">
+              <rect width="44" height="44" rx="8" class="chip chip-cuda"/>
+              <text x="22" y="68" text-anchor="middle" class="chip-cap">CUDA</text>
+            </g>
+            <g transform="translate(64, 22)">
+              <rect width="44" height="44" rx="8" class="chip chip-metal"/>
+              <text x="22" y="68" text-anchor="middle" class="chip-cap">Metal</text>
+            </g>
+            <g transform="translate(118, 22)">
+              <rect width="44" height="44" rx="8" class="chip chip-vulkan"/>
+              <text x="22" y="68" text-anchor="middle" class="chip-cap">Vulkan</text>
+            </g>
+            <g transform="translate(172, 22)">
+              <rect width="44" height="44" rx="8" class="chip chip-cpu"/>
+              <text x="22" y="68" text-anchor="middle" class="chip-cap">CPU</text>
+            </g>
+            <line x1="54" y1="44" x2="64" y2="44" class="chip-link"/>
+            <line x1="108" y1="44" x2="118" y2="44" class="chip-link"/>
+            <line x1="162" y1="44" x2="172" y2="44" class="chip-link"/>
+          </svg>
+        </div>
+        <h3>Mix any accelerators</h3>
+        <p>NVIDIA, Apple, AMD, Intel, or plain CPU rigs share one pool. The wire protocol is identical — llama.cpp's backends do the work.</p>
+      </article>
+
+      <article class="concept-card">
+        <div class="concept-visual concept-visual-code">
+          <svg viewBox="0 0 220 90" aria-hidden="true">
+            <rect x="0" y="0" width="220" height="90" rx="8" class="code-bg"/>
+            <text x="14" y="22" class="code-line"><tspan class="c-key">from</tspan> openai <tspan class="c-key">import</tspan> OpenAI</text>
+            <text x="14" y="42" class="code-line">client = <tspan class="c-fn">OpenAI</tspan>(</text>
+            <text x="14" y="60" class="code-line code-hl"><tspan class="c-arg">  base_url=</tspan><tspan class="c-str">"&lt;pool&gt;.dist/v1"</tspan>,</text>
+            <text x="14" y="78" class="code-line"><tspan class="c-arg">  api_key=</tspan><tspan class="c-str">"sk-dist-…"</tspan>,</text>
+          </svg>
+        </div>
+        <h3>OpenAI drop-in</h3>
+        <p>Your existing code keeps working — only <code>base_url</code> changes. Streaming, function calling, JSON mode all pass through unchanged.</p>
+      </article>
+
+      <article class="concept-card">
+        <div class="concept-visual concept-visual-stream">
+          <svg viewBox="0 0 220 90" aria-hidden="true">
+            <rect x="0" y="20" width="220" height="50" rx="10" class="stream-bg"/>
+            <text x="16" y="50" class="stream-text">
+              <tspan class="tk tk-1">Ring-</tspan><tspan class="tk tk-2">All</tspan><tspan class="tk tk-3">Reduce</tspan><tspan class="tk tk-4"> is a</tspan><tspan class="tk tk-5"> ring</tspan><tspan class="tk tk-6"> top-</tspan><tspan class="tk tk-7">ology</tspan>
+            </text>
+            <rect class="stream-cursor" x="16" y="38" width="2" height="14"/>
+          </svg>
+        </div>
+        <h3>Stream-first</h3>
+        <p>Tokens leave the exit rig the moment they're sampled and arrive at your app within milliseconds — same SSE contract as the OpenAI API.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt archs-section" id="archs">
+  <div class="container">
+    <div class="section-head">
+      <span class="eyebrow">Backends</span>
+      <h2>Every accelerator. One pool.</h2>
+      <p>Whatever silicon you have — NVIDIA, Apple, AMD, Intel, or pure CPU — joins the same pool. The wire protocol is hardware-agnostic; llama.cpp's backends do the math.</p>
+    </div>
+
+    <div class="archs">
+      <article class="arch-card arch-card-cuda">
+        <div class="arch-art">
+          <svg viewBox="0 0 200 140" aria-hidden="true">
+            <rect class="art-pcb"   x="10" y="38" width="180" height="84" rx="4"/>
+            <rect class="art-heat"  x="16" y="44" width="168" height="50" rx="3"/>
+            <g class="art-fins">
+              <line x1="20" y1="52" x2="180" y2="52"/>
+              <line x1="20" y1="58" x2="180" y2="58"/>
+              <line x1="20" y1="64" x2="180" y2="64"/>
+              <line x1="20" y1="70" x2="180" y2="70"/>
+              <line x1="20" y1="76" x2="180" y2="76"/>
+              <line x1="20" y1="82" x2="180" y2="82"/>
+              <line x1="20" y1="88" x2="180" y2="88"/>
+            </g>
+            <g class="art-fan" transform="translate(60, 69)">
+              <circle r="18" class="art-fan-ring"/>
+              <g class="art-fan-blades">
+                <line x1="-14" y1="0" x2="14" y2="0"/>
+                <line x1="0" y1="-14" x2="0" y2="14"/>
+                <line x1="-10" y1="-10" x2="10" y2="10"/>
+                <line x1="-10" y1="10" x2="10" y2="-10"/>
+              </g>
+              <circle r="3.5" class="art-fan-hub"/>
+            </g>
+            <g class="art-fan" transform="translate(140, 69)">
+              <circle r="18" class="art-fan-ring"/>
+              <g class="art-fan-blades art-fan-blades-2">
+                <line x1="-14" y1="0" x2="14" y2="0"/>
+                <line x1="0" y1="-14" x2="0" y2="14"/>
+                <line x1="-10" y1="-10" x2="10" y2="10"/>
+                <line x1="-10" y1="10" x2="10" y2="-10"/>
+              </g>
+              <circle r="3.5" class="art-fan-hub"/>
+            </g>
+            <rect class="art-stripe art-stripe-cuda" x="10" y="100" width="180" height="6" rx="2"/>
+            <text x="100" y="120" class="art-brand" text-anchor="middle">CUDA</text>
+            <circle class="art-led art-led-cuda" cx="178" cy="34" r="3"/>
+          </svg>
+        </div>
+        <div class="arch-meta">
+          <h3>CUDA</h3>
+          <p class="arch-tag">NVIDIA &middot; CUDA 11.8+</p>
+          <p class="arch-blurb">Anything llama.cpp's CUDA backend supports — RTX 50/40/30, A100, H100, L4/L40, T4, V100.</p>
+          <dl class="arch-spec">
+            <div><dt>VRAM</dt><dd>4 – 80 GB</dd></div>
+            <div><dt>OS</dt><dd>Linux &middot; Windows</dd></div>
+            <div><dt>Quants</dt><dd>all GGUF</dd></div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="arch-card arch-card-metal">
+        <div class="arch-art">
+          <svg viewBox="0 0 200 140" aria-hidden="true">
+            <rect class="art-substrate" x="20" y="20" width="160" height="100" rx="14"/>
+            <rect class="art-die"       x="44" y="36" width="112" height="68" rx="8"/>
+            <g class="art-clusters">
+              <rect class="cl cl-1" x="50" y="42" width="20" height="20" rx="2"/>
+              <rect class="cl cl-2" x="74" y="42" width="20" height="20" rx="2"/>
+              <rect class="cl cl-3" x="98" y="42" width="20" height="20" rx="2"/>
+              <rect class="cl cl-4" x="122" y="42" width="20" height="20" rx="2"/>
+              <rect class="cl cl-5" x="50" y="66" width="20" height="20" rx="2"/>
+              <rect class="cl cl-6" x="74" y="66" width="20" height="20" rx="2"/>
+              <rect class="cl cl-7" x="98" y="66" width="20" height="20" rx="2"/>
+              <rect class="cl cl-8" x="122" y="66" width="20" height="20" rx="2"/>
+            </g>
+            <text x="100" y="119" class="art-brand art-brand-metal" text-anchor="middle">Metal 3</text>
+          </svg>
+        </div>
+        <div class="arch-meta">
+          <h3>Metal</h3>
+          <p class="arch-tag">Apple Silicon &middot; macOS 14+</p>
+          <p class="arch-blurb">Every M-series Mac — M1/M2/M3/M4 in any flavour, Pro through Ultra. Unified memory means more headroom per dollar.</p>
+          <dl class="arch-spec">
+            <div><dt>Memory</dt><dd>8 – 192 GB unified</dd></div>
+            <div><dt>OS</dt><dd>macOS</dd></div>
+            <div><dt>Quants</dt><dd>all GGUF</dd></div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="arch-card arch-card-vulkan">
+        <div class="arch-art">
+          <svg viewBox="0 0 200 140" aria-hidden="true">
+            <rect class="art-pcb-v"  x="10" y="38" width="180" height="84" rx="4"/>
+            <rect class="art-heat-v" x="16" y="44" width="168" height="50" rx="3"/>
+            <g class="art-fins-v">
+              <line x1="20" y1="52" x2="180" y2="52"/>
+              <line x1="20" y1="58" x2="180" y2="58"/>
+              <line x1="20" y1="64" x2="180" y2="64"/>
+              <line x1="20" y1="70" x2="180" y2="70"/>
+              <line x1="20" y1="76" x2="180" y2="76"/>
+              <line x1="20" y1="82" x2="180" y2="82"/>
+              <line x1="20" y1="88" x2="180" y2="88"/>
+            </g>
+            <g class="art-fan-v" transform="translate(100, 69)">
+              <circle r="22" class="art-fan-ring-v"/>
+              <g class="art-fan-blades-v">
+                <line x1="-18" y1="0" x2="18" y2="0"/>
+                <line x1="0" y1="-18" x2="0" y2="18"/>
+                <line x1="-13" y1="-13" x2="13" y2="13"/>
+                <line x1="-13" y1="13" x2="13" y2="-13"/>
+              </g>
+              <circle r="4.5" class="art-fan-hub-v"/>
+            </g>
+            <rect class="art-stripe art-stripe-vulkan" x="10" y="100" width="180" height="6" rx="2"/>
+            <text x="100" y="120" class="art-brand" text-anchor="middle">Vulkan</text>
+          </svg>
+        </div>
+        <div class="arch-meta">
+          <h3>Vulkan</h3>
+          <p class="arch-tag">AMD &middot; Intel &middot; cross-vendor</p>
+          <p class="arch-blurb">Radeon RX 7000/6000, Arc, integrated graphics. Vulkan 1.3 covers anything that can't speak CUDA or Metal.</p>
+          <dl class="arch-spec">
+            <div><dt>VRAM</dt><dd>4 – 48 GB</dd></div>
+            <div><dt>OS</dt><dd>Linux &middot; Windows</dd></div>
+            <div><dt>Quants</dt><dd>all GGUF</dd></div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="arch-card arch-card-cpu">
+        <div class="arch-art">
+          <svg viewBox="0 0 200 140" aria-hidden="true">
+            <g class="art-cpu-pins-h">
+              <rect x="58" y="14" width="2" height="10" rx="1"/><rect x="68" y="14" width="2" height="10" rx="1"/><rect x="78" y="14" width="2" height="10" rx="1"/><rect x="88" y="14" width="2" height="10" rx="1"/><rect x="98" y="14" width="2" height="10" rx="1"/><rect x="108" y="14" width="2" height="10" rx="1"/><rect x="118" y="14" width="2" height="10" rx="1"/><rect x="128" y="14" width="2" height="10" rx="1"/><rect x="138" y="14" width="2" height="10" rx="1"/>
+              <rect x="58" y="116" width="2" height="10" rx="1"/><rect x="68" y="116" width="2" height="10" rx="1"/><rect x="78" y="116" width="2" height="10" rx="1"/><rect x="88" y="116" width="2" height="10" rx="1"/><rect x="98" y="116" width="2" height="10" rx="1"/><rect x="108" y="116" width="2" height="10" rx="1"/><rect x="118" y="116" width="2" height="10" rx="1"/><rect x="128" y="116" width="2" height="10" rx="1"/><rect x="138" y="116" width="2" height="10" rx="1"/>
+            </g>
+            <g class="art-cpu-pins-v">
+              <rect x="36" y="42" width="10" height="2" rx="1"/><rect x="36" y="52" width="10" height="2" rx="1"/><rect x="36" y="62" width="10" height="2" rx="1"/><rect x="36" y="72" width="10" height="2" rx="1"/><rect x="36" y="82" width="10" height="2" rx="1"/><rect x="36" y="92" width="10" height="2" rx="1"/>
+              <rect x="154" y="42" width="10" height="2" rx="1"/><rect x="154" y="52" width="10" height="2" rx="1"/><rect x="154" y="62" width="10" height="2" rx="1"/><rect x="154" y="72" width="10" height="2" rx="1"/><rect x="154" y="82" width="10" height="2" rx="1"/><rect x="154" y="92" width="10" height="2" rx="1"/>
+            </g>
+            <rect class="art-cpu-base" x="46" y="24" width="108" height="92" rx="6"/>
+            <rect class="art-cpu-top"  x="58" y="36" width="84" height="68" rx="4"/>
+            <text x="100" y="65" class="art-cpu-brand" text-anchor="middle">CPU</text>
+            <text x="100" y="84" class="art-cpu-sub"   text-anchor="middle">BLAS</text>
+            <circle class="art-led art-led-cpu" cx="48" cy="28" r="2.4"/>
+          </svg>
+        </div>
+        <div class="arch-meta">
+          <h3>Pure CPU</h3>
+          <p class="arch-tag">x86 &middot; ARM &middot; BLAS</p>
+          <p class="arch-blurb">When there's no GPU at all — Threadripper, EPYC, Xeon, Ryzen, Apple M-series. Slower, but always there.</p>
+          <dl class="arch-spec">
+            <div><dt>Memory</dt><dd>8 GB – 1.5 TB RAM</dd></div>
+            <div><dt>OS</dt><dd>Linux &middot; macOS &middot; Windows</dd></div>
+            <div><dt>Quants</dt><dd>all GGUF</dd></div>
+          </dl>
+        </div>
+      </article>
+    </div>
+
+    <div class="archs-foot">
+      <div class="archs-mix">
+        <span class="archs-mix-icon" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="22" height="22"><path d="M2 16 L10 8 L10 13 L22 13 L22 8 L30 16 L22 24 L22 19 L10 19 L10 24 Z" fill="currentColor"/></svg>
+        </span>
+        <p>
+          <strong>Mix and match in one pool.</strong>
+          A CUDA RTX&nbsp;4090, an Apple M3&nbsp;Max, a Vulkan RX&nbsp;7900, and a Threadripper CPU can all serve the same model. The activation wire format is identical — no per-vendor branch in the data plane.
+        </p>
+      </div>
+      <div class="archs-matrix" role="table" aria-label="Backend × OS support matrix">
+        <div class="mx-row mx-head" role="row">
+          <div role="columnheader"></div>
+          <div role="columnheader">Linux</div>
+          <div role="columnheader">macOS</div>
+          <div role="columnheader">Windows</div>
+        </div>
+        <div class="mx-row" role="row">
+          <div role="rowheader"><span class="mx-dot mx-cuda"></span>CUDA</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+          <div role="cell" class="mx-no">—</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+        </div>
+        <div class="mx-row" role="row">
+          <div role="rowheader"><span class="mx-dot mx-metal"></span>Metal</div>
+          <div role="cell" class="mx-no">—</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+          <div role="cell" class="mx-no">—</div>
+        </div>
+        <div class="mx-row" role="row">
+          <div role="rowheader"><span class="mx-dot mx-vulkan"></span>Vulkan</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+          <div role="cell" class="mx-no">—</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+        </div>
+        <div class="mx-row" role="row">
+          <div role="rowheader"><span class="mx-dot mx-cpu"></span>CPU</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+          <div role="cell" class="mx-yes">&#10003;</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -192,31 +592,96 @@ resp = client.chat.completions.<span class="c-fn">create</span>(
   </div>
 </section>
 
-<section class="section">
+<section class="section explorer-section" id="explore">
   <div class="container">
     <div class="section-head">
-      <span class="eyebrow">How it works</span>
-      <h2>A control plane and a pool of dumb workers.</h2>
-      <p>The Go server handles auth, pool routing, and OpenAI-compat endpoints. C++ rigs just run their assigned layers.</p>
+      <span class="eyebrow">How it works · interactive</span>
+      <h2>The whole architecture, told as a network.</h2>
+      <p>Six components, two protocol planes, one pipeline. Hover a node to highlight its neighbours, click it to read the role, or run the tour to walk through a request end-to-end.</p>
     </div>
-    <div class="arch">
-      <div class="arch-row center">
-        <div class="arch-box"><strong>Browser / OpenAI SDK</strong><small>OAuth or API key</small></div>
+
+    <div class="explorer" data-explorer>
+      <div class="explorer-tabs" role="tablist" data-explorer-tabs>
+        <button type="button" class="explorer-tab is-active" data-scene="flow" role="tab" aria-selected="true">Request flow</button>
+        <button type="button" class="explorer-tab" data-scene="topology" role="tab">Pool topology</button>
+        <button type="button" class="explorer-tab" data-scene="control" role="tab">Control plane</button>
+        <button type="button" class="explorer-tab" data-scene="data" role="tab">Data plane</button>
       </div>
-      <div class="arch-arrow">&darr; <small>HTTPS / WebSocket</small></div>
-      <div class="arch-row center">
-        <div class="arch-box control"><strong>dist-server</strong><small>dashboard &middot; pools &middot; routing &middot; SQLite</small></div>
+
+      <div class="explorer-grid">
+        <div class="explorer-stage">
+          <svg class="explorer-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" data-explorer-svg>
+            <defs>
+              <radialGradient id="explHaloOlive" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#3A4A1F" stop-opacity="0.22"/>
+                <stop offset="100%" stop-color="#3A4A1F" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="explHaloOrange" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#EA580C" stop-opacity="0.22"/>
+                <stop offset="100%" stop-color="#EA580C" stop-opacity="0"/>
+              </radialGradient>
+              <marker id="arrowOlive" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#556B2F"/></marker>
+              <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#EA580C"/></marker>
+            </defs>
+            <g class="explorer-halos"></g>
+            <g class="explorer-cluster"></g>
+            <g class="explorer-edges"></g>
+            <g class="explorer-edge-labels"></g>
+            <g class="explorer-nodes"></g>
+          </svg>
+          <div class="explorer-stats" data-explorer-stats aria-hidden="true">
+            <div class="stat">
+              <span class="stat-label">tokens/s</span>
+              <span class="stat-value" data-stat-tps>142.3</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">active rigs</span>
+              <span class="stat-value" data-stat-rigs>4</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">p50 latency</span>
+              <span class="stat-value" data-stat-p50>38<span class="stat-unit">ms</span></span>
+            </div>
+            <div class="stat stat-counter">
+              <span class="stat-label">requests served</span>
+              <span class="stat-value" data-stat-reqs>47,392</span>
+            </div>
+          </div>
+          <div class="explorer-tour" data-tour>
+            <button type="button" class="tour-btn" data-tour-prev aria-label="Previous step">&#8249;</button>
+            <button type="button" class="tour-play" data-tour-play>
+              <span class="tour-play-icon" aria-hidden="true">&#9654;</span>
+              <span data-tour-play-label>Run the tour</span>
+            </button>
+            <button type="button" class="tour-btn" data-tour-next aria-label="Next step">&#8250;</button>
+            <div class="tour-progress">
+              <span class="tour-counter" data-tour-counter>—</span>
+              <span class="tour-label" data-tour-label>Click a node, or play the tour to walk through a request.</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="explorer-panel" data-explorer-panel>
+          <div class="panel-head">
+            <span class="panel-eyebrow" data-panel-eyebrow>Request flow</span>
+            <h3 data-panel-title>Click any node to dive in</h3>
+            <p class="panel-sub" data-panel-sub>Each node is a real component in the project. Hover to highlight its neighbours; click to pin its details here.</p>
+          </div>
+          <dl class="panel-meta">
+            <div><dt>Role</dt><dd data-panel-role>—</dd></div>
+            <div><dt>Protocol</dt><dd data-panel-protocol>—</dd></div>
+          </dl>
+          <p class="panel-body" data-panel-body>—</p>
+          <div class="panel-detail" data-panel-detail hidden>
+            <span class="panel-flag">Why it's interesting</span>
+            <p data-panel-interesting>—</p>
+          </div>
+          <div class="panel-foot">
+            <a class="btn btn-ghost btn-sm" href="docs/architecture.html">Architecture doc &rarr;</a>
+            <a class="btn btn-ghost btn-sm" href="docs/protocol.html">Wire protocol &rarr;</a>
+          </div>
+        </aside>
       </div>
-      <div class="arch-arrow">&darr; <small>WebSocket (control) &middot; TCP :7701 (data plane)</small></div>
-      <div class="arch-nodes">
-        <div class="arch-box rig"><strong>dist-node 0</strong><small>Layers 0&ndash;19<br>CUDA RTX 4090</small></div>
-        <div class="arch-box rig"><strong>dist-node 1</strong><small>Layers 20&ndash;39<br>Metal M3 Max</small></div>
-        <div class="arch-box rig"><strong>dist-node 2</strong><small>Layers 40&ndash;79<br>Vulkan RX 7900</small></div>
-      </div>
-      <div class="arch-caption">Activations stream right-to-left over TCP :7701 &middot; logits return to the client via the control plane.</div>
-    </div>
-    <div style="text-align:center; margin-top: 2rem;">
-      <a class="btn btn-ghost" href="docs/architecture.html">Read the architecture doc &rarr;</a>
     </div>
   </div>
 </section>
@@ -386,6 +851,8 @@ resp = client.chat.completions.<span class="c-fn">create</span>(
 </footer>
 
 <script src="assets/js/nav.js"></script>
+<script src="assets/js/primer.js"></script>
+<script src="assets/js/arch-explorer.js"></script>
 <script src="assets/js/installer.js"></script>
 </body>
 </html>
