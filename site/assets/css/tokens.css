@@ -23,6 +23,17 @@
   --orange-100: #FFEDD5;
   --orange-50:  #FFF7ED;
 
+  /* Teal scale — tertiary accent for highlights, info, "yes" states */
+  --teal-800: #115E59;
+  --teal-700: #0F766E;
+  --teal-600: #0D9488;
+  --teal-500: #14B8A6;
+  --teal-400: #2DD4BF;
+  --teal-300: #5EEAD4;
+  --teal-200: #99F6E4;
+  --teal-100: #CCFBF1;
+  --teal-50:  #F0FDFA;
+
   /* Neutrals */
   --white:     #FFFFFF;
   --off-white: #FAFAF7;

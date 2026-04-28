@@ -15,14 +15,14 @@
   //   rig2:    translate(870,100) → right x=1000
   //   rig3:    translate(1020,100) w=150       → left x=1020, top-mid x=1095,y=100, right x=1170
   const edges = [
-    { id: 'e1', d: 'M250,110 C285,110 295,90 310,90',          plane: 'control', label: 'POST /v1/chat',  labelPos: { x: 280, y: 78 },  packets: 1, dur: 1.8 },
+    { id: 'e1', d: 'M250,110 L310,90',                           plane: 'control', label: 'POST /v1/chat',  labelPos: { x: 280, y: 88 },  packets: 1, dur: 1.8 },
     { id: 'e2', d: 'M415,170 L415,230',                          plane: 'control', label: 'auth · lookup',  labelPos: { x: 478, y: 205 }, packets: 0 },
-    { id: 'e3', d: 'M510,115 C545,115 555,210 570,210',          plane: 'control', label: 'WebSocket',      labelPos: { x: 540, y: 158 }, packets: 1, dur: 1.8, begin: 0.6 },
-    { id: 'e4', d: 'M700,210 L720,210',                          plane: 'data',    label: 'TCP :7701',      labelPos: { x: 785, y: 188 }, packets: 2, dur: 0.7 },
+    { id: 'e3', d: 'M510,115 L570,210',                          plane: 'control', label: 'WebSocket',      labelPos: { x: 545, y: 152 }, packets: 1, dur: 1.8, begin: 0.6 },
+    { id: 'e4', d: 'M700,210 L720,210',                          plane: 'data',    label: 'TCP :7701',      labelPos: { x: 785, y: 198 }, packets: 2, dur: 0.7 },
     { id: 'e5', d: 'M850,210 L870,210',                          plane: 'data',    label: '',                                              packets: 2, dur: 0.7, begin: 0.23 },
     { id: 'e6', d: 'M1000,210 L1020,210',                        plane: 'data',    label: '',                                              packets: 2, dur: 0.7, begin: 0.46 },
-    { id: 'e7', d: 'M1095,100 Q800,-20 410,60',                  plane: 'control', label: 'WS · token',     labelPos: { x: 760, y: 22 },  packets: 2, dur: 2.4 },
-    { id: 'e8', d: 'M310,140 Q260,260 250,200',                  plane: 'control', label: 'SSE stream',     labelPos: { x: 305, y: 252 }, packets: 2, dur: 1.6 },
+    { id: 'e7', d: 'M1095,100 L1095,42 L410,42 L410,60',         plane: 'control', label: 'WS · token',     labelPos: { x: 760, y: 32 },  packets: 2, dur: 2.4 },
+    { id: 'e8', d: 'M310,140 L250,200',                          plane: 'control', label: 'SSE stream',     labelPos: { x: 286, y: 158 }, packets: 2, dur: 1.6 },
   ];
 
   function svgEl(tag, attrs, parent) {

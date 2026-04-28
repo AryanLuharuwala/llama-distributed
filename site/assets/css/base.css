@@ -3036,3 +3036,656 @@ th {
     padding: 3rem 0 2.5rem;
   }
 }
+
+/* ============================================================
+   Theme toggle button (in nav) — animated icon swap
+   ============================================================ */
+.theme-toggle {
+  position: relative;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  width: 36px;
+  height: 36px;
+  display: inline-block;
+  cursor: pointer;
+  color: var(--olive-900);
+  padding: 0;
+  overflow: hidden;
+  transition: background-color var(--t-base), border-color var(--t-base), color var(--t-base), transform var(--t-fast);
+}
+.theme-toggle:hover {
+  background: var(--olive-50);
+  border-color: var(--olive-400);
+  color: var(--olive-950);
+}
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--sh-focus);
+}
+.theme-toggle svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform-origin: center;
+  transition:
+    transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 220ms ease;
+  pointer-events: none;
+}
+/* Light mode default — moon visible, sun rotated out */
+.theme-toggle .icon-moon {
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg) scale(1);
+}
+.theme-toggle .icon-sun {
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(-90deg) scale(0.4);
+}
+/* Dark mode — sun rotates in, moon rotates out */
+[data-theme="dark"] .theme-toggle .icon-moon {
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(90deg) scale(0.4);
+}
+[data-theme="dark"] .theme-toggle .icon-sun {
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg) scale(1);
+  color: var(--orange-400);
+}
+
+/* ============================================================
+   Global cross-fade during theme switching
+   The .theme-transitioning class is added by theme.js for ~420ms
+   while data-theme flips, so every surface eases between palettes.
+   ============================================================ */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition:
+    background-color 320ms ease,
+    background 320ms ease,
+    border-color 320ms ease,
+    color 320ms ease,
+    fill 320ms ease,
+    stroke 320ms ease,
+    box-shadow 320ms ease !important;
+  transition-delay: 0s !important;
+}
+/* But: don't slow down animations or the toggle's own swap */
+html.theme-transitioning .theme-toggle svg,
+html.theme-transitioning .explorer-edge.is-active,
+html.theme-transitioning .primer-packet,
+html.theme-transitioning .chat-typing circle,
+html.theme-transitioning .art-fan-blades,
+html.theme-transitioning .art-fan-blades-2,
+html.theme-transitioning .art-fan-blades-v,
+html.theme-transitioning .art-clusters .cl,
+html.theme-transitioning .art-cpu-pins-h rect,
+html.theme-transitioning .art-cpu-pins-v rect,
+html.theme-transitioning .art-led,
+html.theme-transitioning .stream-text .tk,
+html.theme-transitioning .stream-cursor,
+html.theme-transitioning .chip-link {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transitioning,
+  html.theme-transitioning *,
+  html.theme-transitioning *::before,
+  html.theme-transitioning *::after { transition: none !important; }
+  .theme-toggle svg { transition: none; }
+}
+
+/* ============================================================
+   Bold-on-hover/select for explorer text
+   ============================================================ */
+.explorer-node .label,
+.explorer-node .sub,
+.explorer-edge-label {
+  transition: font-weight var(--t-fast), fill var(--t-base);
+}
+.explorer-node.is-hover-neighbor .label,
+.explorer-node.is-focus .label {
+  font-weight: 800;
+  fill: var(--olive-950);
+}
+.explorer-node.is-selected .label {
+  font-weight: 900;
+  fill: var(--orange-700);
+}
+.explorer-node.is-hover-neighbor .sub,
+.explorer-node.is-focus .sub,
+.explorer-node.is-selected .sub {
+  font-weight: 700;
+  fill: var(--olive-800);
+}
+.explorer-edge-label.is-hover,
+.explorer-edge-label.is-active {
+  font-weight: 800;
+}
+/* Concept + arch cards: bolder title on hover */
+.concept-card:hover h3,
+.arch-card:hover h3 {
+  color: var(--orange-700);
+}
+
+/* ============================================================
+   DARK MODE — slate palette (no olive), variable overrides
+   ============================================================ */
+[data-theme="dark"] {
+  /* Surfaces — deep slate with a subtle blue undertone */
+  --bg:        #0F141B;
+  --bg-alt:    #161C26;
+  --bg-card:   #1C2431;
+  --paper:     #243042;
+  --off-white: #161C26;
+
+  /* Foreground — cool cream on slate */
+  --text:    #C9D1D9;
+  --ink:     #F1F5F9;
+  --muted:   #94A3B8;
+  --muted-2: #64748B;
+
+  /* Lines */
+  --line:    #2D3A4D;
+  --line-2:  #3F4F66;
+  --border:  #2D3A4D;
+
+  /* Olive scale remapped to slate inside dark mode.
+     (900 / 950 deliberately NOT remapped — they are used as deep "always dark"
+     backgrounds for the announcement bar, code blocks and footer, which should
+     stay dark in both themes.) */
+  --olive-50:  #1C2431;
+  --olive-100: #243042;
+  --olive-200: #2D3A4D;
+  --olive-300: #3F4F66;
+  --olive-400: #5C6E86;
+  --olive-500: #8194AA;
+  --olive-600: #A8B5C5;
+  --olive-700: #C9D1D9;
+  --olive-800: #DDE3EA;
+}
+
+[data-theme="dark"] body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Headings (most use color: var(--olive-950) directly — flip to ink) */
+[data-theme="dark"] .hero h1,
+[data-theme="dark"] .primer-intro h1,
+[data-theme="dark"] .section-head h2,
+[data-theme="dark"] .feature h3,
+[data-theme="dark"] .concept-card h3,
+[data-theme="dark"] .arch-meta h3,
+[data-theme="dark"] .post-card h3,
+[data-theme="dark"] .panel-head h3 {
+  color: var(--ink);
+}
+
+/* Nav */
+[data-theme="dark"] .nav {
+  background: rgba(15, 20, 27, 0.85);
+  border-bottom-color: var(--border);
+}
+[data-theme="dark"] .nav-brand { color: var(--ink); }
+[data-theme="dark"] .nav-brand:hover { color: var(--orange-300); }
+[data-theme="dark"] .nav-links a { color: var(--text); }
+[data-theme="dark"] .nav-links a:hover,
+[data-theme="dark"] .nav-links a.active { color: var(--ink); }
+[data-theme="dark"] .nav-toggle { color: var(--ink); border-color: var(--border); }
+
+/* Announcement bar */
+[data-theme="dark"] .annc { background: #0A0F18; }
+
+/* Hero gradient becomes a deep glow (orange + slate, no olive) */
+[data-theme="dark"] .hero.primer-section {
+  background:
+    radial-gradient(1200px 500px at 75% -10%, rgba(234, 88, 12, 0.18) 0%, transparent 60%),
+    radial-gradient(900px 400px at 10% 110%, rgba(100, 116, 139, 0.16) 0%, transparent 60%),
+    var(--bg);
+  border-bottom-color: var(--border);
+}
+
+/* Section alt background */
+[data-theme="dark"] .section-alt { background: var(--bg-alt); }
+
+/* Cards (light surfaces) */
+[data-theme="dark"] .feature,
+[data-theme="dark"] .post-card,
+[data-theme="dark"] .concept-card,
+[data-theme="dark"] .arch-card,
+[data-theme="dark"] .archs-foot,
+[data-theme="dark"] .explorer,
+[data-theme="dark"] .primer,
+[data-theme="dark"] .picker,
+[data-theme="dark"] .eco-item,
+[data-theme="dark"] .panel-meta {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+[data-theme="dark"] .feature:hover,
+[data-theme="dark"] .post-card:hover,
+[data-theme="dark"] .arch-card:hover,
+[data-theme="dark"] .concept-card:hover { border-color: var(--olive-400); }
+
+[data-theme="dark"] .explorer-panel {
+  background: linear-gradient(180deg, var(--bg-card), var(--bg-alt));
+}
+[data-theme="dark"] .arch-art {
+  background: linear-gradient(180deg, var(--bg-alt), var(--bg-card));
+  border-bottom-color: var(--border);
+}
+
+/* Buttons */
+[data-theme="dark"] .btn-ghost {
+  color: var(--text);
+  border-color: var(--line-2);
+  background: transparent;
+}
+[data-theme="dark"] .btn-ghost:hover {
+  background: var(--bg-card);
+  border-color: var(--olive-400);
+  color: var(--ink);
+}
+
+/* Inline code */
+[data-theme="dark"] code {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--orange-300);
+}
+
+/* Tables */
+[data-theme="dark"] th { background: var(--bg-alt); color: var(--text); }
+[data-theme="dark"] td, [data-theme="dark"] th { border-bottom-color: var(--border); }
+
+/* Badges */
+[data-theme="dark"] .badge { background: var(--paper); color: var(--text); border-color: var(--border); }
+[data-theme="dark"] .badge-orange { background: rgba(234, 88, 12, 0.15); color: var(--orange-300); border-color: rgba(234, 88, 12, 0.35); }
+
+/* Concept cards interior visuals */
+[data-theme="dark"] .concept-visual { background: var(--bg-alt); border: 1px solid var(--border); }
+[data-theme="dark"] .concept-cap { fill: var(--muted); }
+[data-theme="dark"] .seg-foot   { fill: var(--muted); }
+[data-theme="dark"] .seg-label  { fill: var(--ink); }
+[data-theme="dark"] .chip-cap   { fill: var(--text); }
+[data-theme="dark"] .stream-bg  { fill: var(--bg-card); stroke: var(--border); }
+[data-theme="dark"] .stream-text { fill: var(--ink); }
+[data-theme="dark"] .model-bar  { fill: var(--bg-card); stroke: var(--border); }
+
+/* Architecture matrix */
+[data-theme="dark"] .archs-matrix { background: var(--border); border-color: var(--border); }
+[data-theme="dark"] .mx-row { background: var(--bg-card); }
+[data-theme="dark"] .mx-row > * { color: var(--text); }
+[data-theme="dark"] .mx-head { background: var(--bg-alt); }
+[data-theme="dark"] .mx-head > * { color: var(--muted); }
+[data-theme="dark"] .mx-yes { color: var(--olive-300); }
+[data-theme="dark"] .mx-no  { color: var(--muted-2); }
+[data-theme="dark"] .archs-mix-icon { background: rgba(234, 88, 12, 0.18); color: var(--orange-300); }
+[data-theme="dark"] .archs-mix p { color: var(--text); }
+[data-theme="dark"] .archs-mix p strong { color: var(--ink); }
+
+/* Primer story diagram (SVG) */
+[data-theme="dark"] .primer-chat .chat-shadow { fill: rgba(0, 0, 0, 0.45); }
+[data-theme="dark"] .primer-chat .chat-bg     { fill: var(--bg-alt); stroke: var(--border); }
+[data-theme="dark"] .primer-chat .chat-header { fill: var(--paper); }
+[data-theme="dark"] .primer-chat .chat-header-text { fill: var(--ink); }
+[data-theme="dark"] .primer-chat .chat-asst   { fill: var(--paper); stroke: var(--border); }
+[data-theme="dark"] .primer-chat .chat-asst-text { fill: var(--text); }
+[data-theme="dark"] .primer-chat .chat-foot   { fill: var(--muted); }
+
+[data-theme="dark"] .primer-sqlite .sqlite-bg    { fill: var(--bg-card); stroke: var(--olive-400); }
+[data-theme="dark"] .primer-sqlite .sqlite-title { fill: var(--ink); }
+[data-theme="dark"] .primer-sqlite .sqlite-sub   { fill: var(--muted); }
+
+[data-theme="dark"] .primer-rig .rig-shadow  { fill: rgba(0, 0, 0, 0.40); }
+[data-theme="dark"] .primer-rig .rig-bg      { fill: var(--bg-card); stroke: var(--border); }
+[data-theme="dark"] .primer-rig .rig-title   { fill: var(--ink); }
+[data-theme="dark"] .primer-rig .rig-accel   { fill: var(--text); }
+[data-theme="dark"] .primer-rig .rig-chip rect { fill: var(--paper); stroke: var(--olive-400); }
+[data-theme="dark"] .primer-rig .rig-chip line { stroke: var(--olive-400); }
+[data-theme="dark"] .primer-rig .rig-status  { fill: var(--muted); }
+
+[data-theme="dark"] .primer-edge-control { stroke: #5C6E86; opacity: 0.75; }
+[data-theme="dark"] .primer-edge-data    { stroke: var(--orange-500); opacity: 0.95; }
+[data-theme="dark"] .primer-edge-label   { fill: var(--muted); }
+[data-theme="dark"] .primer-legend       { color: var(--muted); border-top-color: var(--border); }
+
+/* Explorer (interactive) */
+[data-theme="dark"] .explorer-tabs { background: var(--bg-alt); }
+[data-theme="dark"] .explorer-tab  { color: var(--muted); }
+[data-theme="dark"] .explorer-tab:hover { color: var(--ink); }
+[data-theme="dark"] .explorer-tab.is-active {
+  color: var(--ink);
+  background: var(--bg-card);
+  border-bottom-color: var(--orange-500);
+}
+[data-theme="dark"] .explorer-stage { border-right-color: var(--border); }
+
+[data-theme="dark"] .explorer-edge { stroke: #5C6E86; opacity: 0.55; }
+[data-theme="dark"] .explorer-edge.is-data { stroke: var(--orange-500); opacity: 0.7; }
+[data-theme="dark"] .explorer-edge.is-active,
+[data-theme="dark"] .explorer-edge.is-hover { opacity: 1; filter: drop-shadow(0 1px 6px rgba(234, 88, 12, 0.5)); }
+[data-theme="dark"] .explorer-edge-label { fill: var(--muted); }
+[data-theme="dark"] .explorer-cluster circle { fill: #3F4F66; }
+
+[data-theme="dark"] .explorer-node .label { fill: var(--ink); }
+[data-theme="dark"] .explorer-node .sub   { fill: var(--text); }
+[data-theme="dark"] .explorer-node.is-hover-neighbor .label,
+[data-theme="dark"] .explorer-node.is-focus .label { fill: var(--ink); }
+[data-theme="dark"] .explorer-node.is-selected .label { fill: var(--orange-300); }
+[data-theme="dark"] .explorer-node.is-hover-neighbor .sub,
+[data-theme="dark"] .explorer-node.is-focus .sub,
+[data-theme="dark"] .explorer-node.is-selected .sub { fill: var(--olive-300); }
+[data-theme="dark"] .explorer-edge-label.is-hover,
+[data-theme="dark"] .explorer-edge-label.is-active { fill: var(--ink); }
+
+[data-theme="dark"] .explorer-node.kind-client .core   { fill: var(--olive-400); }
+[data-theme="dark"] .explorer-node.kind-control .core  { fill: var(--orange-500); }
+[data-theme="dark"] .explorer-node.kind-storage .core  { fill: var(--olive-300); }
+[data-theme="dark"] .explorer-node.kind-auth .core     { fill: var(--olive-300); }
+
+[data-theme="dark"] .explorer-node .ring { stroke: var(--olive-400); }
+
+/* Tour buttons */
+[data-theme="dark"] .tour-btn {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text);
+}
+[data-theme="dark"] .tour-btn:hover {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--olive-400);
+}
+[data-theme="dark"] .tour-play {
+  background: var(--olive-200);
+  border-color: var(--olive-300);
+  color: var(--ink);
+}
+[data-theme="dark"] .tour-play:hover {
+  background: var(--olive-300);
+  border-color: var(--olive-400);
+  color: var(--ink);
+}
+[data-theme="dark"] .tour-play.is-playing {
+  background: var(--orange-600);
+  border-color: var(--orange-600);
+}
+[data-theme="dark"] .tour-counter {
+  background: rgba(234, 88, 12, 0.18);
+  color: var(--orange-300);
+  border-color: rgba(234, 88, 12, 0.35);
+}
+[data-theme="dark"] .tour-label { color: var(--text); }
+[data-theme="dark"] .explorer-tour { border-top-color: var(--border); }
+
+/* Stats HUD */
+[data-theme="dark"] .explorer-stats {
+  background: rgba(15, 20, 27, 0.92);
+  border-color: var(--border);
+}
+[data-theme="dark"] .explorer-stats .stat-value { color: var(--ink); }
+[data-theme="dark"] .explorer-stats .stat-counter .stat-value { color: var(--orange-300); }
+[data-theme="dark"] .explorer-stats .stat-unit { color: var(--muted); }
+
+/* Panel */
+[data-theme="dark"] .panel-meta { background: var(--bg-alt); }
+[data-theme="dark"] .panel-meta dd { color: var(--ink); }
+[data-theme="dark"] .panel-detail {
+  background: rgba(234, 88, 12, 0.10);
+  border-color: rgba(234, 88, 12, 0.30);
+}
+[data-theme="dark"] .panel-detail p { color: var(--olive-200); }
+[data-theme="dark"] .panel-flag { color: var(--orange-300); }
+[data-theme="dark"] .panel-eyebrow { color: var(--orange-300); }
+
+/* Primer hero meta dots */
+[data-theme="dark"] .primer-intro .hero-meta { color: var(--muted); }
+[data-theme="dark"] .primer-intro .hero-meta .dot { background: var(--olive-400); }
+[data-theme="dark"] .primer-intro .hero-meta .dot.active { background: var(--orange-500); }
+[data-theme="dark"] .primer-intro .lede { color: var(--text); }
+
+/* Eyebrow / section-head */
+[data-theme="dark"] .section-head .eyebrow { color: var(--orange-300); }
+
+/* Eco strip */
+[data-theme="dark"] .eco-item { color: var(--ink); }
+[data-theme="dark"] .eco-item .label { color: var(--muted); }
+[data-theme="dark"] .eco-item:hover { border-color: var(--orange-500); }
+
+/* Picker (install) */
+[data-theme="dark"] .picker-cmd { background: #0A0F18; color: #E2E8F0; }
+[data-theme="dark"] .picker-row { border-color: var(--border); }
+[data-theme="dark"] .picker-out-head { background: var(--bg-alt); border-color: var(--border); }
+[data-theme="dark"] .picker-note { background: var(--bg-alt); border-color: var(--border); }
+
+/* Cloud cards */
+[data-theme="dark"] .cloud-card { background: var(--bg-card); border-color: var(--border); color: var(--text); }
+[data-theme="dark"] .cloud-card strong { color: var(--ink); }
+[data-theme="dark"] .cloud-card span { color: var(--muted); }
+[data-theme="dark"] .cloud-card:hover { border-color: var(--orange-500); }
+
+/* Codebox */
+[data-theme="dark"] .codebox { background: #0A0F18; }
+
+/* Demo section "What you'll see" copy */
+[data-theme="dark"] .grid-2 h3 { color: var(--ink); }
+[data-theme="dark"] .grid-2 ul li,
+[data-theme="dark"] .grid-2 p { color: var(--text); }
+
+/* Callout */
+[data-theme="dark"] .callout {
+  background: linear-gradient(135deg, var(--bg-card), var(--paper));
+  border: 1px solid var(--border);
+}
+[data-theme="dark"] .callout p { color: var(--text); }
+
+/* Footer — keep it dark; just tweak the brand mark contrast in dark mode */
+[data-theme="dark"] .footer-brand .brand-mark::after { background: var(--bg); }
+
+/* Brand mark in nav */
+[data-theme="dark"] .nav-brand .brand-mark {
+  background: linear-gradient(135deg, var(--olive-500), var(--olive-700));
+}
+[data-theme="dark"] .nav-brand .brand-mark::after { background: var(--orange-400); }
+
+/* Misc text in muted contexts */
+[data-theme="dark"] .feature p,
+[data-theme="dark"] .post-card p,
+[data-theme="dark"] .arch-blurb,
+[data-theme="dark"] .concept-card p { color: var(--muted); }
+[data-theme="dark"] .arch-spec dd { color: var(--ink); }
+[data-theme="dark"] .arch-spec { background: var(--bg-alt); }
+[data-theme="dark"] .arch-tag { color: var(--orange-300); }
+
+/* Status of "Online" pills already use green — keep */
+
+/* ============================================================
+   UI polish pass — refined gradients, card hover overlays,
+   gradient primary button, glassier HUD, teal tertiary accent.
+   ============================================================ */
+
+/* Section-head eyebrow: warm-to-cool gradient underline */
+.section-head .eyebrow {
+  position: relative;
+  padding-bottom: 0.5rem;
+}
+.section-head .eyebrow::after {
+  content: "";
+  display: block;
+  height: 2px;
+  width: 32px;
+  margin: 0.45rem auto 0;
+  background: linear-gradient(90deg, var(--orange-500) 0%, var(--teal-500) 100%);
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+/* Hero gradient: orange + olive + a soft teal layer for depth */
+.hero.primer-section {
+  background:
+    radial-gradient(1200px 500px at 75% -10%, var(--orange-100) 0%, transparent 60%),
+    radial-gradient(900px 400px at 10% 110%, var(--olive-100) 0%, transparent 60%),
+    radial-gradient(700px 320px at 50% 60%, var(--teal-50) 0%, transparent 70%),
+    var(--white);
+}
+
+/* Cards: animated two-tone overlay on hover (orange → teal) */
+.feature,
+.post-card,
+.concept-card,
+.arch-card {
+  position: relative;
+  z-index: 0;
+}
+.feature::before,
+.post-card::before,
+.concept-card::before,
+.arch-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(234, 88, 12, 0.05) 0%, rgba(13, 148, 136, 0.05) 100%);
+  opacity: 0;
+  transition: opacity 360ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.feature:hover::before,
+.post-card:hover::before,
+.concept-card:hover::before,
+.arch-card:hover::before { opacity: 1; }
+
+.feature:hover,
+.post-card:hover,
+.concept-card:hover,
+.arch-card:hover {
+  box-shadow: 0 14px 28px -10px rgba(35, 45, 19, 0.18), 0 4px 8px -4px rgba(234, 88, 12, 0.10);
+}
+
+/* Primary button: gradient + warmer shadow */
+.btn-primary {
+  background: linear-gradient(135deg, var(--orange-500) 0%, var(--orange-600) 60%, var(--orange-700) 100%);
+  border-color: var(--orange-600);
+  box-shadow: 0 1px 2px rgba(234, 88, 12, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--orange-600) 0%, var(--orange-700) 100%);
+  border-color: var(--orange-700);
+  box-shadow: 0 6px 18px -4px rgba(234, 88, 12, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(0); box-shadow: 0 2px 6px rgba(234, 88, 12, 0.30); }
+
+/* Compatibility matrix: teal ✓ for visual variety */
+.mx-yes { color: var(--teal-700); font-weight: 700; }
+.mx-dot.mx-cuda   { box-shadow: 0 0 0 3px rgba(118, 185, 0, 0.15); }
+.mx-dot.mx-metal  { box-shadow: 0 0 0 3px rgba(120, 120, 120, 0.15); }
+.mx-dot.mx-vulkan { box-shadow: 0 0 0 3px rgba(184, 49, 45, 0.15); }
+.mx-dot.mx-cpu    { box-shadow: 0 0 0 3px rgba(79, 168, 224, 0.15); }
+
+/* Concept card visual: subtle inset gradient + thin teal underline on hover */
+.concept-visual {
+  position: relative;
+  background: linear-gradient(180deg, var(--olive-50) 0%, var(--white) 100%);
+  transition: background 360ms ease;
+}
+.concept-visual::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--orange-500), var(--teal-500));
+  border-radius: 2px;
+  transform: translateX(-50%);
+  transition: width 360ms ease;
+}
+.concept-card:hover .concept-visual::after { width: 60%; }
+
+/* Architecture card art: thin gradient hairline at the bottom */
+.arch-art { position: relative; }
+.arch-art::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--orange-400) 50%, transparent 100%);
+  opacity: 0;
+  transition: opacity 360ms ease;
+}
+.arch-card:hover .arch-art::after { opacity: 0.9; }
+
+/* Stats HUD: stronger glass + thin gradient border */
+.explorer-stats {
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.86) 100%);
+  box-shadow: 0 8px 24px -8px rgba(35, 45, 19, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Tour counter pill: warm gradient */
+.tour-counter {
+  background: linear-gradient(180deg, var(--orange-50), var(--orange-100));
+}
+
+/* Pretty selection */
+::selection { background: rgba(234, 88, 12, 0.25); color: var(--olive-950); }
+
+/* ============================================================
+   Dark mode polish — gradient depth on cards + teal accents
+   ============================================================ */
+[data-theme="dark"] .feature,
+[data-theme="dark"] .post-card,
+[data-theme="dark"] .concept-card,
+[data-theme="dark"] .arch-card {
+  background:
+    linear-gradient(160deg, var(--bg-card) 0%, var(--bg-alt) 100%);
+}
+[data-theme="dark"] .feature:hover,
+[data-theme="dark"] .post-card:hover,
+[data-theme="dark"] .concept-card:hover,
+[data-theme="dark"] .arch-card:hover {
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.5), 0 4px 12px -4px rgba(234, 88, 12, 0.18);
+  border-color: var(--orange-500);
+}
+[data-theme="dark"] .feature::before,
+[data-theme="dark"] .post-card::before,
+[data-theme="dark"] .concept-card::before,
+[data-theme="dark"] .arch-card::before {
+  background: linear-gradient(135deg, rgba(234, 88, 12, 0.10) 0%, rgba(45, 212, 191, 0.08) 100%);
+}
+
+[data-theme="dark"] .hero.primer-section {
+  background:
+    radial-gradient(1200px 500px at 75% -10%, rgba(234, 88, 12, 0.18) 0%, transparent 60%),
+    radial-gradient(900px 400px at 10% 110%, rgba(100, 116, 139, 0.16) 0%, transparent 60%),
+    radial-gradient(700px 320px at 50% 60%, rgba(45, 212, 191, 0.05) 0%, transparent 70%),
+    var(--bg);
+}
+
+[data-theme="dark"] .mx-yes { color: var(--teal-300); }
+[data-theme="dark"] .concept-visual { background: linear-gradient(180deg, var(--bg-alt) 0%, var(--bg-card) 100%); }
+[data-theme="dark"] .tour-counter { background: linear-gradient(180deg, rgba(234, 88, 12, 0.18), rgba(234, 88, 12, 0.10)); }
+
+[data-theme="dark"] .explorer-stats {
+  background:
+    linear-gradient(180deg, rgba(28, 36, 49, 0.94) 0%, rgba(15, 20, 27, 0.88) 100%);
+  box-shadow: 0 12px 28px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+}
+
+[data-theme="dark"] ::selection { background: rgba(234, 88, 12, 0.40); color: var(--ink); }
+
+/* Section-head eyebrow accent line works as-is in both themes
+   (uses orange/teal vars which stay vivid against any bg) */
