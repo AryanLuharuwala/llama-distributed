@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wire protocol — llama-distributed docs</title>
+<meta name="description" content="Binary framing, ports, and message types for llama-distributed. Enough to reimplement a node in another language.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html">How it works</a></li>
+      <li><a href="../docs/" class="active">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container docs-shell">
+
+  <aside class="docs-side">
+    <h5>Getting Started</h5>
+    <ul>
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="install.html">Install</a></li>
+    </ul>
+    <h5>How it works</h5>
+    <ul>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="protocol.html" class="active">Wire protocol</a></li>
+      <li><a href="flow.html">End-to-end flow</a></li>
+    </ul>
+    <h5>Reference</h5>
+    <ul>
+      <li><a href="reference.html">Design notes</a></li>
+    </ul>
+  </aside>
+
+  <main class="docs-main">
+    <div class="docs-breadcrumb"><a href="../docs/">Docs</a> &rsaquo; Wire protocol</div>
+    <h1>Wire protocol</h1>
+    <p class="text-muted" style="font-size: var(--fs-md)">All messages are length-prefixed TCP frames with a fixed 24-byte header.</p>
+
+    <h2 id="frame">Frame format</h2>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">binary</span></div>
+<pre>[ MsgHeader (24 bytes) ][ payload (variable) ]
+
+MsgHeader:
+  magic       uint32   0xD157C0DE
+  version     uint32   1
+  msg_type    uint16   MsgType enum
+  flags       uint16   reserved
+  payload_len uint32   bytes after header
+  seq         uint64   per-connection sequence number</pre>
+    </div>
+    <p>All multi-byte integers are little-endian. A peer that reads a frame with a non-matching magic or an unknown version closes the connection.</p>
+
+    <h2 id="ports">Ports</h2>
+    <table>
+      <thead><tr><th>Port</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>7700</td><td>Coordinator control — <code>NODE_JOIN</code>, <code>HEARTBEAT</code>, <code>LAYER_ASSIGN</code></td></tr>
+        <tr><td>7701</td><td>Data plane — <code>TENSOR_FORWARD</code> (node → node)</td></tr>
+        <tr><td>7702</td><td>API plane — <code>INFER_REQUEST</code> / <code>INFER_TOKEN</code> / <code>INFER_DONE</code></td></tr>
+        <tr><td>7703</td><td>VM control — tensor alloc/write/read, op dispatch, collectives, checkpoints</td></tr>
+        <tr><td>8080</td><td>HTTP(S) — dashboard, WebSocket, OpenAI-compat (<code>dist-server</code>)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="lifecycle">Connection lifecycle (a rig joining a pool)</h2>
+    <ol>
+      <li>Installer execs <code>dist-node --pair distpool://…</code>.</li>
+      <li><code>dist-node</code> opens a WebSocket to <code>wss://&lt;apex&gt;/ws/agent</code>.</li>
+      <li>Sends <code>{ "type": "pair", "token": "…", "hostname": "…", "gpus": […] }</code>.</li>
+      <li>Server validates the token (single-use, TTL 5 min), inserts a <code>rigs</code> row, mints an <code>agent_key</code>.</li>
+      <li>Server replies <code>{ "type": "paired", "rig_id": N, "agent_key": "…" }</code>.</li>
+      <li><code>dist-node</code> persists the <code>agent_key</code> and keeps the socket open.</li>
+      <li>Subsequent reconnects: <code>{ "type": "auth", "agent_key": "…" }</code>.</li>
+    </ol>
+
+    <h2 id="inference">Inference request (OpenAI-compat)</h2>
+    <p>The client hits the control plane with a standard OpenAI POST:</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">http</span></div>
+<pre>POST https://alice-alpha.&lt;apex&gt;/v1/chat/completions
+Authorization: Bearer sk-dist-&lt;48 hex&gt;
+Content-Type: application/json
+
+{
+  "model": "llama-3-70b",
+  "messages": [{ "role": "user", "content": "Hello!" }],
+  "stream": true
+}</pre>
+    </div>
+    <p>Server picks an online rig in the pool, forwards the request over its WebSocket, and streams the response back as SSE (OpenAI chunk format + <code>[DONE]</code>) or buffered JSON.</p>
+
+    <h2 id="data-plane">Data plane (node → node)</h2>
+    <p>Once inference starts, each node sends <code>TENSOR_FORWARD</code> frames to the next node's TCP :7701. The payload is raw bytes of the activation tensor plus a small header describing dtype and shape.</p>
+    <p>There's no encryption on the data plane — assume a trusted LAN or terminate TLS upstream (Caddy, Cloudflare Tunnel, Tailscale).</p>
+
+    <h2 id="auth">Auth</h2>
+    <ul>
+      <li><strong>Browser sessions</strong>: GitHub OAuth round-trip in prod; <code>-dev</code> flag exposes <code>POST /auth/dev</code> for local work. Session cookie = HMAC-signed user id.</li>
+      <li><strong>Rig agents</strong>: 5-minute single-use pair tokens → permanent <code>agent_key</code> stored on the rig.</li>
+      <li><strong>API keys</strong>: SHA256-hashed at rest, plaintext returned exactly once on creation, 12-char prefix shown in the UI for identification.</li>
+    </ul>
+
+    <div class="docs-footer-nav">
+      <a href="architecture.html"><span class="dir">&larr; Previous</span>Architecture</a>
+      <a class="next" href="flow.html"><span class="dir">Next &rarr;</span>End-to-end flow</a>
+    </div>
+  </main>
+
+  <aside class="docs-toc">
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#frame">Frame format</a></li>
+      <li><a href="#ports">Ports</a></li>
+      <li><a href="#lifecycle">Connection lifecycle</a></li>
+      <li><a href="#inference">Inference request</a></li>
+      <li><a href="#data-plane">Data plane</a></li>
+      <li><a href="#auth">Auth</a></li>
+    </ul>
+  </aside>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../index.html">Home</a> &middot; <a href="../blog/">Blog</a> &middot; <a href="../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+</body>
+</html>

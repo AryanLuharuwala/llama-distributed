@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install — llama-distributed docs</title>
+<meta name="description" content="All the install paths — one-liner, prebuilt tarball, source build, cloud templates.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+<link rel="stylesheet" href="../assets/css/picker.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html">How it works</a></li>
+      <li><a href="../docs/" class="active">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="#picker">Install</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container docs-shell">
+
+  <aside class="docs-side">
+    <h5>Getting Started</h5>
+    <ul>
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="install.html" class="active">Install</a></li>
+    </ul>
+    <h5>How it works</h5>
+    <ul>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="protocol.html">Wire protocol</a></li>
+      <li><a href="flow.html">End-to-end flow</a></li>
+    </ul>
+    <h5>Reference</h5>
+    <ul>
+      <li><a href="reference.html">Design notes</a></li>
+    </ul>
+  </aside>
+
+  <main class="docs-main">
+    <div class="docs-breadcrumb"><a href="../docs/">Docs</a> &rsaquo; Install</div>
+    <h1>Install guide</h1>
+    <p class="text-muted" style="font-size: var(--fs-md)">Every install path, with prereqs per combination.</p>
+
+    <h2 id="picker">Target picker</h2>
+    <p>Pick your Build, OS, Role, Accelerator, and Method — the exact command is generated live.</p>
+
+    <div class="picker" data-picker>
+      <div class="picker-head">
+        <div>
+          <h3>Pick a target</h3>
+          <p>Invalid combinations (Metal on Linux, etc.) are disabled automatically.</p>
+        </div>
+      </div>
+      <div class="picker-body" data-picker-body>
+        <div class="picker-out" style="margin-top: 1.8rem;">
+          <div class="picker-out-head">
+            <span class="title">Run this</span>
+            <button type="button" class="copy-btn" data-picker-copy aria-label="Copy command">Copy</button>
+          </div>
+          <pre class="picker-cmd" data-picker-cmd></pre>
+          <textarea data-picker-raw style="position:absolute;left:-9999px" aria-hidden="true" tabindex="-1"></textarea>
+        </div>
+        <div class="picker-note" data-picker-note hidden></div>
+        <div class="picker-prereq" data-picker-prereq></div>
+      </div>
+    </div>
+
+    <h2 id="one-liner">The one-liner, explained</h2>
+    <p>The installer one-liner does five things:</p>
+    <ol>
+      <li>Detects OS (<code>uname</code>) + arch + accelerator (<code>nvidia-smi</code> for CUDA, <code>darwin-arm64</code> for Metal).</li>
+      <li>Resolves the latest release tag from the GitHub API.</li>
+      <li>Downloads <code>llama-distributed-&lt;tag&gt;-&lt;os-arch-accel&gt;.tar.gz</code>.</li>
+      <li>Extracts to a per-user dir (<code>~/.local/share/llama-distributed</code> on Linux, equivalent on Mac/Windows).</li>
+      <li>Registers a per-user service (<code>systemd --user</code>, <code>launchd</code>, or Windows Task Scheduler) and execs <code>dist-node --pair</code>.</li>
+    </ol>
+    <p>The dashboard mints a fresh <code>distpool://</code> deep-link every time you click <em>Add rig</em>. The pair token has a 5-minute TTL.</p>
+
+    <h2 id="manual">Manual install (no service)</h2>
+    <p>If you don't want a background service, run the binary directly. <code>-g 999</code> offloads every possible layer to the GPU; <code>-g 0</code> is CPU-only.</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span></div>
+<pre>./bin/dist-join --token &lt;POOL_TOKEN&gt; --server pool.llamadist.dev -g 999</pre>
+    </div>
+
+    <h2 id="uninstall">Uninstall</h2>
+    <p>Run the platform installer with <code>uninstall</code> (Linux/macOS) or <code>-Uninstall</code> (Windows):</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span></div>
+<pre>./scripts/install/linux-install.sh uninstall
+./scripts/install/macos-install.sh uninstall
+powershell -File scripts\install\windows-install.ps1 -Uninstall</pre>
+    </div>
+
+    <h2 id="cloud">Cloud quick-starts</h2>
+    <div class="cloud-grid">
+      <a class="cloud-card" href="#aws"><strong>AWS</strong><span>g5 / p5 instances + Deep Learning AMI</span></a>
+      <a class="cloud-card" href="#gcp"><strong>Google Cloud</strong><span>GCE + Deep Learning VM</span></a>
+      <a class="cloud-card" href="#azure"><strong>Azure</strong><span>NCasT4 v3 / NC H100 v5</span></a>
+      <a class="cloud-card" href="#runpod"><strong>RunPod / Lambda</strong><span>Community GPU rentals</span></a>
+    </div>
+
+    <h3 id="aws">AWS</h3>
+    <p>On a Deep Learning AMI (Ubuntu 22.04), NVIDIA drivers + CUDA are pre-installed. The one-liner picks CUDA automatically.</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">ec2-user-data.sh</span></div>
+<pre>#!/bin/bash
+curl -fsSL https://&lt;your-server&gt;/install.sh \
+  | sh -s -- --pair 'distpool://pair?token=&lt;TOKEN&gt;&amp;server=wss://&lt;your-server&gt;/ws/agent'</pre>
+    </div>
+
+    <h3 id="gcp">Google Cloud</h3>
+    <p>Use a Deep Learning VM image (<code>common-cu125</code>). Same one-liner works inside the startup script.</p>
+
+    <h3 id="azure">Azure</h3>
+    <p>On Azure ML compute instances, the nvidia-smi check succeeds out of the box — no extra config.</p>
+
+    <h3 id="runpod">RunPod / Lambda</h3>
+    <p>Community GPU rentals with pre-installed CUDA. Just paste the one-liner into the startup script field.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <h3>The one-liner 404s</h3>
+    <p>No release has been cut yet. Either build from source (<a href="quickstart.html#build">see quickstart</a>), or cut a prerelease via <code>workflow_dispatch</code> on the GitHub Actions page.</p>
+    <h3>Pair token expired</h3>
+    <p>Pair tokens live 5 minutes. Regenerate from the dashboard — the card has an inline timer.</p>
+    <h3>Firewall blocks port 8080 on LAN</h3>
+    <p>The server prints a pre-flight check on startup. Copy the <code>firewall-cmd</code> line it logs and paste it on the control plane host.</p>
+
+    <div class="docs-footer-nav">
+      <a href="quickstart.html"><span class="dir">&larr; Previous</span>Quickstart</a>
+      <a class="next" href="architecture.html"><span class="dir">Next &rarr;</span>Architecture</a>
+    </div>
+  </main>
+
+  <aside class="docs-toc">
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#picker">Target picker</a></li>
+      <li><a href="#one-liner">One-liner explained</a></li>
+      <li><a href="#manual">Manual install</a></li>
+      <li><a href="#uninstall">Uninstall</a></li>
+      <li><a href="#cloud">Cloud</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ul>
+  </aside>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../index.html">Home</a> &middot; <a href="../blog/">Blog</a> &middot; <a href="../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+<script src="../assets/js/installer.js"></script>
+</body>
+</html>

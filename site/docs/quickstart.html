@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quickstart — llama-distributed docs</title>
+<meta name="description" content="Build llama-distributed and run a distributed inference test in under 10 minutes.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html">How it works</a></li>
+      <li><a href="../docs/" class="active">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container docs-shell">
+
+  <aside class="docs-side">
+    <h5>Getting Started</h5>
+    <ul>
+      <li><a href="quickstart.html" class="active">Quickstart</a></li>
+      <li><a href="install.html">Install</a></li>
+    </ul>
+    <h5>How it works</h5>
+    <ul>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="protocol.html">Wire protocol</a></li>
+      <li><a href="flow.html">End-to-end flow</a></li>
+    </ul>
+    <h5>Reference</h5>
+    <ul>
+      <li><a href="reference.html">Design notes</a></li>
+    </ul>
+  </aside>
+
+  <main class="docs-main">
+    <div class="docs-breadcrumb"><a href="../docs/">Docs</a> &rsaquo; Quickstart</div>
+    <h1>Quickstart</h1>
+    <p class="text-muted" style="font-size: var(--fs-md)">Build the binaries and run a distributed inference test in under 10 minutes.</p>
+
+    <h2 id="clone">1. Clone the repo</h2>
+    <p>A single <code>--recursive</code> clone is all that's required. llama.cpp is a git submodule, so you don't need a separate checkout.</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span><button type="button" class="copy-btn" data-target="#q-clone">Copy</button></div>
+<pre id="q-clone">git clone --recursive https://github.com/AryanLuharuwala/llama-distributed
+cd llama-distributed</pre>
+    </div>
+
+    <h2 id="build">2. Build</h2>
+    <p>The build script auto-detects your toolchain. Pick an accelerator flag:</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span><button type="button" class="copy-btn" data-target="#q-build">Copy</button></div>
+<pre id="q-build"># CPU build (takes ~5 min for llama.cpp)
+./scripts/build.sh
+
+# CUDA (NVIDIA)
+./scripts/build.sh --cuda
+
+# Metal (Apple Silicon)
+./scripts/build.sh --metal
+
+# Vulkan (AMD / Intel)
+./scripts/build.sh --vulkan</pre>
+    </div>
+    <p>Binaries land in <code>./build/</code>.</p>
+
+    <blockquote><strong>No separate llama.cpp checkout needed.</strong> It ships as a git submodule at <code>third_party/llama.cpp</code>.</blockquote>
+
+    <h2 id="single-machine">3. Single-machine test</h2>
+    <p>Three processes on localhost — coordinator, two nodes, client.</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">4 terminals</span><button type="button" class="copy-btn" data-target="#q-local">Copy</button></div>
+<pre id="q-local"># Terminal 1 — coordinator
+./build/dist-coordinator --model model.gguf --min-nodes 2
+
+# Terminal 2 — node 0
+./build/dist-node --server 127.0.0.1 --data-port 7701
+
+# Terminal 3 — node 1
+./build/dist-node --server 127.0.0.1 --data-port 7704
+
+# Terminal 4 — client
+./build/dist-client --server 127.0.0.1 --prompt "Hello!"</pre>
+    </div>
+    <p>Tokens stream to stdout as they're generated.</p>
+
+    <h2 id="cluster">4. Run on a real cluster</h2>
+    <p>Same binaries, different IPs. One coordinator, N node agents.</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span><button type="button" class="copy-btn" data-target="#q-cluster">Copy</button></div>
+<pre id="q-cluster"># On the coordinator host
+./build/dist-coordinator \
+  --model /models/llama-3-70b.gguf \
+  --min-nodes 3
+
+# On each GPU server
+./build/dist-node --server &lt;coordinator-ip&gt;
+
+# From anywhere
+./build/dist-client \
+  --server &lt;coordinator-ip&gt; \
+  --prompt "Explain ring-AllReduce in one paragraph." \
+  --max-tokens 256</pre>
+    </div>
+
+    <h2 id="vm-mode">5. VM / unified-computer mode (optional)</h2>
+    <p>VM mode adds distributed tensor memory, collective ops, and checkpointing on top of the base pipeline. Pass <code>-DDIST_BUILD_VM=ON</code> to CMake to enable (currently gated off in CI).</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">shell</span><button type="button" class="copy-btn" data-target="#q-vm">Copy</button></div>
+<pre id="q-vm"># Coordinator with VM layer
+./build/dist-vm-coordinator \
+  --model  /models/llama-3-70b.gguf \
+  --min-nodes 3
+
+# Node agents with VM layer (same flags as dist-node)
+./build/dist-vm-node --server &lt;coordinator-ip&gt;</pre>
+    </div>
+    <p>Client API in C++:</p>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">cpp</span></div>
+<pre>VmContext ctx({"coordinator-ip"});
+ctx.infer(token_ids, 256, [](int32_t tok, bool last) {
+    std::cout &lt;&lt; tok;
+});
+ctx.checkpoint().wait();   // snapshot entire cluster state</pre>
+    </div>
+
+    <h2 id="next">Next steps</h2>
+    <ul>
+      <li>Read the <a href="architecture.html">architecture doc</a> to understand how layers are planned and activations flow.</li>
+      <li>Dive into <a href="protocol.html">the wire protocol</a> if you want to port a node to another language.</li>
+      <li>Check the <a href="flow.html">end-to-end user flow</a> for what happens when someone pairs a rig via the dashboard.</li>
+    </ul>
+
+    <div class="docs-footer-nav">
+      <a href="../docs/"><span class="dir">&larr; Docs index</span>All docs</a>
+      <a class="next" href="install.html"><span class="dir">Next &rarr;</span>Install guide</a>
+    </div>
+  </main>
+
+  <aside class="docs-toc">
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#clone">1. Clone</a></li>
+      <li><a href="#build">2. Build</a></li>
+      <li><a href="#single-machine">3. Localhost test</a></li>
+      <li><a href="#cluster">4. Real cluster</a></li>
+      <li><a href="#vm-mode">5. VM mode</a></li>
+      <li><a href="#next">Next steps</a></li>
+    </ul>
+  </aside>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../index.html">Home</a> &middot; <a href="../blog/">Blog</a> &middot; <a href="../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+<script src="../assets/js/installer.js"></script>
+</body>
+</html>

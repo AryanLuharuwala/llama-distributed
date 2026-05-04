@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Building a PyTorch-style install picker — llama-distributed blog</title>
+<meta name="description" content="How the 5-axis picker on the dashboard generates a correct command for 72 combinations without a backend round-trip.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../assets/css/tokens.css">
+<link rel="stylesheet" href="../../assets/css/base.css">
+<link rel="stylesheet" href="../../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../../docs/">Learn</a></li>
+      <li><a href="../../community.html">Community</a></li>
+      <li><a href="../../docs/architecture.html">How it works</a></li>
+      <li><a href="../../docs/">Docs</a></li>
+      <li><a href="../../blog/" class="active">Blog</a></li>
+      <li><a href="../../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<article>
+<section class="docs-hero">
+  <div class="container-narrow">
+    <div class="docs-breadcrumb"><a href="../../blog/">Blog</a> &rsaquo; Install picker</div>
+    <h1>Building a PyTorch-style install picker for a C++ project</h1>
+    <p class="text-muted">Apr 18, 2026 &middot; Engineering &middot; 5 min read</p>
+  </div>
+</section>
+
+<div class="container-narrow docs-main" style="padding: 3rem 0 5rem;">
+
+  <p>If you've ever installed PyTorch, you've used their picker: five buttons that combine into one command. It's such a small piece of UI that it's easy to miss how much work it's doing — guarding against 18 impossible combinations, generating the right <code>--index-url</code> for every CUDA version, handling the preview-nightly channel.</p>
+  <p>We wanted the same thing for llama-distributed. Our matrix is bigger (Build × OS × Role × Accelerator × Method = 2 × 3 × 3 × 4 × 3 = 216 combos), but the constraint was the same: the user clicks, the command is correct, no backend round-trip.</p>
+
+  <h2 id="shape">The shape of the picker</h2>
+  <p>Five axes:</p>
+  <table>
+    <thead><tr><th>Axis</th><th>Values</th></tr></thead>
+    <tbody>
+      <tr><td>Build</td><td>Stable · Nightly</td></tr>
+      <tr><td>OS</td><td>Linux · macOS · Windows</td></tr>
+      <tr><td>Role</td><td>Rig (agent) · Server (control plane) · Client</td></tr>
+      <tr><td>Accelerator</td><td>CUDA · Metal · Vulkan · CPU</td></tr>
+      <tr><td>Method</td><td>One-liner · Tarball · From source</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="impossible">Disabling impossible combinations</h2>
+  <p>Metal on Linux doesn't exist. CUDA on macOS doesn't exist since Apple dropped NVIDIA. Our first take on this was to hide invalid options — but that's worse than leaving them visible and struck through. Users lose their mental model of "OS has 3 options" if options appear and disappear.</p>
+  <div class="codebox">
+    <div class="codebox-head"><span class="filename">installer.js</span></div>
+<pre>function combosValid(os, accel) {
+  if (os === "linux")   return accel === "cuda"   || accel === "vulkan" || accel === "cpu";
+  if (os === "macos")   return accel === "metal"  || accel === "cpu";
+  if (os === "windows") return accel === "cuda"   || accel === "vulkan" || accel === "cpu";
+  return false;
+}</pre>
+  </div>
+  <p>When OS changes, we check the current accelerator. If it's now invalid, we coerce to a sensible default (CUDA for Linux/Windows, Metal for macOS) rather than leaving the user in an error state.</p>
+
+  <h2 id="colorizing">Colorizing the command</h2>
+  <p>The generated command lives in a <code>&lt;pre&gt;</code> with syntax-highlighted flags, strings, and comments. No syntax highlighter, no parser — just three regexes:</p>
+  <div class="codebox">
+    <div class="codebox-head"><span class="filename">installer.js</span></div>
+<pre>function colorize(cmd) {
+  return cmd.split("\n").map(function (line) {
+    if (/^\s*#/.test(line))
+      return '&lt;span class="tok-cmt"&gt;' + escapeHtml(line) + '&lt;/span&gt;';
+    var html = escapeHtml(line);
+    html = html.replace(/(--?[A-Za-z][A-Za-z0-9-]*)/g,
+                        '&lt;span class="tok-flag"&gt;$1&lt;/span&gt;');
+    html = html.replace(/('[^']*'|"[^"]*")/g,
+                        '&lt;span class="tok-str"&gt;$1&lt;/span&gt;');
+    return html;
+  }).join("\n");
+}</pre>
+  </div>
+  <p>This misses cases — escaped quotes inside strings, flag-like tokens inside comments. But it's 15 lines of JavaScript and covers every real-world command we generate. We didn't want to ship a tokenizer library for this.</p>
+
+  <h2 id="edge-cases">The edge cases that matter</h2>
+  <p>A good picker acknowledges the combos it can't fix. Three notes appear dynamically:</p>
+  <ul>
+    <li><strong>Warn</strong> when you pick CUDA + macOS: "CUDA not available on macOS — switch to Metal or CPU." We still generate the closest command, but the warning prevents a 5-minute detour.</li>
+    <li><strong>Info</strong> when you pick Server + any accelerator: "The control plane is pure Go — the accelerator setting only affects compute rigs." Users expect the Accelerator axis to do something for every role. It doesn't for the server. Saying so inline is cheaper than writing a docs page.</li>
+    <li><strong>Info</strong> on Nightly: "Tracks the <code>main</code> branch. Expect occasional breakage." We learned not to assume users read release notes.</li>
+  </ul>
+
+  <h2 id="prereqs">Prereq line</h2>
+  <p>Below the command box, a muted one-liner lists the minimum requirements for the current combo:</p>
+  <ul>
+    <li>CUDA → "NVIDIA driver 535+ &middot; CUDA 12.5"</li>
+    <li>Metal → "macOS 13+ on Apple Silicon"</li>
+    <li>Source → adds "CMake 3.14+ &middot; GCC 11+ or Clang 14+"</li>
+  </ul>
+  <p>This is the smallest amount of text that answers "why is this failing on my machine?" before the user hits paste.</p>
+
+  <h2 id="copy">The copy button</h2>
+  <p>PyTorch's picker has a copy button. We added one too, because the alternative — selecting multi-line text with the mouse — is surprisingly fiddly. The gotcha: <code>navigator.clipboard.writeText()</code> needs a secure context (HTTPS or localhost). On a raw-HTTP self-hosted dashboard over LAN, it silently fails.</p>
+  <p>Workaround: a hidden <code>&lt;textarea&gt;</code> with the raw command, with <code>document.execCommand('copy')</code> as fallback. The fallback is deprecated but still works everywhere we need it.</p>
+
+  <h2 id="lessons">What we'd do differently</h2>
+  <ol>
+    <li><strong>Ship it earlier.</strong> We spent a week on the picker. It paid for itself the first time a user installed on Windows without asking us what to paste.</li>
+    <li><strong>Don't make axes interactive until they're needed.</strong> Our first version hid the Role axis behind an "Advanced" toggle. Turns out the first question everyone asks is "am I installing a server or a rig?" — so Role is now a top-level axis.</li>
+    <li><strong>The command is the source of truth, not the state.</strong> We initially stored the state as an object and rendered the command from it. That works. But it meant every command change required a UI re-render. It's cheap enough; we don't regret it. But if we were doing it again, we'd generate commands as pure functions and cache.</li>
+  </ol>
+
+  <p>The picker is live on <a href="../../index.html#install">the homepage</a> and <a href="../../docs/install.html">the install guide</a>. Source in <code>site/assets/js/installer.js</code>.</p>
+  <p>&mdash;</p>
+  <p><a href="../../blog/">&larr; All posts</a></p>
+</div>
+</article>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../../index.html">Home</a> &middot; <a href="../../blog/">Blog</a> &middot; <a href="../../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../../assets/js/nav.js"></script>
+</body>
+</html>

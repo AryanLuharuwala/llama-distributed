@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docs — llama-distributed</title>
+<meta name="description" content="Documentation for llama-distributed — quickstart, architecture, wire protocol, user flow, and reference.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html" aria-label="llama-distributed home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      llama-distributed
+    </a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html">How it works</a></li>
+      <li><a href="../docs/" class="active">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="docs-hero">
+  <div class="container">
+    <h1>Documentation</h1>
+    <p>Everything from a one-paragraph pitch to the byte layout of the wire protocol.</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top: 2.5rem;">
+  <div class="container">
+    <div class="post-grid">
+      <a class="post-card" href="quickstart.html">
+        <div class="date">Start Here</div>
+        <h3>Quickstart</h3>
+        <p>Build the binaries, run a 3-process localhost test, send your first prompt. Under 10 minutes.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+      <a class="post-card" href="install.html">
+        <div class="date">Install</div>
+        <h3>Install guide</h3>
+        <p>All the paths — one-liner, prebuilt tarball, source build, cloud templates. With prereqs per combo.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+      <a class="post-card" href="architecture.html">
+        <div class="date">How it works</div>
+        <h3>Architecture</h3>
+        <p>The control plane, the rigs, layer planning, double-buffering, and the optional VM layer.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+      <a class="post-card" href="flow.html">
+        <div class="date">Flow</div>
+        <h3>End-to-end user flow</h3>
+        <p>What actually happens between the user clicking <em>Add rig</em> and tokens streaming out.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+      <a class="post-card" href="protocol.html">
+        <div class="date">Protocol</div>
+        <h3>Wire protocol</h3>
+        <p>Binary framing, ports, message types. Enough to reimplement a node in another language.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+      <a class="post-card" href="reference.html">
+        <div class="date">Reference</div>
+        <h3>Design notes</h3>
+        <p>The original design doc — why this architecture, what the tradeoffs were, what's still open.</p>
+        <span class="readmore">Go &rarr;</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a href="../index.html" class="footer-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          llama-distributed
+        </a>
+        <p>Distributed LLM inference across heterogeneous GPU pools. Apache 2.0 licensed.</p>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="quickstart.html">Quickstart</a></li>
+          <li><a href="install.html">Install</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="protocol.html">Wire protocol</a></li>
+          <li><a href="reference.html">Reference</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="../community.html">Discord / Slack</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/discussions" target="_blank" rel="noopener">Discussions</a></li>
+          <li><a href="https://github.com/AryanLuharuwala/llama-distributed/issues" target="_blank" rel="noopener">Issues</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="../about.html">About</a></li>
+          <li><a href="../blog/">Blog</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="flow.html">User flow</a></li>
+          <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">llama.cpp upstream</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+</body>
+</html>

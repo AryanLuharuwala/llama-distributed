@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>404 — llama-distributed</title>
+<meta name="description" content="Page not found.">
+<meta name="theme-color" content="#3A4A1F">
+<script>
+  // Works for both apex-domain (github.io + custom domains) and project pages.
+  (function () {
+    var p = location.pathname;
+    var seg = p.split("/").filter(Boolean);
+    var root = "/";
+    if (location.hostname.endsWith(".github.io") && seg.length > 0) {
+      root = "/" + seg[0] + "/";
+    }
+    document.write('<base href="' + root + '">');
+  })();
+</script>
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  .notfound {
+    min-height: calc(100vh - var(--nav-h));
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 4rem 1.5rem;
+    background:
+      radial-gradient(800px 400px at 50% 0%, var(--orange-100) 0%, transparent 60%),
+      var(--white);
+  }
+  .notfound .code {
+    font-family: var(--font-mono);
+    font-size: clamp(4rem, 14vw, 9rem);
+    font-weight: 700;
+    color: var(--olive-900);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    margin-bottom: 0.4rem;
+  }
+  .notfound .code span { color: var(--orange-600); }
+  .notfound h1 { font-size: var(--fs-2xl); margin-bottom: 0.8rem; color: var(--olive-900); }
+  .notfound p { color: var(--muted); max-width: 44ch; margin-bottom: 1.6rem; }
+  .notfound .ctas { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="docs/">Learn</a></li>
+      <li><a href="community.html">Community</a></li>
+      <li><a href="docs/architecture.html">How it works</a></li>
+      <li><a href="docs/">Docs</a></li>
+      <li><a href="blog/">Blog</a></li>
+      <li><a href="about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="notfound">
+  <div>
+    <div class="code">4<span>0</span>4</div>
+    <h1>We couldn't route this request.</h1>
+    <p>Either the URL is wrong, or the page was moved. The pool is still up &mdash; no rigs were harmed.</p>
+    <div class="ctas">
+      <a class="btn btn-primary" href="index.html">Go home</a>
+      <a class="btn btn-ghost" href="docs/">Browse docs</a>
+      <a class="btn btn-ghost" href="https://github.com/AryanLuharuwala/llama-distributed/issues/new" target="_blank" rel="noopener">Report a broken link</a>
+    </div>
+  </div>
+</section>
+
+<script src="assets/js/nav.js"></script>
+</body>
+</html>
