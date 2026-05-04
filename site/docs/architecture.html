@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Architecture — llama-distributed docs</title>
+<meta name="description" content="How llama-distributed splits models across GPU rigs, plans layer assignments, and overlaps compute with network I/O.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../docs/">Learn</a></li>
+      <li><a href="../community.html">Community</a></li>
+      <li><a href="architecture.html" class="active">How it works</a></li>
+      <li><a href="../docs/">Docs</a></li>
+      <li><a href="../blog/">Blog</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container docs-shell">
+
+  <aside class="docs-side">
+    <h5>Getting Started</h5>
+    <ul>
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="install.html">Install</a></li>
+    </ul>
+    <h5>How it works</h5>
+    <ul>
+      <li><a href="architecture.html" class="active">Architecture</a></li>
+      <li><a href="protocol.html">Wire protocol</a></li>
+      <li><a href="flow.html">End-to-end flow</a></li>
+    </ul>
+    <h5>Reference</h5>
+    <ul>
+      <li><a href="reference.html">Design notes</a></li>
+    </ul>
+  </aside>
+
+  <main class="docs-main">
+    <div class="docs-breadcrumb"><a href="../docs/">Docs</a> &rsaquo; Architecture</div>
+    <h1>Architecture</h1>
+    <p class="text-muted" style="font-size: var(--fs-md)">A Go control plane, a pool of C++ workers, and a wire protocol that doesn't care what hardware is on the other end.</p>
+
+    <h2 id="overview">Overview</h2>
+    <p>Three kinds of process:</p>
+    <table>
+      <thead><tr><th>Process</th><th>Runs on</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>dist-server</code></td><td>Control plane (your apex host)</td><td>Dashboard UI, OAuth, pair tokens, pool routing, OpenAI-compat endpoints.</td></tr>
+        <tr><td><code>dist-node</code> / <code>dist-vm-node</code></td><td>Each rig (laptop / desktop / GPU box)</td><td>Loads model shards, runs inference, keeps a WebSocket open to the server.</td></tr>
+        <tr><td>Browser / API client</td><td>End user</td><td>Consumes the dashboard or <code>/v1/*</code> via an API key.</td></tr>
+      </tbody>
+    </table>
+    <p>One SQLite file (<code>distpool.sqlite</code>) on the control plane. No other infra needed for a single-region deployment.</p>
+
+    <h2 id="diagram">Diagram</h2>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">dist-server + N rigs</span></div>
+<pre>  Client
+    │  TCP :7702  (INFER_REQUEST / INFER_TOKEN)
+    ▼
+┌──────────────────────────────────────────────┐
+│      Coordinator  (or  VmCoordinator)        │
+│  ● node registry &amp; heartbeat monitor         │
+│  ● VRAM-proportional layer planner           │
+│  ● inference request router                  │
+│  ● VM: tensor registry, op scheduler,        │
+│        collective orchestrator, fault mgr    │
+└──────────┬───────────────────────────────────┘
+           │ TCP :7700  LAYER_ASSIGN
+           │ TCP :7703  VM_CTRL  (VM mode)
+     ┌─────┴──────┐
+     ▼            ▼
+┌─────────┐   ┌─────────┐   ┌─────────┐
+│ Node 0  │──▶│ Node 1  │──▶│ Node N  │
+│ L0–L19  │   │ L20–L39 │   │ L40–L79 │
+│  GPU 0  │   │  GPU 1  │   │  GPU 2  │
+└─────────┘   └─────────┘   └─────────┘
+  activations flow right  TCP :7701
+  collectives flow in a ring  (VM mode)</pre>
+    </div>
+
+    <h2 id="layer-partitioning">Layer partitioning</h2>
+    <p>VRAM-proportional: a 40 GB node gets twice as many layers as a 20 GB node. The first node holds the embedding table; the last node produces logits.</p>
+    <p>The planner runs in <code>coordinator.cpp</code>. It queries each rig's reported VRAM during pairing, sums the total, and divides layer ranges by ratio.</p>
+
+    <h2 id="double-buffering">Double-buffering</h2>
+    <p>Every node runs three threads:</p>
+    <ul>
+      <li><strong>RX thread</strong> fills a bounded queue with incoming activation tensors.</li>
+      <li><strong>Compute thread</strong> drains the queue, runs <code>llama_decode()</code>, pushes to the send queue.</li>
+      <li><strong>TX thread</strong> forwards output activations to the next node.</li>
+    </ul>
+    <p>Because RX and TX run on their own threads, GPU compute overlaps completely with NIC receive and send. The pipeline is bottlenecked by the slowest stage, not the sum of them.</p>
+
+    <h2 id="vm-layer">VM layer — unified-computer mode</h2>
+    <p>An optional layer that sits on top of the base pipeline. Enable with <code>-DDIST_BUILD_VM=ON</code>.</p>
+    <table>
+      <thead><tr><th>Component</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>VmTensorRegistry</code></td><td>64-bit virtual address → <code>(node, bytes, dtype)</code>.</td></tr>
+        <tr><td><code>VmScheduler</code></td><td>Data-locality op dispatch with automatic retry.</td></tr>
+        <tr><td><code>CollectiveEngine</code></td><td>Ring-AllReduce, AllGather, Broadcast (bandwidth-optimal).</td></tr>
+        <tr><td><code>FaultManager</code></td><td>Checkpoint 2PC; tensor migration on node failure.</td></tr>
+        <tr><td><code>VmCoordinator</code></td><td>Owns all VM subsystems; listens on port 7703.</td></tr>
+        <tr><td><code>VmNode</code></td><td>Local tensor store; executes dispatched ops.</td></tr>
+        <tr><td><code>VmContext</code></td><td>Client-facing C++ API.</td></tr>
+      </tbody>
+    </table>
+    <p>The VM layer is currently gated off in CI. It's stable enough for local experimentation but not production-ready — GPU utilization metrics are stubbed, and the fault manager's migration path is incomplete.</p>
+
+    <h2 id="llama-cpp">Relationship to llama.cpp</h2>
+    <p><code>llama-distributed</code> is an <strong>adapter layer on top of llama.cpp</strong>, not a fork.</p>
+    <ul>
+      <li>llama.cpp is the computation engine (GGUF loading, GPU kernels, quantisation).</li>
+      <li><code>NodeAgent</code> owns a <code>llama_model*</code> / <code>llama_context*</code> and calls <code>llama_decode()</code> on its assigned layer slice.</li>
+      <li><strong>Zero modifications</strong> to llama.cpp. It's used purely as a library.</li>
+      <li>To update: <code>git -C third_party/llama.cpp pull &amp;&amp; cmake --build build</code>.</li>
+    </ul>
+
+    <h2 id="file-layout">File layout</h2>
+    <div class="codebox">
+      <div class="codebox-head"><span class="filename">repo tree</span></div>
+<pre>llama-distributed/
+├── CMakeLists.txt                    top-level build (all targets)
+├── cmake/
+│   └── FindLlamaCpp.cmake            find pre-installed llama.cpp
+├── scripts/
+│   └── build.sh                      one-command build helper
+├── third_party/
+│   └── llama.cpp/                    git submodule (ggml-org/llama.cpp)
+├── include/
+│   ├── dist_protocol.h               base wire format (ports 7700–7702)
+│   ├── dist_conn.h                   TCP framing + Listener
+│   ├── dist_queue.h                  bounded MPMC queue
+│   ├── node_agent.h                  pipeline worker
+│   ├── coordinator.h                 cluster coordinator
+│   ├── pipeline.h                    layer cache + double-buffering
+│   ├── vm_protocol.h                 VM wire format (port 7703)
+│   ├── vm_tensor_registry.h          virtual address space
+│   ├── vm_scheduler.h                op dispatch + retry
+│   ├── vm_collective.h               ring collectives
+│   ├── vm_fault.h                    checkpoint + fault recovery
+│   ├── vm_coordinator.h              VM coordinator
+│   ├── vm_node.h                     VM worker
+│   └── vm_context.h                  client API
+├── server/                           Go control plane (main.go, openai.go, pools.go, ws.go)
+└── src/                              C++ implementation + main.cpp's for every binary</pre>
+    </div>
+
+    <div class="docs-footer-nav">
+      <a href="install.html"><span class="dir">&larr; Previous</span>Install</a>
+      <a class="next" href="protocol.html"><span class="dir">Next &rarr;</span>Wire protocol</a>
+    </div>
+  </main>
+
+  <aside class="docs-toc">
+    <h5>On this page</h5>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#diagram">Diagram</a></li>
+      <li><a href="#layer-partitioning">Layer partitioning</a></li>
+      <li><a href="#double-buffering">Double-buffering</a></li>
+      <li><a href="#vm-layer">VM layer</a></li>
+      <li><a href="#llama-cpp">llama.cpp relationship</a></li>
+      <li><a href="#file-layout">File layout</a></li>
+    </ul>
+  </aside>
+
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../index.html">Home</a> &middot; <a href="../blog/">Blog</a> &middot; <a href="../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/nav.js"></script>
+</body>
+</html>

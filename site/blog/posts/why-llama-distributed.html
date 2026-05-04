@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Why we built llama-distributed — llama-distributed blog</title>
+<meta name="description" content="Tensor-parallel needs NVLink. Layer-parallel works over a switch. Here's why we bet on the second one.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../assets/css/tokens.css">
+<link rel="stylesheet" href="../../assets/css/base.css">
+<link rel="stylesheet" href="../../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../../docs/">Learn</a></li>
+      <li><a href="../../community.html">Community</a></li>
+      <li><a href="../../docs/architecture.html">How it works</a></li>
+      <li><a href="../../docs/">Docs</a></li>
+      <li><a href="../../blog/" class="active">Blog</a></li>
+      <li><a href="../../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<article>
+<section class="docs-hero">
+  <div class="container-narrow">
+    <div class="docs-breadcrumb"><a href="../../blog/">Blog</a> &rsaquo; Why we built this</div>
+    <h1>Why we built llama-distributed</h1>
+    <p class="text-muted">Apr 02, 2026 &middot; Intro &middot; 6 min read</p>
+  </div>
+</section>
+
+<div class="container-narrow docs-main" style="padding: 3rem 0 5rem;">
+
+  <p>The 70B Llama weights don't fit on a 24 GB laptop. They also don't fit on most 40 GB workstation cards. But they do fit on <em>two</em> cards — or on a 40 GB card plus a 24 GB card, if you're willing to split the model across both.</p>
+  <p>The question is how you split.</p>
+
+  <h2 id="two-ways">Two ways to split a model</h2>
+  <p><strong>Tensor parallelism</strong> slices each weight matrix across devices. Every GPU participates in every layer; they AllReduce after every attention and MLP block. This is what <code>tensor_parallel_size=2</code> in vLLM does. It's fast, and it's what everyone uses at scale.</p>
+  <p>But AllReduce needs serious interconnect bandwidth. Between two A100s on the same host with NVLink, you get 600 GB/s. Between two consumer cards over PCIe, you get ~32 GB/s. Between two cards on different machines over a 10 GbE switch, you get 1.25 GB/s. Between two cards over an actual network, you get whatever the network gives you — which for most home labs is 100 MB/s at best.</p>
+  <p>Tensor parallelism over a slow link is an anti-pattern. The AllReduce dominates.</p>
+  <p><strong>Pipeline parallelism</strong> — or, more specifically, <em>layer-parallel</em> — slices the model by layer instead of by tensor. Node 0 owns layers 0–19, node 1 owns 20–39, node 2 owns 40–79. Each node runs <code>llama_decode()</code> on its slice, hands the activation tensor to the next node, and waits.</p>
+  <p>The network traffic is the activation tensor itself — maybe 4 KB for a single token of a 4096-dim model. That fits in a single Ethernet frame. Over a 1 GbE home switch, your per-token latency is ~0.04 ms of network time. Over 100 Mbps WiFi, it's ~0.4 ms. Either way, the GPU is the bottleneck, not the network.</p>
+
+  <h2 id="the-tradeoff">The tradeoff</h2>
+  <p>Pipeline-parallel is worse for a single request with no batching: only one GPU is busy at a time. But:</p>
+  <ul>
+    <li>With <strong>double-buffering</strong>, a node's RX thread queues up the next activation while its compute thread runs the current one. GPU compute overlaps with NIC receive.</li>
+    <li>With <strong>request interleaving</strong>, multiple inference requests flow through the pipeline simultaneously — different tokens are on different nodes at the same time. Utilization approaches 100% under realistic load.</li>
+    <li>Tensor-parallel <em>never</em> achieves more utilization than the slowest GPU × the AllReduce overhead. Pipeline-parallel can.</li>
+  </ul>
+  <p>We bet on pipeline-parallel because it's the only approach that works over the kind of hardware real people have — a home office with two gaming PCs, a university lab with mismatched workstations, a small company with three on-prem machines and no InfiniBand budget.</p>
+
+  <h2 id="heterogeneity">The heterogeneity problem</h2>
+  <p>Tensor parallel assumes all devices are identical. If you split a 10,000 × 10,000 matrix evenly across two GPUs and one is a 4080 and the other is a 3060, the 4080 waits for the 3060 at every AllReduce. You're pinned to the weakest link.</p>
+  <p>Pipeline parallelism can be <strong>asymmetric</strong>. A 40 GB node can host 40 layers; a 20 GB node can host 20. We don't divide work evenly — we divide it <em>proportionally</em>. The planner reads each rig's reported VRAM, sums the total, and carves layer ranges by ratio. The rigs process at their own pace; the pipeline fills up and drains naturally.</p>
+  <p>This is why our pool can mix a CUDA 4090, a Metal M3 Max, and a Vulkan RX 7900 in the same cluster. None of them have NVLink to each other. None of them need to.</p>
+
+  <h2 id="why-now">Why now</h2>
+  <p>Two things converged in 2025:</p>
+  <ol>
+    <li><strong>llama.cpp matured.</strong> The <code>llama_decode()</code> API is stable across backends. GGUF is the de-facto quantization format. CUDA, Metal, and Vulkan all compile from the same source tree. We don't have to pick a platform — llama.cpp already solved that.</li>
+    <li><strong>Home labs grew.</strong> A used 3090 is $650. A new 4090 is $1500. A Mac Studio with 128 GB of unified memory is $4000. People have real VRAM at home now, often spread across multiple machines they already own. The bottleneck is pooling, not silicon.</li>
+  </ol>
+  <p>If you have the hardware and you're willing to split the model, you should be running a 70B model today. llama-distributed tries to be the shortest path from "I have some GPUs" to "my code talks to an OpenAI-compatible endpoint that runs a 70B model."</p>
+
+  <h2 id="what-it-is">What llama-distributed is</h2>
+  <ul>
+    <li>A Go control plane (<code>dist-server</code>) that runs on a laptop, handles auth, assigns pair tokens, and exposes OpenAI-compat endpoints per pool.</li>
+    <li>A C++ node agent (<code>dist-node</code>) that runs on each GPU host, loads its assigned layer range, and streams activations to the next node.</li>
+    <li>A wire protocol so boring it's reimplementable in an afternoon in any language that has TCP sockets.</li>
+    <li>An installer that actually works, including the awkward cases (Windows, behind NAT, over LAN).</li>
+  </ul>
+
+  <h2 id="what-its-not">What it isn't</h2>
+  <ul>
+    <li>A replacement for vLLM or TGI at production scale. If you have an H100 cluster with NVLink, keep using what you're using.</li>
+    <li>A training framework. Fine-tune with Unsloth, quantize with <code>llama.cpp</code>'s tools, then deploy here.</li>
+    <li>A TEE or zero-trust system. Assume a trusted LAN, or terminate TLS upstream (Caddy, Cloudflare Tunnel, Tailscale).</li>
+  </ul>
+
+  <p>The goal is to make distributed inference work for the 80% of users who don't have an HPC cluster. If that's you, <a href="../../index.html#install">install it</a> and see how far you get. File an issue when something breaks — there's a lot left to cut down.</p>
+  <p>&mdash;</p>
+  <p><a href="../../blog/">&larr; All posts</a></p>
+</div>
+</article>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../../index.html">Home</a> &middot; <a href="../../blog/">Blog</a> &middot; <a href="../../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../../assets/js/nav.js"></script>
+</body>
+</html>

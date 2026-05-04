@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Friction-removal pass — llama-distributed blog</title>
+<meta name="description" content="Path-form pools, pool auto-join, firewall preflight — three small changes that turn a 10-click onboarding into a 3-click one.">
+<meta name="theme-color" content="#3A4A1F">
+<link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../assets/css/tokens.css">
+<link rel="stylesheet" href="../../assets/css/base.css">
+<link rel="stylesheet" href="../../assets/css/docs.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="nav-brand" href="../../index.html"><span class="brand-mark" aria-hidden="true"></span>llama-distributed</a>
+    <ul class="nav-links" data-nav-links>
+      <li><a href="../../docs/">Learn</a></li>
+      <li><a href="../../community.html">Community</a></li>
+      <li><a href="../../docs/architecture.html">How it works</a></li>
+      <li><a href="../../docs/">Docs</a></li>
+      <li><a href="../../blog/" class="active">Blog</a></li>
+      <li><a href="../../about.html">About</a></li>
+    </ul>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="../../index.html#install">Get Started</a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Open menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<article>
+<section class="docs-hero">
+  <div class="container-narrow">
+    <div class="docs-breadcrumb"><a href="../../blog/">Blog</a> &rsaquo; Friction-removal pass</div>
+    <h1>Friction-removal pass: path-form pools, auto-join, preflight</h1>
+    <p class="text-muted">Apr 22, 2026 &middot; v0.3 release notes &middot; 4 min read</p>
+  </div>
+</section>
+
+<div class="container-narrow docs-main" style="padding: 3rem 0 5rem;">
+
+  <p>v0.3 was supposed to be a maintenance release. Instead, we spent a week cutting friction from the onboarding flow — three small changes that turn a 10-click setup into a 3-click one. None of them are architecturally interesting. All of them are the difference between a user getting to their first token in 45 seconds or giving up after 5 minutes.</p>
+
+  <h2 id="path-form-pools">1. Path-form pool URLs</h2>
+  <p>Previously, every pool got a subdomain: <code>alice-alpha.dist.dev/v1</code>. This is the clean form, and it still works in prod. But it requires wildcard DNS, which requires a wildcard TLS cert, which means Caddy / Cloudflare / whatever you're terminating with actually <em>has</em> a wildcard cert for the apex. Most self-hosters don't.</p>
+  <p>So v0.3 accepts <code>/v1/&lt;slug&gt;/…</code> as a synonym:</p>
+  <div class="codebox">
+    <div class="codebox-head"><span class="filename">before (prod only)</span></div>
+<pre>client = OpenAI(base_url="https://alice-alpha.dist.dev/v1", ...)</pre>
+  </div>
+  <div class="codebox">
+    <div class="codebox-head"><span class="filename">after (LAN, self-host, or prod)</span></div>
+<pre>client = OpenAI(base_url="https://dist.dev/v1/alice-alpha", ...)</pre>
+  </div>
+  <p>Resolution is simple: <code>resolvePoolFromHost()</code> first tries the subdomain form, then falls back to the first path segment after <code>/v1/</code>. Existing subdomain URLs keep working — this is additive.</p>
+  <p>We also kept the <code>?pool=&lt;slug&gt;</code> query-string form as a last-resort fallback, but many SDKs strip query strings when they append paths like <code>/chat/completions</code>. Path form is now the recommended dev URL.</p>
+
+  <h2 id="auto-join">2. Pool auto-join on pair</h2>
+  <p>The old flow:</p>
+  <ol>
+    <li>Click <strong>Add rig</strong> → paste one-liner → rig pairs.</li>
+    <li>Click <strong>New pool</strong> → name it → create.</li>
+    <li>Find the rig in the list → drag it into the pool.</li>
+  </ol>
+  <p>Three clicks, two of which don't need to exist. The dashboard already knows what pool you want the rig in — you either have one, or you're about to make one. So the <strong>Add rig</strong> card now has a <em>"Pool to auto-join"</em> dropdown that defaults to your only pool (if you have one) or <em>None</em>.</p>
+  <p>Server-side, the pair token payload picks up an optional <code>pool_id</code>. On successful pair, we insert the <code>pool_rigs</code> row atomically before we reply <code>paired</code>. The browser gets a <code>pool_rigs_changed</code> push and the rig shows up already green, already in the pool. One click becomes zero.</p>
+
+  <h2 id="preflight">3. Firewall preflight check</h2>
+  <p>We hit this the night before the release: on a fresh LAN setup, the control plane binds to <code>0.0.0.0:8080</code>, everything looks fine in the logs, and then the rig across the room prints <code>connection refused</code>. Windows Defender was silently blocking the port.</p>
+  <p>Error messages in distributed systems are famously bad at saying <em>where</em> a connection fails. We added a one-shot sanity check at startup:</p>
+  <div class="codebox">
+    <div class="codebox-head"><span class="filename">startup log</span></div>
+<pre>2026-04-22 18:03:12 listen: http://0.0.0.0:8080
+2026-04-22 18:03:12 preflight: dialing self at http://192.168.1.42:8080 ...
+2026-04-22 18:03:13 preflight: FAILED — connection reset
+2026-04-22 18:03:13 preflight: Windows Defender Firewall is blocking inbound 8080.
+                               To open it:
+                               New-NetFirewallRule -DisplayName "dist-server" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow</pre>
+  </div>
+  <p>Same for <code>firewalld</code> on Linux (<code>firewall-cmd --add-port=8080/tcp --permanent</code>) and <code>pf</code> on macOS. The error moves from "why can't my rig reach the dashboard" to "copy this line and paste it". The underlying problem is the same; the user's time-to-fix drops from 20 minutes to 20 seconds.</p>
+
+  <h2 id="net">Net result</h2>
+  <p>The zero-friction path is now:</p>
+  <ol>
+    <li>Open <code>https://apex</code>. Sign in.</li>
+    <li>Click <strong>Add rig</strong> (pool auto-selected). Copy one-liner.</li>
+    <li>Paste on the rig.</li>
+    <li>Click <strong>Get OpenAI snippet</strong>. Paste into your code.</li>
+  </ol>
+  <p>Four clicks total, two pastes. Full details in <a href="../../docs/flow.html">the flow doc</a>.</p>
+
+  <h2 id="whats-next">What's next</h2>
+  <ul>
+    <li><strong>QR-code one-liner</strong> so phones-next-to-rigs work without SSHing.</li>
+    <li><strong>Installer served by the control plane</strong> — cut the GitHub Releases dependency for truly air-gapped deployments.</li>
+    <li><strong>Inline OpenAI snippet</strong> on the pool modal (Python / Node / curl) with the API key pre-filled.</li>
+  </ul>
+  <p>&mdash;</p>
+  <p><a href="../../blog/">&larr; All posts</a></p>
+</div>
+</article>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="border:0;padding-top:0;">
+      <div>&copy; 2026 llama-distributed contributors &middot; Apache 2.0</div>
+      <div><a href="../../index.html">Home</a> &middot; <a href="../../blog/">Blog</a> &middot; <a href="../../community.html">Community</a></div>
+    </div>
+  </div>
+</footer>
+
+<script src="../../assets/js/nav.js"></script>
+</body>
+</html>
