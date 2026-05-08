@@ -5,994 +5,1106 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>llama-distributed</title>
 <style>
-  :root {
-    --bg: #0a0d12;
-    --panel: #141922;
-    --panel-2: #1c2230;
-    --border: #222836;
-    --text: #e6e8ec;
-    --muted: #8f96a3;
-    --accent: #6ee7b7;
-    --danger: #f87171;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
-               font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  header { display: flex; align-items: center; justify-content: space-between;
-           padding: 16px 24px; border-bottom: 1px solid var(--border); }
-  header .brand { font-weight: 600; letter-spacing: 0.5px; }
-  header .user { color: var(--muted); font-size: 14px; }
-  main { padding: 32px 24px; max-width: 960px; margin: 0 auto; }
-  .card { background: var(--panel); border: 1px solid var(--border);
-          border-radius: 10px; padding: 24px; margin-bottom: 24px; }
-  .card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
-  .muted { color: var(--muted); font-size: 14px; }
-  button { background: var(--accent); color: #0a0d12; border: 0;
-           padding: 10px 16px; border-radius: 6px; font-weight: 600;
-           cursor: pointer; font-size: 14px; }
-  button.secondary { background: var(--panel-2); color: var(--text);
-                     border: 1px solid var(--border); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  input[type=text] { background: var(--panel-2); border: 1px solid var(--border);
-                     color: var(--text); padding: 10px 12px; border-radius: 6px;
-                     font-size: 14px; width: 240px; }
-  code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px;
-         font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
-  .rig { display: flex; align-items: center; justify-content: space-between;
-         padding: 12px; border: 1px solid var(--border); border-radius: 8px;
-         margin-top: 8px; background: var(--panel-2); }
-  .rig .name { font-weight: 600; }
-  .rig .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%;
-         background: var(--muted); display: inline-block; margin-right: 6px; }
-  .dot.online { background: var(--accent); }
-  .empty { color: var(--muted); font-style: italic; }
-  .event-log { font-family: ui-monospace, Menlo, Consolas, monospace;
-               font-size: 12px; color: var(--muted); max-height: 200px;
-               overflow-y: auto; padding: 8px; background: var(--panel-2);
-               border-radius: 6px; border: 1px solid var(--border); }
-  .event-log div { padding: 2px 0; }
+:root{
+  --bg:#0a0d12;--surface:#0d1117;--card:#161b22;--elevated:#1c2128;
+  --border:#30363d;--border-dim:#21262d;
+  --fg:#e6edf3;--muted:#8b949e;--dim:#484f58;
+  --blue:#58a6ff;--blue-bg:rgba(88,166,255,.12);
+  --green:#3fb950;--green-bg:rgba(63,185,80,.12);
+  --red:#f85149;--red-bg:rgba(248,81,73,.12);
+  --yellow:#d29922;--r:6px;--r2:10px;--r3:4px;
+  --shadow:0 8px 32px rgba(0,0,0,.5);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none}
+button{cursor:pointer;font:inherit;border:none;background:none}
+input,textarea,select{
+  font:inherit;background:var(--elevated);border:1px solid var(--border);
+  border-radius:var(--r3);color:var(--fg);padding:6px 10px;outline:none;
+  transition:border-color .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--blue)}
+textarea{resize:vertical}
+code,pre{font-family:"SF Mono",Menlo,"Cascadia Code",monospace;font-size:12px}
+pre{background:var(--elevated);border:1px solid var(--border);border-radius:var(--r3);
+  padding:12px 14px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
 
-  .pool-row { display: flex; justify-content: space-between; align-items: center;
-              padding: 10px 12px; border: 1px solid var(--border);
-              border-radius: 8px; margin-top: 8px; background: var(--panel-2);
-              cursor: pointer; }
-  .pool-row:hover { border-color: var(--accent); }
-  .pool-row .title { font-weight: 600; }
-  .pool-row .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
-          font-size: 11px; background: var(--panel); border: 1px solid var(--border);
-          color: var(--muted); margin-left: 6px; }
-  .pill.me { color: var(--accent); border-color: var(--accent); }
-  .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-  .tab { padding: 6px 12px; border-radius: 6px; background: var(--panel-2);
-         border: 1px solid var(--border); color: var(--muted); cursor: pointer;
-         font-size: 13px; }
-  .tab.active { color: var(--accent); border-color: var(--accent); }
+/* utils */
+.hidden{display:none!important}
+.flex{display:flex}.col{flex-direction:column}.ac{align-items:center}.jb{justify-content:space-between}
+.g1{gap:4px}.g2{gap:8px}.g3{gap:12px}.g4{gap:16px}
+.w100{width:100%}.ml-a{margin-left:auto}
+.mt2{margin-top:8px}.mt3{margin-top:12px}.mt4{margin-top:16px}
+.mb2{margin-bottom:8px}.mb3{margin-bottom:12px}.mb4{margin-bottom:16px}
+.sm{font-size:12px}.xs{font-size:11px}
+.muted{color:var(--muted)}.dim{color:var(--dim)}
+.c-blue{color:var(--blue)}.c-green{color:var(--green)}.c-red{color:var(--red)}
+.bold{font-weight:600}.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrap{flex-wrap:wrap}
 
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-                    display: none; align-items: flex-start; justify-content: center;
-                    padding-top: 10vh; z-index: 10; }
-  .modal-backdrop.open { display: flex; }
-  .modal { background: var(--panel); border: 1px solid var(--border);
-           border-radius: 10px; padding: 24px; width: 560px; max-width: 92vw;
-           max-height: 80vh; overflow-y: auto; }
-  .modal h3 { margin: 0 0 16px; font-size: 18px; }
-  .modal .close { float: right; cursor: pointer; color: var(--muted); }
-  select { background: var(--panel-2); border: 1px solid var(--border);
-           color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px; }
+/* badges */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;
+  border-radius:100px;font-size:11px;font-weight:600;letter-spacing:.3px}
+.b-green{background:var(--green-bg);color:var(--green)}
+.b-red{background:var(--red-bg);color:var(--red)}
+.b-blue{background:var(--blue-bg);color:var(--blue)}
+.b-dim{background:var(--elevated);color:var(--muted);border:1px solid var(--border-dim)}
+.b-yellow{background:rgba(210,153,34,.12);color:var(--yellow)}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.d-green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.d-dim{background:var(--dim)}.d-red{background:var(--red)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
+  border-radius:var(--r3);border:1px solid transparent;font-size:13px;
+  font-weight:500;transition:.15s;white-space:nowrap;cursor:pointer}
+.btn:disabled{opacity:.45;pointer-events:none}
+.btn-p{background:var(--blue);color:#fff}.btn-p:hover{background:#79bcff}
+.btn-g{background:transparent;color:var(--fg);border-color:var(--border)}
+.btn-g:hover{background:var(--elevated)}
+.btn-d{color:var(--red);border-color:var(--red-bg)}.btn-d:hover{background:var(--red-bg)}
+.btn-sm{padding:3px 10px;font-size:12px}
+
+/* cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+.card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-t{font-size:14px;font-weight:600}
+
+/* login */
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center}
+.login-box{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);
+  padding:44px;width:380px;text-align:center;box-shadow:var(--shadow)}
+.login-logo{font-size:26px;font-weight:800;margin-bottom:8px}
+.login-logo b{color:var(--blue)}
+.login-sub{color:var(--muted);font-size:13px;margin-bottom:32px}
+.gh-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  padding:10px 20px;background:var(--elevated);border:1px solid var(--border);
+  border-radius:var(--r3);color:var(--fg);font:500 14px/1 inherit;cursor:pointer;transition:.15s}
+.gh-btn:hover{background:var(--border)}
+.gh-btn svg{width:18px;height:18px;fill:currentColor}
+
+#app{display:flex;flex-direction:column;min-height:100vh}
+
+/* header */
+header{position:sticky;top:0;z-index:100;height:54px;background:var(--surface);
+  border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px}
+.brand{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px;white-space:nowrap}
+nav{display:flex;align-items:center;gap:2px;flex:1}
+.tab-btn{background:transparent;border:none;color:var(--muted);padding:5px 11px;
+  border-radius:var(--r3);font-size:13px;font-weight:500;transition:.15s;cursor:pointer}
+.tab-btn:hover{color:var(--fg);background:var(--elevated)}
+.tab-btn.on{color:var(--fg);background:var(--elevated)}
+.hdr-r{display:flex;align-items:center;gap:10px;margin-left:auto}
+.user-chip{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+
+/* main */
+main{flex:1;padding:24px 20px;max-width:1160px;width:100%;margin:0 auto}
+.tab-panel{display:none}.tab-panel.on{display:block}
+
+/* stats row */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:22px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.stat-l{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px}
+.stat-v{font-size:28px;font-weight:700;line-height:1}
+.stat-s{font-size:11px;color:var(--muted);margin-top:3px}
+
+/* two col */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+@media(max-width:760px){.two-col{grid-template-columns:1fr}}
+
+/* section */
+.sec-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sec-t{font-size:15px;font-weight:700}
+
+/* rig grid */
+.rig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.rig-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px;transition:border-color .15s}
+.rig-card:hover{border-color:var(--blue)}.rig-card.dim{opacity:.55}
+.rig-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.rig-name{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rig-meta{font-size:11px;color:var(--muted);margin-bottom:8px}
+.rig-kv{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.rig-ki{background:var(--elevated);border-radius:var(--r3);padding:5px 8px}
+.rig-kl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+.rig-kv2{font-size:12px;font-weight:600}
+
+/* pool list */
+.pool-list{display:flex;flex-direction:column;gap:7px}
+.pool-row{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:14px 18px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:.15s}
+.pool-row:hover{border-color:var(--blue);background:var(--elevated)}
+.pool-info{flex:1;min-width:0}
+.pool-name{font-weight:600;font-size:14px}
+.pool-meta{font-size:12px;color:var(--muted);margin-top:2px}
+
+/* pool detail */
+.pool-detail{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:10px}
+.pd-sec{margin-bottom:18px}.pd-sec:last-child{margin-bottom:0}
+.pd-sec-t{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px}
+
+/* snippet */
+.snip-row{display:flex;align-items:center;gap:8px}
+.snip{flex:1;background:var(--elevated);border:1px solid var(--border);border-radius:var(--r3);
+  padding:8px 12px;font-family:"SF Mono",monospace;font-size:12px;overflow-x:auto;white-space:nowrap}
+
+/* playground */
+.play-layout{display:flex;flex-direction:column;height:calc(100vh - 54px - 48px - 60px);min-height:320px}
+.play-hd{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.chat-area{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.chat-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--muted);text-align:center;gap:6px}
+.chat-empty-icon{font-size:28px}
+.msg{display:flex;gap:9px;max-width:82%}
+.msg-u{align-self:flex-end;flex-direction:row-reverse}
+.bubble{padding:9px 13px;border-radius:var(--r);font-size:13px;line-height:1.55;white-space:pre-wrap}
+.msg-u .bubble{background:var(--blue);color:#fff;border-radius:var(--r) var(--r3) var(--r) var(--r)}
+.msg-a .bubble{background:var(--elevated);border:1px solid var(--border);border-radius:var(--r3) var(--r) var(--r) var(--r)}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--elevated);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;margin-top:2px}
+.msg-u .avatar{background:var(--blue-bg);border-color:var(--blue)}
+.chat-in-row{display:flex;gap:8px;margin-top:10px}
+.chat-in-row textarea{flex:1;min-height:42px;max-height:110px;padding:9px 12px;border-radius:var(--r3);resize:none}
+.chat-usage{font-size:11px;color:var(--muted);margin-top:5px;text-align:right}
+
+/* key list */
+.key-list{display:flex;flex-direction:column;gap:6px}
+.key-row{display:flex;align-items:center;gap:12px;background:var(--elevated);
+  border:1px solid var(--border-dim);border-radius:var(--r3);padding:9px 14px}
+.key-mono{font-family:monospace;font-size:12px;flex:1;color:var(--muted)}
+
+/* picker */
+.picker-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.picker-grp{display:flex;flex-direction:column;gap:3px}
+.picker-lbl{font-size:11px;font-weight:500;color:var(--muted)}
+.picker-grp select{min-width:100px}
+
+/* events */
+.evt-log{background:var(--elevated);border:1px solid var(--border);border-radius:var(--r3);
+  padding:10px;height:210px;overflow-y:auto;font-family:monospace;font-size:11px;
+  color:var(--muted);display:flex;flex-direction:column-reverse}
+.evt-ln{padding:2px 0;border-bottom:1px solid var(--border-dim)}
+.evt-ln:first-child{border-bottom:none}
+.evt-t{color:var(--dim);margin-right:7px}
+.c-on{color:var(--green)}.c-off{color:var(--red)}.c-in{color:var(--blue)}
+
+/* modals */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;
+  justify-content:center;z-index:200;backdrop-filter:blur(3px)}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);
+  padding:26px;width:500px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow)}
+.modal-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.modal-t{font-size:16px;font-weight:700}
+.modal-x{color:var(--muted);font-size:22px;line-height:1;cursor:pointer;padding:0}
+.modal-x:hover{color:var(--fg)}
+.modal-ft{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;
+  padding-top:14px;border-top:1px solid var(--border)}
+
+/* form */
+.fg{margin-bottom:12px}
+.fg label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:4px}
+.fg input,.fg select,.fg textarea{width:100%}
+
+/* inner tabs */
+.inner-tabs{display:flex;gap:3px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.itab{background:transparent;border:none;color:var(--muted);padding:7px 12px;font-size:13px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;transition:color .15s}
+.itab:hover{color:var(--fg)}.itab.on{color:var(--fg);border-bottom-color:var(--blue)}
+
+/* code tabs */
+.ctabs{display:flex;gap:2px;margin-bottom:-1px}
+.ctab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--muted);
+  padding:3px 9px;font-size:11px;border-radius:var(--r3) var(--r3) 0 0;cursor:pointer}
+.ctab.on{background:var(--elevated);border-color:var(--border);color:var(--fg)}
+.cpanel{display:none}.cpanel.on{display:block}
+
+/* key reveal */
+.key-reveal{background:var(--green-bg);border:1px solid var(--green);border-radius:var(--r);
+  padding:12px 14px;font-family:monospace;font-size:13px;color:var(--green);word-break:break-all;margin-bottom:10px}
+
+/* alerts */
+.alert{padding:9px 13px;border-radius:var(--r3);font-size:13px;margin-bottom:10px}
+.al-info{background:var(--blue-bg);border:1px solid var(--blue);color:var(--blue)}
+.al-green{background:var(--green-bg);border:1px solid var(--green);color:var(--green)}
+
+/* empty */
+.empty{text-align:center;padding:40px 20px;color:var(--muted)}
+.empty-icon{font-size:26px;margin-bottom:6px}
+
+/* install cmd */
+.install-cmd{background:var(--elevated);border:1px solid var(--border);border-radius:var(--r3);
+  padding:10px 14px;font-family:monospace;font-size:12px;overflow-x:auto;white-space:nowrap;
+  min-height:42px;color:var(--fg);flex:1}
 </style>
 </head>
 <body>
 
+<!-- login -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">🦙 llama<b>-distributed</b></div>
+    <p class="login-sub">Pool your GPUs. Run any LLM.</p>
+    <button class="gh-btn" onclick="location.href='/auth/github'">
+      <svg viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+      Sign in with GitHub
+    </button>
+    <div id="dev-link" class="hidden mt4" style="margin-top:16px">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="dev-name" placeholder="display name" style="flex:1">
+        <button class="btn btn-g btn-sm" onclick="devLogin()">Dev login</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- app -->
+<div id="app" class="hidden">
+
 <header>
-  <div class="brand">llama-distributed</div>
-  <div class="user" id="user">…</div>
+  <div class="brand">🦙 llama-distributed</div>
+  <nav>
+    <button class="tab-btn on" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="rigs">Rigs</button>
+    <button class="tab-btn" data-tab="pools">Pools</button>
+    <button class="tab-btn" data-tab="playground">Playground</button>
+    <button class="tab-btn" data-tab="keys">API Keys</button>
+  </nav>
+  <div class="hdr-r">
+    <div class="user-chip">
+      <span class="dot d-green"></span>
+      <span id="hdr-user">…</span>
+    </div>
+    <button class="btn btn-g btn-sm" onclick="logout()">Sign out</button>
+  </div>
 </header>
 
 <main>
 
-<div id="login-card" class="card" hidden>
-  <h2>Sign in</h2>
-  <p class="muted">Sign in to connect your rigs and join pools.</p>
-  <div class="row">
-    <a href="/auth/github"><button>Sign in with GitHub</button></a>
-    <span id="dev-login-wrap" hidden>
-      <input type="text" id="dev-name" placeholder="dev display name">
-      <button id="dev-login-btn" class="secondary">Dev login</button>
-    </span>
+<!-- dashboard tab -->
+<div class="tab-panel on" id="tab-dashboard">
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-l">Rigs Online</div>
+      <div class="stat-v" id="s-online">—</div>
+      <div class="stat-s" id="s-online-s"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-l">My Pools</div>
+      <div class="stat-v" id="s-pools">—</div>
+      <div class="stat-s">yours</div>
+    </div>
+    <div class="stat">
+      <div class="stat-l">Tokens Used</div>
+      <div class="stat-v" id="s-tokens">—</div>
+      <div class="stat-s">this month</div>
+    </div>
+    <div class="stat">
+      <div class="stat-l">API Keys</div>
+      <div class="stat-v" id="s-keys">—</div>
+      <div class="stat-s">active</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <!-- Add Rig -->
+    <div class="card">
+      <div class="card-hd"><div class="card-t">Add a Rig</div></div>
+      <div class="picker-row">
+        <div class="picker-grp">
+          <span class="picker-lbl">OS</span>
+          <select id="pk-os"></select>
+        </div>
+        <div class="picker-grp">
+          <span class="picker-lbl">Architecture</span>
+          <select id="pk-arch"></select>
+        </div>
+        <div class="picker-grp">
+          <span class="picker-lbl">Accelerator</span>
+          <select id="pk-accel"></select>
+        </div>
+        <div class="picker-grp">
+          <span class="picker-lbl">Install type</span>
+          <select id="pk-mode">
+            <option value="prebuilt">Prebuilt (fastest)</option>
+            <option value="build">Build from source</option>
+          </select>
+        </div>
+        <div class="picker-grp">
+          <span class="picker-lbl">Auto-join pool</span>
+          <select id="pk-pool"><option value="">— none —</option></select>
+        </div>
+      </div>
+      <div id="pk-note" class="xs muted mb2"></div>
+      <div class="flex g2 mb2" style="align-items:stretch">
+        <div class="install-cmd" id="install-cmd">Select options above then click Generate.</div>
+        <button class="btn btn-g btn-sm" id="install-copy" disabled onclick="copyCmd()">Copy</button>
+      </div>
+      <div class="flex g2 ac wrap" style="gap:8px">
+        <button class="btn btn-p btn-sm" onclick="genCmd()">Generate one-liner</button>
+        <button class="btn btn-g btn-sm" onclick="checkFw()">🔍 Firewall check</button>
+        <span id="install-status" class="xs muted"></span>
+        <span id="install-expires" class="xs muted ml-a"></span>
+      </div>
+      <div id="fw-result" class="xs muted mt2"></div>
+
+      <!-- Pair section -->
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <div class="xs muted mb2">Already installed on this machine? Pair via deep link:</div>
+        <div class="flex g2 ac">
+          <button class="btn btn-g btn-sm" id="pair-btn" onclick="pairThis()">Pair this machine</button>
+          <button class="btn btn-g btn-sm hidden" id="copy-link-btn" onclick="copyLink()">Copy link</button>
+          <span id="pair-status" class="xs muted"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Events -->
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-t">Live Events</div>
+        <div id="ws-badge" class="badge b-dim">connecting</div>
+      </div>
+      <div class="evt-log" id="evt-log">
+        <div class="evt-ln muted">Waiting for events…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-hd">
+    <div class="sec-t">Your Rigs</div>
+    <button class="btn btn-g btn-sm" onclick="gotoTab('rigs')">View all →</button>
+  </div>
+  <div class="rig-grid" id="dash-rigs">
+    <div class="empty"><div class="empty-icon">🖥</div><div>No rigs yet</div></div>
   </div>
 </div>
 
-<div id="app" hidden>
-
-  <div class="card">
-    <h2>Add a rig</h2>
-    <p class="muted">
-      Pick what the machine has. The dashboard mints a one-shot pair token,
-      the installer registers a user service, and the agent shows up below
-      once it connects.
-    </p>
-
-    <div id="picker" style="display:grid;grid-template-columns:max-content 1fr;gap:8px 14px;align-items:center;margin-bottom:12px;">
-      <label for="pk-os">OS</label>
-      <select id="pk-os"></select>
-
-      <label for="pk-arch">Architecture</label>
-      <select id="pk-arch"></select>
-
-      <label for="pk-accel">Accelerator</label>
-      <select id="pk-accel"></select>
-
-      <label for="pk-mode">Install type</label>
-      <select id="pk-mode">
-        <option value="prebuilt">Prebuilt (fastest)</option>
-        <option value="build">Build from source</option>
-      </select>
-
-      <label for="pk-pool">Auto-join pool</label>
-      <select id="pk-pool">
-        <option value="">— none (attach later) —</option>
-      </select>
-    </div>
-
-    <div id="pk-note" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
-
-    <pre id="install-cmd" style="white-space:pre-wrap;margin:0;padding:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;min-height:60px;">Select options above to generate a one-liner.</pre>
-
-    <div class="row" style="margin-top:8px;gap:8px;align-items:center;">
-      <button id="install-btn">Generate one-liner</button>
-      <button id="install-copy" class="secondary" disabled>Copy</button>
-      <button id="firewall-btn" class="secondary" title="Dial every interface IP from this host — tells you if a firewall is blocking inbound connections">Test LAN reachability</button>
-      <span id="install-status" class="muted" style="font-size:12px;"></span>
-      <span id="install-expires" class="muted" style="font-size:12px;margin-left:auto;"></span>
-    </div>
-    <div id="firewall-result" class="muted" style="font-size:12px;margin-top:6px;"></div>
+<!-- rigs tab -->
+<div class="tab-panel" id="tab-rigs">
+  <div class="sec-hd">
+    <div class="sec-t">Your Rigs</div>
+    <button class="btn btn-p btn-sm" onclick="gotoTab('dashboard')">+ Add Rig</button>
   </div>
+  <div class="rig-grid" id="all-rigs">
+    <div class="empty"><div class="empty-icon">🖥</div><div>No rigs yet.<br>Use <strong>Add a Rig</strong> from the Dashboard.</div></div>
+  </div>
+</div>
 
-  <div class="card">
-    <h2>Pair an installed rig</h2>
-    <p class="muted">
-      Already ran the installer? Click below on the machine that has the
-      <code>dist-node</code> agent installed. The browser hands off a
-      one-time token via a <code>distpool://</code> deep link and the agent
-      shows up below.
-    </p>
-    <div class="row">
-      <button id="pair-btn">Pair this machine</button>
-      <button id="copy-link-btn" class="secondary" hidden>Copy link</button>
-      <span id="pair-status" class="muted"></span>
+<!-- pools tab -->
+<div class="tab-panel" id="tab-pools">
+  <div class="inner-tabs">
+    <button class="itab on" onclick="poolTab('mine',this)">My Pools</button>
+    <button class="itab" onclick="poolTab('pub',this)">Public</button>
+  </div>
+  <div id="pools-mine">
+    <div class="sec-hd">
+      <div class="sec-t">My Pools</div>
+      <button class="btn btn-p btn-sm" onclick="openModal('m-create-pool')">+ New Pool</button>
+    </div>
+    <div class="pool-list" id="list-mine">
+      <div class="empty"><div class="empty-icon">🔗</div><div>No pools yet.</div></div>
     </div>
   </div>
-
-  <div class="card">
-    <h2>Your rigs</h2>
-    <div id="rigs" class="empty">No rigs yet — pair one above.</div>
-  </div>
-
-  <div class="card">
-    <h2>Pools
-      <button id="new-pool-btn" class="secondary" style="float:right;font-size:12px;padding:4px 10px;">+ New pool</button>
-    </h2>
-    <div class="tabs">
-      <div class="tab active" data-tab="mine">My pools</div>
-      <div class="tab" data-tab="public">Public</div>
+  <div id="pools-pub" class="hidden">
+    <div class="sec-hd"><div class="sec-t">Public Pools</div></div>
+    <div class="pool-list" id="list-pub">
+      <div class="empty"><div class="empty-icon">🌐</div><div>No public pools found.</div></div>
     </div>
-    <div id="pools" class="empty">Loading…</div>
   </div>
+  <div id="pool-detail-wrap"></div>
+</div>
 
-  <div class="card">
-    <h2>API keys</h2>
-    <p class="muted">
-      Use these with the <code>Authorization: Bearer …</code> header against your
-      pool's OpenAI-compatible URL. Each pool exposes <code>/v1/chat/completions</code>
-      and <code>/v1/models</code> at its own subdomain — open a pool to copy its URL.
-    </p>
-    <div class="row" style="gap:8px;margin-bottom:10px;">
-      <input type="text" id="mint-key-label" placeholder="label (optional, e.g. “laptop”)"
-             style="flex:1;min-width:200px;">
-      <button id="mint-key-btn" class="secondary">+ New key</button>
+<!-- playground tab -->
+<div class="tab-panel" id="tab-playground">
+  <div class="play-layout">
+    <div class="play-hd">
+      <div class="sec-t" style="margin:0">Playground</div>
+      <label class="picker-lbl" for="play-pool">Pool</label>
+      <select id="play-pool" style="min-width:160px"><option value="">Select a pool…</option></select>
+      <button class="btn btn-g btn-sm ml-a" onclick="clearChat()">Clear</button>
     </div>
-    <div id="api-keys" class="empty">Loading…</div>
-    <div id="new-key-box" hidden style="margin-top:12px;padding:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;">
-      <div class="muted" style="font-size:12px;margin-bottom:6px;">Copy this now — it will not be shown again.</div>
-      <pre id="new-key-val" style="margin:0;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></pre>
-      <div class="row" style="margin-top:8px;">
-        <button id="new-key-copy" class="secondary">Copy</button>
-        <button id="new-key-dismiss" class="secondary">Dismiss</button>
+    <div class="chat-area" id="chat-area">
+      <div class="chat-empty" id="chat-empty">
+        <div class="chat-empty-icon">💬</div>
+        <div class="bold">Start a conversation</div>
+        <div class="sm muted">Select a pool above, then type a message</div>
       </div>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Playground
-      <span id="usage-meter" class="muted" style="float:right;font-size:12px;font-weight:400;"></span>
-    </h2>
-    <p class="muted">Send a prompt to a pool; the response streams back from an online rig.</p>
-    <div class="row" style="margin-bottom:10px;">
-      <select id="pg-pool"><option value="">Select pool…</option></select>
-      <input type="text" id="pg-prompt" placeholder="Your prompt…" style="flex:1;min-width:240px;">
-      <button id="pg-run">Run</button>
+    <div class="chat-in-row">
+      <textarea id="chat-in" placeholder="Message… (Enter to send, Shift+Enter for newline)" rows="2" onkeydown="chatKey(event)"></textarea>
+      <button class="btn btn-p" id="chat-send" onclick="sendMsg()" style="align-self:flex-end">Send</button>
     </div>
-    <pre id="pg-output" style="white-space:pre-wrap;margin:0;padding:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;min-height:60px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;"></pre>
-    <div id="pg-status" class="muted" style="margin-top:6px;font-size:12px;"></div>
+    <div class="chat-usage" id="chat-usage"></div>
   </div>
+</div>
 
-  <div class="card">
-    <h2>Live events</h2>
-    <div id="log" class="event-log"></div>
+<!-- keys tab -->
+<div class="tab-panel" id="tab-keys">
+  <div class="sec-hd">
+    <div class="sec-t">API Keys</div>
+    <button class="btn btn-p btn-sm" onclick="openModal('m-mint-key')">+ New Key</button>
   </div>
-
-  <!-- New pool modal -->
-  <div class="modal-backdrop" id="new-pool-modal">
-    <div class="modal">
-      <span class="close" onclick="closeModal('new-pool-modal')">✕</span>
-      <h3>Create pool</h3>
-      <div class="row" style="margin-bottom:12px;">
-        <input type="text" id="new-pool-name" placeholder="pool name" style="width:100%;">
-      </div>
-      <div class="row" style="margin-bottom:16px;">
-        <label class="muted">Visibility:</label>
-        <select id="new-pool-vis">
-          <option value="private">Private (only you)</option>
-          <option value="invite">Invite only</option>
-          <option value="public">Public</option>
-        </select>
-      </div>
-      <div class="row">
-        <button id="new-pool-create">Create</button>
-        <button class="secondary" onclick="closeModal('new-pool-modal')">Cancel</button>
-      </div>
+  <div id="key-reveal-wrap" class="hidden mb4">
+    <div class="alert al-green"><strong>Copy this key now — it won't be shown again.</strong></div>
+    <div class="key-reveal" id="key-reveal-val"></div>
+    <div class="flex g2">
+      <button class="btn btn-g btn-sm" onclick="cp($('key-reveal-val').textContent)">Copy</button>
+      <button class="btn btn-g btn-sm" onclick="$('key-reveal-wrap').classList.add('hidden')">Dismiss</button>
     </div>
   </div>
-
-  <!-- Pool detail modal -->
-  <div class="modal-backdrop" id="pool-detail-modal">
-    <div class="modal">
-      <span class="close" onclick="closeModal('pool-detail-modal')">✕</span>
-      <h3 id="pd-title">Pool</h3>
-      <div class="muted" id="pd-sub"></div>
-      <div id="pd-snippets" style="margin-top:14px;"></div>
-      <div id="pd-actions" style="margin-top:16px;"></div>
-      <h4 style="margin-top:18px;font-size:14px;">Members</h4>
-      <div id="pd-members" class="muted"></div>
-      <h4 style="margin-top:16px;font-size:14px;">Rigs</h4>
-      <div id="pd-rigs" class="muted"></div>
-    </div>
+  <div class="key-list" id="key-list">
+    <div class="empty"><div class="empty-icon">🔑</div><div>No API keys yet.</div></div>
   </div>
-
 </div>
 
 </main>
+</div>
+
+<!-- modals -->
+<div class="overlay hidden" id="m-create-pool">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-t">New Pool</div>
+      <button class="modal-x" onclick="closeModal('m-create-pool')">×</button>
+    </div>
+    <div class="fg"><label for="np-name">Pool name</label><input id="np-name" placeholder="my-pool" type="text"></div>
+    <div class="fg">
+      <label for="np-vis">Visibility</label>
+      <select id="np-vis">
+        <option value="private">Private — only you</option>
+        <option value="invite">Invite-only — shareable link</option>
+        <option value="public">Public — anyone can join</option>
+      </select>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-g" onclick="closeModal('m-create-pool')">Cancel</button>
+      <button class="btn btn-p" onclick="createPool()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="m-mint-key">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-t">New API Key</div>
+      <button class="modal-x" onclick="closeModal('m-mint-key')">×</button>
+    </div>
+    <div class="fg"><label for="nk-label">Label (optional)</label><input id="nk-label" placeholder="e.g. my-app" type="text"></div>
+    <div class="modal-ft">
+      <button class="btn btn-g" onclick="closeModal('m-mint-key')">Cancel</button>
+      <button class="btn btn-p" onclick="mintKey()">Create Key</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="m-pool-detail">
+  <div class="modal" style="width:580px;max-width:95vw">
+    <div class="modal-hd">
+      <div class="modal-t" id="pd-title">Pool</div>
+      <button class="modal-x" onclick="closeModal('m-pool-detail')">×</button>
+    </div>
+    <div id="pd-body"></div>
+    <div class="modal-ft">
+      <button class="btn btn-g" onclick="closeModal('m-pool-detail')">Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
 "use strict";
 
-const userEl = document.getElementById("user");
-const loginCard = document.getElementById("login-card");
-const appEl = document.getElementById("app");
-const devWrap = document.getElementById("dev-login-wrap");
-const devBtn = document.getElementById("dev-login-btn");
-const devName = document.getElementById("dev-name");
-const pairBtn = document.getElementById("pair-btn");
-const copyBtn = document.getElementById("copy-link-btn");
-const pairStatus = document.getElementById("pair-status");
-const rigsEl = document.getElementById("rigs");
-const logEl = document.getElementById("log");
+// ── State ─────────────────────────────────────────────────────────────────────
+const ST = { me:null, rigs:[], pools:[], keys:[], usage:null, chat:[],
+             lastKey:"", ws:null, lastDeepLink:"", targets:[], serverRef:"",
+             currentCmd:"", expiresAt:0, expiryTicker:null };
 
-let me = null;
-let ws  = null;
-let lastDeepLink = "";
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const jget = u => fetch(u).then(r => { if(!r.ok) return r.json().then(e=>Promise.reject(e)); return r.json(); });
+const jpost = (u,b) => fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):null})
+  .then(r => { if(!r.ok) return r.json().then(e=>Promise.reject(e)); return r.json(); });
 
-function logEvent(msg) {
-  const d = document.createElement("div");
-  const t = new Date().toLocaleTimeString();
-  d.textContent = `[${t}] ${msg}`;
-  logEl.prepend(d);
-  while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
-}
+function fmtN(n){if(n==null)return'—';if(n>=1e9)return(n/1e9).toFixed(1)+'B';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return''+n}
+function fmtT(v){if(!v)return'—';const d=new Date(typeof v==='number'?v*1000:v),s=(Date.now()-d)/1e3;if(s<60)return'just now';if(s<3600)return~~(s/60)+'m ago';if(s<86400)return~~(s/3600)+'h ago';return d.toLocaleDateString()}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function cp(t){navigator.clipboard?.writeText(t).catch(()=>{const x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();document.execCommand('copy');x.remove()})}
+const ACCEL_LABEL = {cpu:'CPU',cuda:'CUDA',rocm:'ROCm',metal:'Metal',vulkan:'Vulkan'};
+const OS_LABEL    = {linux:'Linux',macos:'macOS',windows:'Windows'};
 
-async function jget(path)  { return (await fetch(path)).json(); }
-async function jpost(path, body) {
-  const r = await fetch(path, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: body ? JSON.stringify(body) : null,
-  });
-  return r.ok ? r.json() : Promise.reject(await r.json().catch(() => r.statusText));
-}
-
-async function copyText(text, btn) {
+// ── Boot ──────────────────────────────────────────────────────────────────────
+async function boot(){
   try {
-    await navigator.clipboard.writeText(text);
-    if (btn) {
-      const orig = btn.textContent;
-      btn.textContent = "copied";
-      setTimeout(() => { btn.textContent = orig; }, 1200);
-    }
-  } catch(_) {}
-}
-window.copyText = copyText;
+    const r = await fetch('/auth/dev',{method:'POST'});
+    if(r.status !== 501) $('dev-link').classList.remove('hidden');
+  } catch(_){}
 
-async function init() {
-  // Check dev login availability by probing the endpoint; surface the widget.
-  try {
-    const r = await fetch("/auth/dev", {method:"POST"});
-    if (r.status !== 501) devWrap.hidden = false;
-  } catch(_) {}
+  try { ST.me = await jget('/api/me'); }
+  catch(_){ ST.me = null; }
 
-  try {
-    me = await jget("/api/me");
-  } catch(_) { me = null; }
-
-  if (!me || me.error) {
-    userEl.textContent = "not signed in";
-    loginCard.hidden = false;
+  if(!ST.me || ST.me.error){
+    $('login-screen').classList.remove('hidden');
     return;
   }
-  userEl.textContent = me.display_name + (me.github_login ? " (@" + me.github_login + ")" : "");
-  appEl.hidden = false;
+  $('login-screen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('hdr-user').textContent = '@' + (ST.me.github_login || ST.me.display_name);
 
-  connectBrowserWS();
-  await refreshRigs();
-  await refreshPools();
-  await refreshAPIKeys();
-  await loadTargets();
-  initPlayground();
-  await refreshUsage();
-  setInterval(refreshUsage, 15000);
-  await handleInviteParam();
+  await Promise.all([loadRigs(), loadPools(), loadKeys(), loadUsage(), loadTargets()]);
+  renderAll();
+  connectWS();
+  handleInviteParam();
+  setInterval(loadUsage, 30000);
 }
 
-function connectBrowserWS() {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(proto + "//" + location.host + "/ws/browser");
-  ws.onopen  = () => logEvent("ws connected");
-  ws.onclose = () => { logEvent("ws closed, reconnecting in 2s"); setTimeout(connectBrowserWS, 2000); };
-  ws.onmessage = (ev) => {
-    let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
-    handleServerEvent(m);
-  };
+async function devLogin(){
+  const name = $('dev-name').value.trim();
+  try { await jpost('/auth/dev', name ? {display_name:name} : null); location.reload(); }
+  catch(e){ alert('dev login failed: ' + (e.error||e)); }
+}
+function logout(){ fetch('/auth/logout',{method:'POST'}).then(()=>location.reload()); }
+
+// ── Data ──────────────────────────────────────────────────────────────────────
+async function loadRigs()  { try{ const r=await jget('/api/rigs'); ST.rigs=r.rigs||r||[]; }catch(_){} }
+async function loadPools() { try{ const r=await jget('/api/pools'); ST.pools=r.pools||r||[]; }catch(_){} }
+async function loadKeys()  { try{ const r=await jget('/api/api_keys'); ST.keys=Array.isArray(r)?r:(r.keys||[]); }catch(_){} }
+async function loadUsage() { try{ ST.usage=await jget('/api/usage'); }catch(_){} }
+
+async function loadTargets(){
+  try{
+    const r=await jget('/api/install_targets');
+    ST.targets=r.targets||[];
+    ST.serverRef=r.server_ref||'';
+    populatePicker();
+  }catch(e){ $('pk-note').textContent='Could not load targets: '+(e.error||e); }
 }
 
-function handleServerEvent(m) {
-  logEvent(JSON.stringify(m).slice(0, 500));
-  if (m.kind === "rig_online" || m.kind === "rig_offline" ||
-      m.kind === "agent_message") {
-    refreshRigs();
-  }
-  // First-pair notification: flip the install card into a success state
-  // so the user sees "rig connected" the moment the agent boots up.
-  if (m.kind === "rig_online" && m.payload && m.payload.is_first_pair) {
-    const host = m.payload.hostname || m.payload.agent_id || "rig";
-    installStatus.textContent = `✓ ${host} paired — ready to route`;
-    installCmdEl.style.borderColor = "var(--accent)";
-    setTimeout(() => { installCmdEl.style.borderColor = ""; }, 8000);
-  }
+function renderAll(){ renderStats(); renderRigGrids(); renderPools(); renderKeys(); populatePoolSelects(); }
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function gotoTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('on',p.id==='tab-'+name));
+}
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>gotoTab(b.dataset.tab)));
+
+function poolTab(which,btn){
+  document.querySelectorAll('.itab').forEach(t=>t.classList.remove('on'));
+  btn.classList.add('on');
+  $('pools-mine').classList.toggle('hidden', which!=='mine');
+  $('pools-pub').classList.toggle('hidden', which!=='pub');
 }
 
-async function refreshRigs() {
-  const r = await jget("/api/rigs");
-  const rigs = r.rigs || [];
-  if (rigs.length === 0) {
-    rigsEl.className = "empty";
-    rigsEl.innerHTML = "No rigs yet — pair one above.";
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function renderStats(){
+  const on=ST.rigs.filter(r=>r.online).length;
+  $('s-online').textContent=on;
+  $('s-online-s').textContent=`of ${ST.rigs.length} total`;
+  $('s-pools').textContent=ST.pools.filter(p=>p.role==='owner'||p.role==='member').length||'0';
+  $('s-tokens').textContent=ST.usage?fmtN(ST.usage.tokens_used):'—';
+  $('s-keys').textContent=ST.keys.length||'0';
+  if(ST.usage)$('chat-usage').textContent=`${fmtN(ST.usage.tokens_used)} / ${fmtN(ST.usage.tokens_limit)} tokens this month`;
+}
+
+// ── Rigs ──────────────────────────────────────────────────────────────────────
+function renderRigGrids(){ renderRigGrid('dash-rigs',ST.rigs.slice(0,6)); renderRigGrid('all-rigs',ST.rigs); }
+function renderRigGrid(id,rigs){
+  const w=$(id);
+  if(!rigs.length){
+    w.innerHTML='<div class="empty"><div class="empty-icon">🖥</div><div>No rigs yet.<br>Use <strong>Add a Rig</strong> from the Dashboard.</div></div>';
     return;
   }
-  rigsEl.className = "";
-  rigsEl.innerHTML = "";
-  for (const rig of rigs) {
-    const el = document.createElement("div");
-    el.className = "rig";
-    el.innerHTML = `
-      <div>
-        <div class="name"><span class="dot ${rig.online ? "online" : ""}"></span>${rig.hostname}</div>
-        <div class="meta">${rig.agent_id} · ${rig.n_gpus} GPU · ${(rig.vram_bytes / (1024*1024*1024)).toFixed(1)} GiB VRAM</div>
+  w.innerHTML='';
+  rigs.forEach(r=>{
+    const on=!!r.online;
+    const vram=r.vram_bytes?((r.vram_bytes/(1024*1024*1024)).toFixed(1)+' GiB'):(r.vram_gib?(r.vram_gib.toFixed(1)+' GiB'):'');
+    w.innerHTML+=`<div class="rig-card${on?'':' dim'}">
+      <div class="rig-hd">
+        <span class="dot ${on?'d-green':'d-dim'}"></span>
+        <div class="rig-name">${esc(r.hostname||r.agent_id||'rig')}</div>
+        <span class="badge ${on?'b-green':'b-dim'}">${on?'online':'offline'}</span>
       </div>
-      <div class="meta">${rig.online ? "online" : "offline since " + new Date(rig.last_seen*1000).toLocaleString()}</div>
-    `;
-    rigsEl.appendChild(el);
-  }
+      <div class="rig-meta">${[r.n_gpus?r.n_gpus+' GPU':'',vram,on?'online':'last seen '+fmtT(r.last_seen)].filter(Boolean).join(' · ')}</div>
+      <div class="rig-kv">
+        <div class="rig-ki"><div class="rig-kl">Agent ID</div><div class="rig-kv2 trunc" style="font-size:11px;color:var(--muted)">${(r.agent_id||'').slice(0,14)||'—'}</div></div>
+        <div class="rig-ki"><div class="rig-kl">GPUs</div><div class="rig-kv2">${r.n_gpus??'—'}</div></div>
+      </div>
+    </div>`;
+  });
 }
 
-pairBtn.onclick = async () => {
-  pairStatus.textContent = "minting pairing token…";
-  try {
-    const r = await jpost("/api/pair");
-    lastDeepLink = r.deep_link;
-    copyBtn.hidden = false;
-    pairStatus.innerHTML = "launching local agent — if nothing happens, <a id='dl' href='#'>copy the link</a> and run it manually.";
-    document.getElementById("dl").onclick = (e) => { e.preventDefault(); copyBtn.click(); };
-    // Navigate to the deep link; the OS will launch the registered handler.
-    window.location.href = r.deep_link;
-  } catch(e) {
-    pairStatus.textContent = "failed: " + (e.error || e);
+// ── Pools ─────────────────────────────────────────────────────────────────────
+function renderPools(){
+  const mine=ST.pools.filter(p=>p.role==='owner'||p.role==='member');
+  const pub =ST.pools.filter(p=>p.visibility==='public'&&p.role!=='owner'&&p.role!=='member');
+  renderPoolList('list-mine',mine,false);
+  renderPoolList('list-pub',pub,true);
+}
+function renderPoolList(id,pools,showJoin){
+  const w=$(id);
+  if(!pools.length){
+    w.innerHTML='<div class="empty"><div class="empty-icon">🔗</div><div>None yet.</div></div>';
+    return;
   }
-};
-
-copyBtn.onclick = async () => {
-  await navigator.clipboard.writeText(lastDeepLink);
-  pairStatus.textContent = "deep link copied.";
-};
-
-// ─── Install picker (PyTorch-style) ──────────────────────────────────────
-const pkOs     = document.getElementById("pk-os");
-const pkArch   = document.getElementById("pk-arch");
-const pkAccel  = document.getElementById("pk-accel");
-const pkMode   = document.getElementById("pk-mode");
-const pkPool   = document.getElementById("pk-pool");
-const pkNote   = document.getElementById("pk-note");
-const installBtn    = document.getElementById("install-btn");
-const installStatus = document.getElementById("install-status");
-const installCmdEl  = document.getElementById("install-cmd");
-const installCopy   = document.getElementById("install-copy");
-const installExpires = document.getElementById("install-expires");
-
-const ACCEL_LABEL = { cpu:"CPU", cuda:"CUDA", rocm:"ROCm", metal:"Metal", vulkan:"Vulkan" };
-const OS_LABEL    = { linux:"Linux", macos:"macOS", windows:"Windows" };
-
-let targets = [];         // from /api/install_targets
-let serverRef = "";
-let currentCmd = "";      // last-generated one-liner
-let expiresAt = 0;        // unix seconds
-let expiryTicker = null;
-
-function detectDefaultOS() {
-  const p = (navigator.platform || navigator.userAgent || "").toLowerCase();
-  if (p.includes("win")) return "windows";
-  if (p.includes("mac")) return "macos";
-  return "linux";
+  w.innerHTML='';
+  pools.forEach(p=>{
+    const online=p.n_online||p.online_rig_count||0;
+    const total=p.n_rigs||p.member_count||0;
+    const members=p.n_members||p.member_count||0;
+    const row=document.createElement('div');
+    row.className='pool-row';
+    row.innerHTML=`
+      <div class="pool-info">
+        <div class="pool-name">${esc(p.name)}</div>
+        <div class="pool-meta">${esc(p.owner_name||'')} · ${members} member${members!==1?'s':''} · ${online} rig${online!==1?'s':''} online</div>
+      </div>
+      <span class="badge b-dim">${esc(p.visibility||'private')}</span>
+      ${p.role?`<span class="badge ${p.role==='owner'?'b-blue':'b-green'}">${p.role}</span>`:''}
+      ${showJoin?`<button class="btn btn-g btn-sm" onclick="event.stopPropagation();joinPool(${p.id})">Join</button>`:''}`;
+    row.onclick=()=>openPoolDetail(p.id);
+    w.appendChild(row);
+  });
 }
 
-function uniq(vals) { return Array.from(new Set(vals)); }
+async function openPoolDetail(id){
+  $('pd-title').textContent='Loading…';
+  $('pd-body').innerHTML='';
+  openModal('m-pool-detail');
+  let d;
+  try{ d=await jget('/api/pools/'+id); }
+  catch(e){ $('pd-title').textContent='Error'; $('pd-body').innerHTML='<div class="muted">'+esc(e.error||'failed')+'</div>'; return; }
 
-function populatePicker() {
-  // OS
-  const oses = uniq(targets.map(t => t.os));
-  pkOs.innerHTML = oses.map(o =>
-    `<option value="${o}">${OS_LABEL[o]||o}</option>`).join("");
-  const def = detectDefaultOS();
-  if (oses.includes(def)) pkOs.value = def;
+  const p=d.pool||d;
+  $('pd-title').textContent=p.name;
+  const baseUrl=p.base_url||`${location.origin}/v1/${p.slug||p.id}`;
+  const key=ST.lastKey||'sk-dist-YOUR_KEY';
+
+  const py=`from openai import OpenAI\nclient = OpenAI(\n    base_url="${baseUrl}",\n    api_key="${key}",\n)\nresp = client.chat.completions.create(\n    model="distpool-default",\n    messages=[{"role":"user","content":"Hello!"}],\n    stream=True,\n)\nfor chunk in resp:\n    print(chunk.choices[0].delta.content or "", end="")`;
+  const cu=`curl ${baseUrl}/chat/completions \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"distpool-default","messages":[{"role":"user","content":"Hello!"}],"stream":true}'`;
+  const nd=`import OpenAI from "openai";\nconst ai = new OpenAI({ baseURL: "${baseUrl}", apiKey: "${key}" });\nconst s = await ai.chat.completions.create({\n  model: "distpool-default",\n  messages: [{ role: "user", content: "Hello!" }],\n  stream: true,\n});\nfor await (const c of s) process.stdout.write(c.choices[0]?.delta?.content||"");`;
+
+  let html=`
+  <div class="pd-sec">
+    <div class="pd-sec-t">OpenAI Base URL</div>
+    <div class="snip-row">
+      <div class="snip">${esc(baseUrl)}</div>
+      <button class="btn btn-g btn-sm" onclick="cp('${baseUrl.replace(/'/g,"\\'")}')">Copy</button>
+    </div>
+  </div>
+  <div class="pd-sec" id="pd-code">
+    <div class="pd-sec-t">Use with ${ST.lastKey?'(using last-minted key)':'(paste your sk-dist-… key)'}</div>
+    <div class="ctabs">
+      <button class="ctab on" onclick="pdCodeTab(this,0)">Python</button>
+      <button class="ctab" onclick="pdCodeTab(this,1)">curl</button>
+      <button class="ctab" onclick="pdCodeTab(this,2)">Node</button>
+    </div>
+    <pre class="cpanel on">${esc(py)}</pre>
+    <pre class="cpanel">${esc(cu)}</pre>
+    <pre class="cpanel">${esc(nd)}</pre>
+    <button class="btn btn-g btn-sm mt2" onclick="copySnip()">Copy</button>
+  </div>`;
+
+  const members=d.members||[];
+  if(members.length){
+    html+=`<div class="pd-sec"><div class="pd-sec-t">Members (${members.length})</div><div class="key-list">
+      ${members.map(m=>`<div class="key-row"><span class="key-mono">${esc(m.display_name||m.github_login||'')}</span><span class="badge ${m.role==='owner'?'b-blue':'b-dim'}">${m.role}</span></div>`).join('')}
+    </div></div>`;
+  }
+
+  const rigs=d.rigs||[];
+  if(rigs.length){
+    html+=`<div class="pd-sec"><div class="pd-sec-t">Rigs (${rigs.length})</div><div class="key-list">
+      ${rigs.map(r=>`<div class="key-row">
+        <span class="dot ${r.online?'d-green':'d-dim'}" style="margin-right:6px"></span>
+        <span class="key-mono flex-1">${esc(r.hostname||r.agent_id||'')}</span>
+        ${(r.owner_id===ST.me?.id||p.role==='owner')?`<button class="btn btn-d btn-sm" onclick="detachRig(${id},${r.rig_id})">Detach</button>`:''}
+      </div>`).join('')}
+    </div></div>`;
+  }
+
+  html+=`<div class="pd-sec"><div class="flex g2 ac wrap">
+    ${p.role==='owner'?`<button class="btn btn-g btn-sm" onclick="mintInvite(${id})">🔗 Copy Invite Link</button>`:''}
+    <button class="btn btn-g btn-sm" onclick="closeModal('m-pool-detail');gotoTab('playground');$('play-pool').value='${id}'">▶ Try in Playground</button>
+  </div></div>`;
+
+  // Attach rig dropdown (member/owner)
+  if(p.role==='owner'||p.role==='member'){
+    try{
+      const myRigs=(await jget('/api/rigs')).rigs||[];
+      const already=new Set(rigs.filter(r=>r.owner_id===ST.me?.id).map(r=>r.agent_id));
+      const cands=myRigs.filter(r=>!already.has(r.agent_id));
+      if(cands.length){
+        html+=`<div class="pd-sec"><div class="pd-sec-t">Attach Rig</div>
+          <select id="attach-rig-sel" onchange="attachRig(${id})">
+            <option value="">— select rig to attach —</option>
+            ${cands.map(r=>`<option value="${r.agent_id}">${esc(r.hostname)} (${esc(r.agent_id)})</option>`).join('')}
+          </select></div>`;
+      }
+    }catch(_){}
+  }
+
+  $('pd-body').innerHTML=html;
+}
+
+function pdCodeTab(btn,idx){
+  const sec=$('pd-code');
+  sec.querySelectorAll('.ctab').forEach((t,i)=>t.classList.toggle('on',i===idx));
+  sec.querySelectorAll('.cpanel').forEach((p,i)=>p.classList.toggle('on',i===idx));
+}
+function copySnip(){
+  const p=$('pd-code')?.querySelector('.cpanel.on');
+  if(p)cp(p.textContent);
+}
+
+async function createPool(){
+  const name=$('np-name').value.trim();
+  if(!name)return;
+  try{
+    await jpost('/api/pools',{name,visibility:$('np-vis').value});
+    closeModal('m-create-pool');
+    $('np-name').value='';
+    await loadPools(); renderPools(); renderStats(); populatePoolSelects();
+  }catch(e){alert('Create failed: '+(e.error||e));}
+}
+
+async function joinPool(id){
+  try{
+    await jpost('/api/pools/join',{pool_id:parseInt(id,10)});
+    await loadPools(); renderPools(); renderStats(); populatePoolSelects();
+  }catch(e){alert('Join failed: '+(e.error||e));}
+}
+
+async function mintInvite(id){
+  try{
+    const r=await jpost(`/api/pools/${id}/invite`);
+    cp(r.invite_url);
+    alert('Invite link copied!\n\n'+r.invite_url);
+  }catch(e){alert('Invite failed: '+(e.error||e));}
+}
+
+async function attachRig(poolId){
+  const sel=$('attach-rig-sel');
+  if(!sel||!sel.value)return;
+  try{
+    await jpost(`/api/pools/${poolId}/rigs`,{agent_id:sel.value});
+    openPoolDetail(poolId);
+    await loadPools(); renderPools();
+  }catch(e){alert('Attach failed: '+(e.error||e));}
+}
+
+async function detachRig(poolId,rigId){
+  if(!confirm('Detach this rig from the pool?'))return;
+  try{
+    await fetch(`/api/pools/${poolId}/rigs/${rigId}`,{method:'DELETE'});
+    openPoolDetail(poolId);
+    await loadPools(); renderPools();
+  }catch(e){alert('Detach failed: '+(e.error||e));}
+}
+
+async function handleInviteParam(){
+  const tok=new URLSearchParams(location.search).get('invite');
+  if(!tok)return;
+  history.replaceState({},'',location.pathname);
+  try{
+    const r=await jpost('/api/pools/join',{invite:tok});
+    addEvt({kind:'pool_joined',message:'joined pool '+r.pool_id+' via invite'});
+    await loadPools(); renderPools(); populatePoolSelects();
+  }catch(e){alert('Invite failed: '+(e.error||e));}
+}
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+function renderKeys(){
+  const w=$('key-list');
+  if(!ST.keys.length){
+    w.innerHTML='<div class="empty"><div class="empty-icon">🔑</div><div>No API keys yet.</div></div>';
+    return;
+  }
+  w.innerHTML='';
+  ST.keys.forEach(k=>{
+    const row=document.createElement('div');
+    row.className='key-row';
+    row.innerHTML=`
+      <div class="flex col" style="flex:1;min-width:0">
+        <div class="key-mono">${k.label?esc(k.label)+' ('+esc(k.prefix)+'…)':esc(k.prefix)+'…'}</div>
+        <div class="xs dim">Created ${fmtT(k.created_at)} · Last used ${fmtT(k.last_used_at)}</div>
+      </div>
+      <button class="btn btn-d btn-sm" onclick="revokeKey(${k.id})">Revoke</button>`;
+    w.appendChild(row);
+  });
+}
+
+async function mintKey(){
+  try{
+    const r=await jpost('/api/api_keys',{label:$('nk-label').value.trim()});
+    closeModal('m-mint-key');
+    $('nk-label').value='';
+    const plain=r.key||r.plaintext||'';
+    if(plain){
+      ST.lastKey=plain;
+      $('key-reveal-val').textContent=plain;
+      $('key-reveal-wrap').classList.remove('hidden');
+    }
+    await loadKeys(); renderKeys(); renderStats();
+  }catch(e){alert('Mint failed: '+(e.error||e));}
+}
+
+async function revokeKey(id){
+  if(!confirm('Revoke this API key? Any client using it will stop working.'))return;
+  try{
+    await fetch('/api/api_keys/'+id,{method:'DELETE'});
+    await loadKeys(); renderKeys(); renderStats();
+  }catch(e){alert('Revoke failed: '+(e.error||e));}
+}
+
+// ── Install Picker ────────────────────────────────────────────────────────────
+function uniq(arr){ return [...new Set(arr)]; }
+function detectOS(){
+  const p=(navigator.platform||navigator.userAgent||'').toLowerCase();
+  if(p.includes('win'))return'windows';
+  if(p.includes('mac'))return'macos';
+  return'linux';
+}
+
+function populatePicker(){
+  const oses=uniq(ST.targets.map(t=>t.os));
+  $('pk-os').innerHTML=oses.map(o=>`<option value="${o}">${OS_LABEL[o]||o}</option>`).join('');
+  const def=detectOS();
+  if(oses.includes(def))$('pk-os').value=def;
   refreshArch();
 }
-
-function refreshArch() {
-  const os = pkOs.value;
-  const arches = uniq(targets.filter(t => t.os === os).map(t => t.arch));
-  pkArch.innerHTML = arches.map(a =>
-    `<option value="${a}">${a}</option>`).join("");
+function refreshArch(){
+  const os=$('pk-os').value;
+  const arches=uniq(ST.targets.filter(t=>t.os===os).map(t=>t.arch));
+  $('pk-arch').innerHTML=arches.map(a=>`<option value="${a}">${a}</option>`).join('');
   refreshAccel();
 }
-
-function refreshAccel() {
-  const os = pkOs.value, arch = pkArch.value;
-  const accels = uniq(targets.filter(t => t.os === os && t.arch === arch).map(t => t.accel));
-  pkAccel.innerHTML = accels.map(a =>
-    `<option value="${a}">${ACCEL_LABEL[a]||a}</option>`).join("");
+function refreshAccel(){
+  const os=$('pk-os').value,arch=$('pk-arch').value;
+  const accels=uniq(ST.targets.filter(t=>t.os===os&&t.arch===arch).map(t=>t.accel));
+  $('pk-accel').innerHTML=accels.map(a=>`<option value="${a}">${ACCEL_LABEL[a]||a}</option>`).join('');
   refreshMode();
 }
-
-function currentTarget() {
-  return targets.find(t =>
-    t.os === pkOs.value && t.arch === pkArch.value && t.accel === pkAccel.value);
+function currentTarget(){
+  return ST.targets.find(t=>t.os===$('pk-os').value&&t.arch===$('pk-arch').value&&t.accel===$('pk-accel').value);
+}
+function refreshMode(){
+  const t=currentTarget();
+  if(!t)return;
+  const preOpt=Array.from($('pk-mode').options).find(o=>o.value==='prebuilt');
+  const bldOpt=Array.from($('pk-mode').options).find(o=>o.value==='build');
+  if(preOpt)preOpt.disabled=!t.prebuilt;
+  if(bldOpt)bldOpt.disabled=!t.build;
+  if($('pk-mode').value==='prebuilt'&&!t.prebuilt)$('pk-mode').value='build';
+  if($('pk-mode').value==='build'&&!t.build)$('pk-mode').value='prebuilt';
+  $('pk-note').textContent=(!t.prebuilt&&t.build)
+    ?`No prebuilt binary for this target — will compile from source (commit ${(ST.serverRef||'?').slice(0,7)}).`
+    :'';
 }
 
-function refreshMode() {
-  const t = currentTarget();
-  // Flip Prebuilt option disabled when there is no prebuilt asset.
-  const opts = pkMode.querySelectorAll("option");
-  const prebuiltOpt = Array.from(opts).find(o => o.value === "prebuilt");
-  const buildOpt    = Array.from(opts).find(o => o.value === "build");
-  if (t) {
-    prebuiltOpt.disabled = !t.prebuilt;
-    buildOpt.disabled    = !t.build;
-    if (pkMode.value === "prebuilt" && !t.prebuilt) pkMode.value = "build";
-    if (pkMode.value === "build"    && !t.build)    pkMode.value = "prebuilt";
-    if (!t.prebuilt && t.build) {
-      pkNote.textContent = "No prebuilt binary for this target — we'll compile from source on the rig (pinned to commit " + (serverRef||"?").slice(0,7) + ").";
-    } else if (t.prebuilt && !t.build) {
-      pkNote.textContent = "";
-    } else {
-      pkNote.textContent = "";
-    }
-  }
-}
+[$('pk-os'),$('pk-arch'),$('pk-accel'),$('pk-mode'),$('pk-pool')].forEach(el=>{
+  el?.addEventListener('change',()=>{
+    if(el.id==='pk-os')refreshArch();
+    else if(el.id==='pk-arch')refreshAccel();
+    else if(el.id==='pk-accel')refreshMode();
+    ST.currentCmd='';
+    $('install-cmd').textContent='Click "Generate one-liner" below.';
+    $('install-copy').disabled=true;
+    $('install-expires').textContent='';
+    if(ST.expiryTicker){clearInterval(ST.expiryTicker);ST.expiryTicker=null;}
+  });
+});
 
-[pkOs, pkArch, pkAccel, pkMode, pkPool].forEach(el => el.addEventListener("change", () => {
-  if (el === pkOs)   refreshArch();
-  if (el === pkArch) refreshAccel();
-  if (el === pkAccel) refreshMode();
-  // Any change invalidates the previously-minted command.
-  currentCmd = "";
-  installCmdEl.textContent = "Click “Generate one-liner” below.";
-  installCopy.disabled = true;
-  installExpires.textContent = "";
-}));
-
-// Keep the "auto-join pool" dropdown in sync with the pool list.  Called
-// from refreshPools() after /api/pools returns.
-function refreshPoolPicker() {
-  const prev = pkPool.value;
-  const joinable = (typeof allPools !== "undefined" ? allPools : [])
-    .filter(p => p.role === "owner" || p.role === "member");
-  const opts = [`<option value="">— none (attach later) —</option>`];
-  for (const p of joinable) {
-    opts.push(`<option value="${p.id}">${p.name}</option>`);
-  }
-  pkPool.innerHTML = opts.join("");
-  if (prev && joinable.some(p => String(p.id) === prev)) pkPool.value = prev;
-}
-
-async function loadTargets() {
-  try {
-    const r = await jget("/api/install_targets");
-    targets   = r.targets || [];
-    serverRef = r.server_ref || "";
-    populatePicker();
-  } catch(e) {
-    pkNote.textContent = "couldn't load targets matrix: " + (e.error || e);
-  }
-}
-
-installBtn.onclick = async () => {
-  const os    = pkOs.value;
-  const accel = pkAccel.value;
-  const mode  = pkMode.value;
-  const poolID = pkPool.value ? parseInt(pkPool.value, 10) : 0;
-  installStatus.textContent = "minting pair token…";
-  try {
-    const r = await jpost("/api/install_command", {os, accel, mode, pool_id: poolID});
-    // Server returns OS-specific primary under `bash`/`pwsh`; pick by os.
-    const isWin = (os === "windows");
-    currentCmd = isWin ? (mode === "build" ? r.pwsh_build : r.pwsh_prebuilt)
-                       : (mode === "build" ? r.bash_build : r.bash_prebuilt);
-    installCmdEl.textContent = currentCmd;
-    installCopy.disabled = false;
-    installStatus.textContent = "";
-    expiresAt = r.expires_at || 0;
+async function genCmd(){
+  const os=$('pk-os').value, accel=$('pk-accel').value, mode=$('pk-mode').value;
+  const poolId=$('pk-pool').value?parseInt($('pk-pool').value,10):0;
+  $('install-status').textContent='Minting token…';
+  try{
+    const r=await jpost('/api/install_command',{os,accel,mode,pool_id:poolId});
+    const isWin=os==='windows';
+    ST.currentCmd=isWin
+      ?(mode==='build'?r.pwsh_build:r.pwsh_prebuilt)
+      :(mode==='build'?r.bash_build:r.bash_prebuilt);
+    $('install-cmd').textContent=ST.currentCmd||'(no command returned)';
+    $('install-copy').disabled=false;
+    $('install-status').textContent='';
+    ST.expiresAt=r.expires_at||0;
     startExpiryTicker();
-  } catch(e) {
-    installStatus.textContent = "failed: " + (e.error || e);
+  }catch(e){
+    $('install-status').textContent='Error: '+(e.error||e);
   }
-};
+}
 
-// On-demand firewall / LAN reachability check.  Calls GET /api/firewall_check
-// which re-runs the boot-time probe and returns reachable/failed interface
-// IPs plus a platform-specific hint when any fail.
-const firewallBtn    = document.getElementById("firewall-btn");
-const firewallResult = document.getElementById("firewall-result");
-firewallBtn.onclick = async () => {
-  firewallResult.textContent = "probing interfaces…";
-  try {
-    const r = await jget("/api/firewall_check");
-    const ok   = r.reachable || [];
-    const bad  = r.failed    || [];
-    const parts = [];
-    if (ok.length)  parts.push(`<span style="color:var(--accent);">✓ reachable: ${ok.join(", ")}</span>`);
-    if (bad.length) parts.push(`<span style="color:#e55;">✗ blocked: ${bad.join(", ")}</span>`);
-    if (r.hint)     parts.push(`<div style="margin-top:4px;font-family:ui-monospace,Menlo,Consolas,monospace;">${r.hint}</div>`);
-    firewallResult.innerHTML = parts.join(" · ") || "no interfaces found";
-  } catch(e) {
-    firewallResult.textContent = "check failed: " + (e.error || e);
-  }
-};
-
-// Copy auto-regenerates if the current token has expired — a click on
-// "Copy" never fails with a stale token, the user just waits one extra
-// round-trip.
-installCopy.onclick = async () => {
-  const secs = expiresAt ? (expiresAt - Math.floor(Date.now()/1000)) : 0;
-  if (!currentCmd || secs <= 0) {
-    installStatus.textContent = "regenerating…";
-    await installBtn.onclick();
-  }
-  if (currentCmd) copyText(currentCmd, installCopy);
-};
-
-function startExpiryTicker() {
-  if (expiryTicker) clearInterval(expiryTicker);
-  const tick = () => {
-    if (!expiresAt) { installExpires.innerHTML = ""; return; }
-    const secs = expiresAt - Math.floor(Date.now()/1000);
-    if (secs <= 0) {
-      installExpires.innerHTML =
-        `expired — <a href="#" id="regen-link" style="color:var(--accent);">regenerate</a>`;
-      installCopy.disabled = false; // clicking Copy will regenerate
-      const link = document.getElementById("regen-link");
-      if (link) link.onclick = (e) => { e.preventDefault(); installBtn.click(); };
-      clearInterval(expiryTicker); expiryTicker = null;
+function startExpiryTicker(){
+  if(ST.expiryTicker)clearInterval(ST.expiryTicker);
+  const tick=()=>{
+    if(!ST.expiresAt){$('install-expires').textContent='';return;}
+    const secs=ST.expiresAt-Math.floor(Date.now()/1000);
+    if(secs<=0){
+      $('install-expires').innerHTML='Token expired — <a href="#" onclick="event.preventDefault();genCmd()">regenerate</a>';
+      clearInterval(ST.expiryTicker);ST.expiryTicker=null;
       return;
     }
-    const m = Math.floor(secs/60), s = secs % 60;
-    installExpires.textContent = `expires in ${m}:${String(s).padStart(2,"0")}`;
+    $('install-expires').textContent=`Expires in ${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}`;
   };
   tick();
-  expiryTicker = setInterval(tick, 1000);
+  ST.expiryTicker=setInterval(tick,1000);
 }
 
-devBtn.onclick = async () => {
-  if (!devName.value.trim()) return;
-  try {
-    await jpost("/auth/dev", {display_name: devName.value.trim()});
-    location.reload();
-  } catch(e) {
-    alert("dev login failed: " + (e.error || e));
+async function copyCmd(){
+  const secs=ST.expiresAt?(ST.expiresAt-Math.floor(Date.now()/1000)):0;
+  if(!ST.currentCmd||secs<=0){ await genCmd(); }
+  if(ST.currentCmd){
+    cp(ST.currentCmd);
+    const btn=$('install-copy');
+    const o=btn.textContent;btn.textContent='Copied!';
+    setTimeout(()=>btn.textContent=o,1500);
   }
-};
-
-// ─── Pools UI ──────────────────────────────────────────────────────────────
-
-let currentTab = "mine";
-let allPools = [];
-
-function openModal(id)  { document.getElementById(id).classList.add("open"); }
-function closeModal(id) { document.getElementById(id).classList.remove("open"); }
-
-document.querySelectorAll(".tab[data-tab]").forEach(t => {
-  t.onclick = () => {
-    document.querySelectorAll(".tab[data-tab]").forEach(x => x.classList.remove("active"));
-    t.classList.add("active");
-    currentTab = t.dataset.tab;
-    renderPools();
-  };
-});
-
-document.getElementById("new-pool-btn").onclick = () => openModal("new-pool-modal");
-document.getElementById("new-pool-create").onclick = async () => {
-  const name = document.getElementById("new-pool-name").value.trim();
-  const vis  = document.getElementById("new-pool-vis").value;
-  if (!name) return;
-  try {
-    await jpost("/api/pools", {name, visibility: vis});
-    closeModal("new-pool-modal");
-    document.getElementById("new-pool-name").value = "";
-    await refreshPools();
-  } catch(e) { alert("create failed: " + (e.error || e)); }
-};
-
-async function refreshPools() {
-  try {
-    const r = await jget("/api/pools");
-    allPools = r.pools || [];
-    renderPools();
-    refreshPoolPicker();
-  } catch(e) { console.error(e); }
 }
 
-function renderPools() {
-  const el = document.getElementById("pools");
-  let filtered;
-  if (currentTab === "mine") {
-    filtered = allPools.filter(p => p.role === "owner" || p.role === "member");
-  } else {
-    filtered = allPools.filter(p => p.visibility === "public");
-  }
-  if (!filtered.length) {
-    el.className = "empty";
-    el.textContent = currentTab === "mine"
-      ? "No pools yet. Click + New pool above."
-      : "No public pools visible.";
-    return;
-  }
-  el.className = "";
-  el.innerHTML = "";
-  for (const p of filtered) {
-    const row = document.createElement("div");
-    row.className = "pool-row";
-    const visPill = `<span class="pill">${p.visibility}</span>`;
-    const rolePill = p.role ? `<span class="pill me">${p.role}</span>` : "";
-    const onlineDot = p.n_online > 0
-      ? `<span class="dot online"></span>${p.n_online} online`
-      : `<span class="dot"></span>${p.n_rigs} rigs`;
-    row.innerHTML = `
-      <div>
-        <div class="title">${p.name}${visPill}${rolePill}</div>
-        <div class="sub">${p.owner_name} · ${p.n_members} member${p.n_members!==1?"s":""} · ${onlineDot}</div>
-      </div>
-      <div>
-        ${(!p.role && p.visibility === "public")
-          ? `<button class="secondary join-btn" data-pid="${p.id}" onclick="event.stopPropagation()">Join</button>`
-          : ""}
-      </div>
-    `;
-    row.onclick = () => openPoolDetail(p.id);
-    el.appendChild(row);
-  }
-  el.querySelectorAll(".join-btn").forEach(b => {
-    b.onclick = async (e) => {
-      e.stopPropagation();
-      try {
-        await jpost("/api/pools/join", {pool_id: parseInt(b.dataset.pid, 10)});
-        await refreshPools();
-      } catch(err) { alert("join failed: " + (err.error || err)); }
-    };
+async function checkFw(){
+  $('fw-result').textContent='Probing interfaces…';
+  $('fw-result').style.color='';
+  try{
+    const r=await jget('/api/firewall_check');
+    const ok=r.reachable||[];
+    const bad=r.failed||[];
+    const parts=[];
+    if(ok.length)parts.push(`<span style="color:var(--green)">✓ Reachable: ${ok.join(', ')}</span>`);
+    if(bad.length)parts.push(`<span style="color:var(--red)">✗ Blocked: ${bad.join(', ')}</span>`);
+    if(r.hint)parts.push(`<code>${r.hint}</code>`);
+    $('fw-result').innerHTML=parts.join(' · ')||'No interfaces found';
+  }catch(e){$('fw-result').textContent='Check failed: '+(e.error||e);}
+}
+
+async function pairThis(){
+  $('pair-status').textContent='Minting pairing token…';
+  try{
+    const r=await jpost('/api/pair');
+    ST.lastDeepLink=r.deep_link||'';
+    $('copy-link-btn').classList.remove('hidden');
+    $('pair-status').innerHTML='Launching pairing handler — if nothing opens, use <strong>Copy link</strong>.';
+    if(r.deep_link)location.href=r.deep_link;
+  }catch(e){$('pair-status').textContent='Failed: '+(e.error||e);}
+}
+function copyLink(){
+  cp(ST.lastDeepLink);
+  $('pair-status').textContent='Link copied.';
+}
+
+// ── Pool selects ──────────────────────────────────────────────────────────────
+function populatePoolSelects(){
+  const my=ST.pools.filter(p=>p.role==='owner'||p.role==='member');
+  ['pk-pool','play-pool'].forEach(id=>{
+    const sel=$(id); if(!sel)return;
+    const cur=sel.value;
+    while(sel.options.length>1)sel.remove(1);
+    my.forEach(p=>sel.appendChild(new Option(p.name,p.id)));
+    if(cur)sel.value=cur;
   });
 }
 
-async function openPoolDetail(id) {
-  openModal("pool-detail-modal");
-  const title = document.getElementById("pd-title");
-  const sub   = document.getElementById("pd-sub");
-  const snip  = document.getElementById("pd-snippets");
-  const acts  = document.getElementById("pd-actions");
-  const memEl = document.getElementById("pd-members");
-  const rigEl = document.getElementById("pd-rigs");
-  title.textContent = "Loading…"; sub.textContent = "";
-  snip.innerHTML = "";
-  acts.innerHTML = ""; memEl.innerHTML = ""; rigEl.innerHTML = "";
+// ── Playground ────────────────────────────────────────────────────────────────
+function clearChat(){ ST.chat=[]; renderChat(); }
+function renderChat(){
+  const area=$('chat-area'),empty=$('chat-empty');
+  area.querySelectorAll('.msg').forEach(m=>m.remove());
+  if(!ST.chat.length){empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  ST.chat.forEach(m=>{
+    const isU=m.role==='user';
+    const el=document.createElement('div');
+    el.className='msg '+(isU?'msg-u':'msg-a');
+    el.innerHTML=`<div class="avatar">${isU?'👤':'🦙'}</div><div class="bubble">${esc(m.content)}</div>`;
+    area.appendChild(el);
+  });
+  area.scrollTop=area.scrollHeight;
+}
 
-  let d;
-  try { d = await jget("/api/pools/" + id); }
-  catch (e) { title.textContent = "error"; sub.textContent = e.error || "failed"; return; }
+function chatKey(e){ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();} }
 
-  const p = d.pool;
-  title.innerHTML = p.name +
-    ` <span class="pill">${p.visibility}</span>` +
-    (p.role ? ` <span class="pill me">${p.role}</span>` : "");
-  sub.innerHTML =
-    `owner: ${p.owner_name} · created ${new Date(p.created_at*1000).toLocaleString()}` +
-    (p.base_url
-      ? `<div style="margin-top:8px;padding:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;">
-           <div style="font-size:11px;margin-bottom:4px;">OpenAI base URL</div>
-           <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all;">${p.base_url}</div>
-           <button class="secondary" style="margin-top:6px;font-size:12px;padding:3px 8px;"
-             onclick="copyText('${p.base_url.replace(/'/g, "\\'")}', this)">Copy</button>
-         </div>`
-      : "");
-
-  if (p.base_url) renderPoolSnippets(snip, p.base_url);
-
-  // Actions: invite (owner), attach rig (member), detach rig.
-  if (p.role === "owner") {
-    const inv = document.createElement("button");
-    inv.className = "secondary";
-    inv.textContent = "Mint invite link";
-    inv.onclick = async () => {
-      try {
-        const r = await jpost("/api/pools/" + id + "/invite");
-        await navigator.clipboard.writeText(r.invite_url);
-        inv.textContent = "copied: " + r.invite_url.slice(0, 40) + "…";
-      } catch(e) { alert("invite failed: " + (e.error || e)); }
-    };
-    acts.appendChild(inv);
-  }
-  if (p.role === "owner" || p.role === "member") {
-    // Attach-rig dropdown: list my rigs not yet in this pool.
-    const myRigs = (await jget("/api/rigs")).rigs || [];
-    const already = new Set(d.rigs.filter(r => r.owner_id === me.id).map(r => r.agent_id));
-    const candidates = myRigs.filter(r => !already.has(r.agent_id));
-    if (candidates.length) {
-      const sel = document.createElement("select");
-      sel.innerHTML = `<option value="">— attach a rig —</option>` +
-        candidates.map(r => `<option value="${r.agent_id}">${r.hostname} (${r.agent_id})</option>`).join("");
-      sel.style.marginLeft = "8px";
-      sel.onchange = async () => {
-        if (!sel.value) return;
-        try {
-          await jpost("/api/pools/" + id + "/rigs", {agent_id: sel.value});
-          openPoolDetail(id);
-          refreshPools();
-        } catch(e) { alert("attach failed: " + (e.error || e)); }
-      };
-      acts.appendChild(sel);
+async function sendMsg(){
+  const inp=$('chat-in'), pool=$('play-pool').value, text=inp.value.trim();
+  if(!text)return;
+  if(!pool){alert('Select a pool first.');return;}
+  inp.value='';
+  $('chat-send').disabled=true;
+  ST.chat.push({role:'user',content:text});
+  const aMsg={role:'assistant',content:''};
+  ST.chat.push(aMsg);
+  renderChat();
+  try{
+    const resp=await fetch('/api/infer',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pool_id:pool,prompt:text,stream:true})
+    });
+    if(!resp.body)throw new Error('no stream body');
+    const reader=resp.body.getReader(), dec=new TextDecoder();
+    let buf='';
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop();
+      for(const line of lines){
+        if(!line.startsWith('data:'))continue;
+        const data=line.slice(5).trim();
+        if(data==='[DONE]')break;
+        try{
+          const j=JSON.parse(data);
+          aMsg.content+=(j.choices?.[0]?.delta?.content||j.token||'');
+          renderChat();
+        }catch(_){}
+      }
     }
-  }
-
-  memEl.innerHTML = d.members.map(m =>
-    `<div>${m.display_name} <span class="pill">${m.role}</span></div>`).join("");
-
-  if (!d.rigs.length) {
-    rigEl.innerHTML = `<span class="empty">No rigs attached yet.</span>`;
-  } else {
-    rigEl.innerHTML = d.rigs.map(r => {
-      const detach = (r.owner_id === me.id || p.role === "owner")
-        ? `<button class="secondary" style="font-size:12px;padding:3px 8px;"
-             onclick="detachRig(${id}, ${r.rig_id})">detach</button>`
-        : "";
-      return `<div class="rig">
-        <div>
-          <div class="name"><span class="dot ${r.online?'online':''}"></span>${r.hostname}</div>
-          <div class="meta">${r.agent_id}</div>
-        </div>
-        ${detach}
-      </div>`;
-    }).join("");
-  }
+  }catch(e){aMsg.content='(error: '+e.message+')';renderChat();}
+  $('chat-send').disabled=false;
+  await loadUsage(); renderStats();
 }
 
-async function detachRig(poolID, rigID) {
-  try {
-    const r = await fetch(`/api/pools/${poolID}/rigs/${rigID}`, {method: "DELETE"});
-    if (!r.ok) throw await r.json();
-    openPoolDetail(poolID);
-    refreshPools();
-  } catch(e) { alert("detach failed: " + (e.error || e)); }
-}
-window.detachRig = detachRig;
-window.closeModal = closeModal;
-
-// ─── "Use with" code snippets on the pool detail modal ──────────────────────
-//
-// Three languages (python / curl / node) pre-filled with the pool's base_url.
-// The API key slot is filled with the last plaintext key minted this session,
-// or a `sk-dist-…` placeholder otherwise — users paste their own if they need
-// to come back later.
-function renderPoolSnippets(container, baseURL) {
-  const key = lastMintedKey || "sk-dist-…";
-  const snippets = {
-    python:
-      'from openai import OpenAI\n' +
-      'client = OpenAI(\n' +
-      '    base_url="' + baseURL + '",\n' +
-      '    api_key="' + key + '",\n' +
-      ')\n' +
-      'resp = client.chat.completions.create(\n' +
-      '    model="distpool-default",\n' +
-      '    messages=[{"role":"user","content":"hello"}],\n' +
-      ')\n' +
-      'print(resp.choices[0].message.content)',
-    curl:
-      'curl ' + baseURL + '/chat/completions \\\n' +
-      '  -H "Authorization: Bearer ' + key + '" \\\n' +
-      '  -H "Content-Type: application/json" \\\n' +
-      '  -d \'{"model":"distpool-default","messages":[{"role":"user","content":"hello"}]}\'',
-    node:
-      'import OpenAI from "openai";\n' +
-      'const client = new OpenAI({\n' +
-      '  baseURL: "' + baseURL + '",\n' +
-      '  apiKey: "' + key + '",\n' +
-      '});\n' +
-      'const resp = await client.chat.completions.create({\n' +
-      '  model: "distpool-default",\n' +
-      '  messages: [{ role: "user", content: "hello" }],\n' +
-      '});\n' +
-      'console.log(resp.choices[0].message.content);',
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connectWS(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ST.ws=new WebSocket(`${proto}//${location.host}/ws/browser`);
+  ST.ws.onopen=()=>{$('ws-badge').className='badge b-green';$('ws-badge').textContent='live';};
+  ST.ws.onclose=()=>{$('ws-badge').className='badge b-dim';$('ws-badge').textContent='reconnecting';setTimeout(connectWS,3000);};
+  ST.ws.onmessage=async e=>{
+    let evt;try{evt=JSON.parse(e.data);}catch{return;}
+    addEvt(evt);
+    if(evt.kind==='rig_online'||evt.kind==='rig_offline'||evt.kind==='agent_message'){
+      await loadRigs();renderRigGrids();renderStats();
+    }
+    if(evt.kind==='rig_online'&&evt.payload?.is_first_pair){
+      const host=evt.payload.hostname||evt.payload.agent_id||'rig';
+      $('install-status').textContent=`✓ ${host} paired — ready to route`;
+    }
   };
-
-  const tabs = [
-    {id: "python", label: "Python"},
-    {id: "curl",   label: "curl"},
-    {id: "node",   label: "Node"},
-  ];
-  const hint = lastMintedKey
-    ? `using last-minted key (${lastMintedKey.slice(0,8)}…)`
-    : `paste your <code>sk-dist-…</code> key in place of the placeholder`;
-
-  container.innerHTML =
-    `<div style="font-size:12px;margin-bottom:6px;" class="muted">Use with — ${hint}</div>` +
-    `<div class="row" id="pd-snip-tabs" style="gap:6px;margin-bottom:6px;">` +
-      tabs.map((t, i) =>
-        `<div class="tab ${i===0?'active':''}" data-snip="${t.id}">${t.label}</div>`
-      ).join("") +
-    `</div>` +
-    `<pre id="pd-snip-code" style="white-space:pre-wrap;margin:0;padding:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></pre>` +
-    `<div class="row" style="margin-top:6px;gap:8px;">` +
-      `<button class="secondary" id="pd-snip-copy" style="font-size:12px;padding:3px 8px;">Copy</button>` +
-      `<span class="muted" id="pd-snip-status" style="font-size:12px;"></span>` +
-    `</div>`;
-
-  const codeEl = container.querySelector("#pd-snip-code");
-  const tabsEl = container.querySelector("#pd-snip-tabs");
-  const copyEl = container.querySelector("#pd-snip-copy");
-  let active = "python";
-  const render = () => { codeEl.textContent = snippets[active]; };
-  render();
-  tabsEl.querySelectorAll(".tab").forEach(t => {
-    t.onclick = () => {
-      active = t.dataset.snip;
-      tabsEl.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-      t.classList.add("active");
-      render();
-    };
-  });
-  copyEl.onclick = () => copyText(snippets[active], copyEl);
 }
 
-// ─── API keys ──────────────────────────────────────────────────────────────
-
-const keysEl       = document.getElementById("api-keys");
-const mintKeyBtn   = document.getElementById("mint-key-btn");
-const newKeyBox    = document.getElementById("new-key-box");
-const newKeyVal    = document.getElementById("new-key-val");
-const newKeyCopy   = document.getElementById("new-key-copy");
-const newKeyDismiss= document.getElementById("new-key-dismiss");
-
-function escapeHTML(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-  }[c]));
+function addEvt(evt){
+  const log=$('evt-log');
+  const ph=log.querySelector('.muted');if(ph&&log.children.length===1)log.innerHTML='';
+  const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const cls=evt.kind?.includes('online')?'c-on':evt.kind?.includes('offline')?'c-off':evt.kind?.includes('infer')?'c-in':'';
+  const ln=document.createElement('div');
+  ln.className='evt-ln';
+  ln.innerHTML=`<span class="evt-t">${t}</span><span class="${cls}">${esc(evt.kind||'event')}</span>${evt.agent_id?' @'+evt.agent_id.slice(0,8):''}${evt.message?': '+esc(evt.message):''}`;
+  log.insertBefore(ln,log.firstChild);
+  if(log.children.length>200)log.removeChild(log.lastChild);
 }
 
-async function refreshAPIKeys() {
-  let keys;
-  try { keys = await jget("/api/api_keys"); } catch(_) { keys = []; }
-  if (!Array.isArray(keys)) keys = keys.keys || [];
-  if (!keys.length) {
-    keysEl.className = "empty";
-    keysEl.textContent = "No API keys yet. Click “+ New key” to create one.";
-    return;
-  }
-  keysEl.className = "";
-  keysEl.innerHTML = keys.map(k => {
-    const last = k.last_used_at
-      ? new Date(k.last_used_at * 1000).toLocaleString()
-      : "never";
-    const created = new Date(k.created_at * 1000).toLocaleString();
-    const label = escapeHTML(k.label || "(unnamed)");
-    const prefix = escapeHTML(k.prefix || "");
-    return `<div class="row" style="justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-      <div>
-        <div style="font-weight:500;">${label}</div>
-        <div class="muted" style="font-size:11px;font-family:ui-monospace,Menlo,Consolas,monospace;">${prefix}…</div>
-        <div class="muted" style="font-size:11px;">created ${created} · last used ${last}</div>
-      </div>
-      <button class="secondary" style="font-size:12px;padding:4px 10px;" onclick="revokeAPIKey(${k.id})">Revoke</button>
-    </div>`;
-  }).join("");
-}
+// ── Modals ────────────────────────────────────────────────────────────────────
+function openModal(id){$(id).classList.remove('hidden');}
+function closeModal(id){$(id).classList.add('hidden');}
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.add('hidden');}));
 
-async function revokeAPIKey(id) {
-  if (!confirm("Revoke this key? Any client using it will stop working.")) return;
-  try {
-    const r = await fetch(`/api/api_keys/${id}`, {method: "DELETE"});
-    if (!r.ok) throw await r.json().catch(() => ({error: r.statusText}));
-    await refreshAPIKeys();
-  } catch(e) { alert("revoke failed: " + (e.error || e)); }
-}
-window.revokeAPIKey = revokeAPIKey;
+// expose for inline onclick
+window.$=window.$||$;
+window.detachRig=detachRig;
+window.attachRig=attachRig;
 
-const mintKeyLabelEl = document.getElementById("mint-key-label");
-
-// Last API key plaintext shown this session.  Used to pre-fill the "Use with"
-// snippets on the pool detail modal so the user doesn't have to paste twice.
-// Cleared on logout; never persisted.
-let lastMintedKey = "";
-
-mintKeyBtn.onclick = async () => {
-  const label = (mintKeyLabelEl.value || "").trim();
-  try {
-    const r = await jpost("/api/api_keys", {label});
-    const plain = r.key || r.plaintext || "";
-    newKeyVal.textContent = plain;
-    newKeyBox.hidden = false;
-    if (plain) lastMintedKey = plain;
-    mintKeyLabelEl.value = "";
-    await refreshAPIKeys();
-  } catch(e) { alert("mint failed: " + (e.error || e)); }
-};
-
-// Enter in the label box = submit.
-mintKeyLabelEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); mintKeyBtn.click(); }
-});
-
-newKeyCopy.onclick = () => copyText(newKeyVal.textContent, newKeyCopy);
-newKeyDismiss.onclick = () => { newKeyBox.hidden = true; newKeyVal.textContent = ""; };
-
-// ─── Invite handoff via URL ?invite=XXX ────────────────────────────────────
-
-async function handleInviteParam() {
-  const params = new URLSearchParams(location.search);
-  const tok = params.get("invite");
-  if (!tok) return;
-  // Strip the param from the URL so a refresh doesn't re-attempt.
-  history.replaceState({}, "", location.pathname);
-  if (!me) {
-    alert("Sign in first, then click the invite link again.");
-    return;
-  }
-  try {
-    const r = await jpost("/api/pools/join", {invite: tok});
-    logEvent("joined pool " + r.pool_id + " via invite");
-    await refreshPools();
-  } catch(e) {
-    alert("invite failed: " + (e.error || e));
-  }
-}
-
-init();
+boot();
 </script>
 </body>
 </html>

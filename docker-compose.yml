@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/data
+    environment:
+      DIST_ADDR: ":8080"
+      DIST_DB: "/data/distpool.sqlite"
+      DIST_MODELS_DIR: "/data/models"
+      DIST_RELEASES_DIR: "/data/releases-cache"
+      DIST_PUBLIC_URL: "http://localhost:8080"
+      DIST_APEX_HOST: "localhost:8080"
+      # GitHub OAuth — create an app at https://github.com/settings/applications/new
+      # Callback URL: http://localhost:8080/auth/github/callback
+      DIST_GITHUB_CLIENT: "${DIST_GITHUB_CLIENT:-}"
+      DIST_GITHUB_SECRET: "${DIST_GITHUB_SECRET:-}"
+      # Change this in production
+      DIST_SESSION_SECRET: "${DIST_SESSION_SECRET:-dev-secret-change-in-production}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  data:
