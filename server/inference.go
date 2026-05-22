@@ -253,12 +253,30 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	// Announce start in the server log.
 	logID := s.logInference(u.ID, body.PoolID, ac.userID, ac.agentID, 0, 0, "running")
 
+	// Look up the pool's bound model so we can hand the rig a signed shard
+	// URL.  For single-rig inference we ship the full model as stage-0.gguf
+	// (which is what llama-split-gguf emits when n_stages=1).
+	var (
+		shardURL  string
+		shardFile string
+	)
+	{
+		var modelID *int64
+		_ = s.db.QueryRow(`SELECT model_id FROM pools WHERE id = ?`, body.PoolID).Scan(&modelID)
+		if modelID != nil && *modelID > 0 {
+			shardFile = "stage-0.gguf"
+			shardURL = s.mintShardURL(*modelID, shardFile, 15*time.Minute)
+		}
+	}
+
 	// Build + send request frame.
 	payloadJSON, _ := json.Marshal(map[string]any{
 		"model":       body.Model,
 		"prompt":      body.Prompt,
 		"max_tokens":  body.MaxTokens,
 		"temperature": body.Temperature,
+		"shard_url":   shardURL,
+		"shard_file":  shardFile,
 	})
 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(body.Prompt)), payloadJSON)
 	if !ac.sendBin(reqFrame) {

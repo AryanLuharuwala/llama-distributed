@@ -37,7 +37,7 @@ bool PpEngine::load(const PpEngineConfig & cfg) {
     cparams.n_ctx      = cfg.n_ctx;
     cparams.n_batch    = cfg.n_batch;
     cparams.n_seq_max  = cfg.n_seq_max;
-    cparams.embeddings = true;
+    cparams.embeddings = !cfg.emit_logits;
 
     ctx_ = llama_init_from_model(model_, cparams);
     if (!ctx_) {
@@ -140,6 +140,44 @@ bool PpEngine::decode_tokens(const int32_t * tokens, int32_t n, int32_t pos_base
         std::memcpy(out_hidden.data() + (size_t) i * n_embd_, e,
                     sizeof(float) * n_embd_);
     }
+    llama_batch_free(b);
+    return true;
+}
+
+bool PpEngine::decode_tokens_logits(const int32_t * tokens, int32_t n, int32_t pos_base,
+                                    std::vector<float> & out_logits) {
+    if (!ctx_) { err_ = "engine not loaded"; return false; }
+    if (n <= 0) { err_ = "decode_tokens_logits: empty batch"; return false; }
+
+    llama_batch b = llama_batch_init(n, 0, 1);
+    b.n_tokens = n;
+    for (int32_t i = 0; i < n; i++) {
+        b.token[i]     = tokens[i];
+        b.pos[i]       = pos_base + i;
+        b.n_seq_id[i]  = 1;
+        b.seq_id[i][0] = 0;
+        b.logits[i]    = (i == n - 1) ? 1 : 0;
+    }
+
+    int rc;
+    {
+        GpuLockGuard g(gpu_lock_);
+        (void) g;
+        rc = llama_decode(ctx_, b);
+    }
+    if (rc != 0) {
+        err_ = "single-rig llama_decode failed";
+        llama_batch_free(b);
+        return false;
+    }
+
+    float * l = llama_get_logits_ith(ctx_, n - 1);
+    if (!l) {
+        err_ = "no logits at last position (single-rig)";
+        llama_batch_free(b);
+        return false;
+    }
+    out_logits.assign(l, l + n_vocab_);
     llama_batch_free(b);
     return true;
 }

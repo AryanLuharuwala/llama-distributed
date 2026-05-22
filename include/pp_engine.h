@@ -36,6 +36,12 @@ struct PpEngineConfig {
     // Optional cross-process GPU lock; held across every decode_*.  May be
     // nullptr on CPU-only nodes or when no serialisation is desired.
     GpuLock *   gpu_lock    = nullptr;
+    // Single-rig mode: configure the context to produce logits at the last
+    // position of every decode_tokens call.  Use this when the engine owns
+    // the entire model (layer_lo=0, layer_hi=0) and the caller wants to
+    // sample next tokens directly.  Mutually useful only with full-model
+    // loads; pipeline stages should leave this false.
+    bool        emit_logits = false;
 };
 
 class PpEngine {
@@ -97,6 +103,13 @@ public:
     // call and grow monotonically.
     bool decode_tokens(const int32_t * tokens, int32_t n, int32_t pos_base,
                        std::vector<float> & out_hidden);
+
+    // Single-rig path: feed `tokens` at absolute positions [pos_base, pos_base+n),
+    // run llama_decode through every layer of the loaded shard, and return the
+    // logits at the last position (n_vocab floats).  Requires load() to have
+    // been called with PpEngineConfig::emit_logits = true.
+    bool decode_tokens_logits(const int32_t * tokens, int32_t n, int32_t pos_base,
+                              std::vector<float> & out_logits);
 
     // Intermediate/terminal stages: feed `hidden` (length n * n_embd) at
     // absolute positions [pos_base, pos_base+n), and extract either:

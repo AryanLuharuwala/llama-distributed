@@ -509,6 +509,13 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     std::string engine_key;   // "<file>#<lo>-<hi>"
     std::string engine_path;  // local path of the downloaded shard
 
+    // Separate engine for single-rig INFR.  Its llama_context is configured
+    // with embeddings=false / emit_logits=true so we can sample directly from
+    // logits at the last position.  Coexists with the pipeline engine above.
+    std::unique_ptr<dist::PpEngine> infer_engine;
+    std::string infer_engine_key;
+    std::string infer_engine_path;
+
     // Cross-process lock over device 0.  Any two dist-node processes sharing
     // one CUDA device serialise their decodes through this flock; a single
     // ggml CUDA backend cannot host two independent llama_contexts doing
@@ -806,42 +813,183 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                               << " in_tokens=" << in_tokens
                               << " payload=" << payload.substr(0, 80) << "...\n";
 
-                    // Send a stub token stream.  Real agent: run llama_decode.
                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
                                           uint32_t tok_out, const std::string& text) {
                         std::vector<uint8_t> out(24 + text.size());
-                        // magic
                         out[0]=0x49; out[1]=0x4E; out[2]=0x46; out[3]=0x52;
-                        out[4] = 0x01;   // ver
-                        out[5] = 0x02;   // type = chunk
+                        out[4] = 0x01;
+                        out[5] = 0x02;
                         out[6] = (uint8_t)(req_id >> 8);
                         out[7] = (uint8_t)(req_id & 0xFF);
                         out[8] = kind;
                         out[9]=out[10]=out[11]=0;
-                        auto put32 = [&](size_t off, uint32_t v) {
+                        auto put32lc = [&](size_t off, uint32_t v) {
                             out[off  ] = (uint8_t)(v >> 24);
                             out[off+1] = (uint8_t)(v >> 16);
                             out[off+2] = (uint8_t)(v >>  8);
                             out[off+3] = (uint8_t)(v);
                         };
-                        put32(12, tok_in);
-                        put32(16, tok_out);
-                        put32(20, (uint32_t)text.size());
+                        put32lc(12, tok_in);
+                        put32lc(16, tok_out);
+                        put32lc(20, (uint32_t)text.size());
                         std::memcpy(out.data() + 24, text.data(), text.size());
                         ws.send_binary(out.data(), out.size());
                     };
 
-                    const char* tokens[] = {
-                        "Hello", ", ", "this ", "is ", "a ", "distributed ",
-                        "pool ", "reply."
+                    // Minimal JSON field extractors.  The server-side payload
+                    // is fully under our control (encoded by encoding/json),
+                    // so we get away with positional parsing instead of a
+                    // proper parser.
+                    auto json_str = [&](const std::string & key) -> std::string {
+                        std::string needle = std::string("\"") + key + "\":\"";
+                        size_t p = payload.find(needle);
+                        if (p == std::string::npos) return "";
+                        size_t s = p + needle.size();
+                        size_t e = s;
+                        while (e < payload.size() && payload[e] != '"') {
+                            if (payload[e] == '\\' && e + 1 < payload.size()) ++e;
+                            ++e;
+                        }
+                        std::string raw = payload.substr(s, e - s);
+                        std::string out; out.reserve(raw.size());
+                        for (size_t i = 0; i < raw.size(); ++i) {
+                            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                                char c = raw[i + 1];
+                                if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+                                else if (c == 'n') { out += '\n'; ++i; }
+                                else if (c == 'r') { out += '\r'; ++i; }
+                                else if (c == 't') { out += '\t'; ++i; }
+                                else { out += c; ++i; }
+                            } else {
+                                out += raw[i];
+                            }
+                        }
+                        return out;
                     };
-                    uint32_t out_tokens = 0;
-                    for (const char* t : tokens) {
-                        ++out_tokens;
-                        send_chunk(0 /* token */, in_tokens, out_tokens, t);
-                        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                    auto json_int = [&](const std::string & key) -> long long {
+                        std::string needle = std::string("\"") + key + "\":";
+                        size_t p = payload.find(needle);
+                        if (p == std::string::npos) return -1;
+                        size_t s = p + needle.size();
+                        while (s < payload.size() && payload[s] == ' ') ++s;
+                        size_t e = s;
+                        while (e < payload.size() && (isdigit((unsigned char)payload[e]) || payload[e] == '-')) ++e;
+                        if (s == e) return -1;
+                        try { return std::stoll(payload.substr(s, e - s)); } catch (...) { return -1; }
+                    };
+
+                    std::string prompt     = json_str("prompt");
+                    std::string shard_url  = json_str("shard_url");
+                    std::string shard_file = json_str("shard_file");
+                    long long   mt         = json_int("max_tokens");
+                    uint32_t    max_tokens = (mt > 0) ? (uint32_t) mt : 128;
+
+                    if (prompt.empty()) {
+                        send_chunk(2 /* error */, in_tokens, 0, "empty prompt");
+                        send_chunk(1, in_tokens, 0, "");
+                        continue;
                     }
-                    send_chunk(1 /* done */, in_tokens, out_tokens, "");
+                    if (shard_url.empty()) {
+                        send_chunk(2, in_tokens, 0, "pool has no model bound");
+                        send_chunk(1, in_tokens, 0, "");
+                        continue;
+                    }
+
+                    // (Re)load the single-rig engine if the shard identity changed.
+                    std::string key = shard_file + "#full";
+                    bool ok = true;
+                    if (!infer_engine || infer_engine_key != key) {
+                        infer_engine.reset();
+                        std::string dest = "/tmp/dist-node-" +
+                            std::to_string(::getpid()) + "-infer-" +
+                            (shard_file.empty() ? std::string("model.gguf") : shard_file);
+                        std::string derr;
+                        if (!dist::fetch_shard(shard_url, dest, derr)) {
+                            std::cerr << "[pair] infer shard download failed: " << derr << "\n";
+                            send_chunk(2, in_tokens, 0, "shard download failed: " + derr);
+                            send_chunk(1, in_tokens, 0, "");
+                            continue;
+                        }
+                        auto eng = std::make_unique<dist::PpEngine>();
+                        dist::PpEngineConfig ecfg;
+                        ecfg.shard_path   = dest;
+                        ecfg.layer_lo     = 0;
+                        ecfg.layer_hi     = 0; // full model
+                        ecfg.n_ctx        = 4096;
+                        ecfg.n_batch      = 512;
+                        ecfg.n_seq_max    = 1;
+                        ecfg.n_gpu_layers = n_gpu_layers;
+                        ecfg.gpu_lock     = gpu_lock.enabled() ? &gpu_lock : nullptr;
+                        ecfg.emit_logits  = true;
+                        if (!eng->load(ecfg)) {
+                            std::cerr << "[pair] infer engine load failed: "
+                                      << eng->last_error() << "\n";
+                            send_chunk(2, in_tokens, 0, "engine load failed: " + eng->last_error());
+                            send_chunk(1, in_tokens, 0, "");
+                            continue;
+                        }
+                        infer_engine      = std::move(eng);
+                        infer_engine_key  = key;
+                        infer_engine_path = dest;
+                    }
+
+                    // Fresh KV for this request.
+                    infer_engine->reset_kv();
+                    std::vector<int32_t> toks = infer_engine->tokenize(prompt, true);
+                    if (toks.empty()) {
+                        send_chunk(2, in_tokens, 0, "tokenize failed");
+                        send_chunk(1, in_tokens, 0, "");
+                        continue;
+                    }
+                    uint32_t prompt_tokens = (uint32_t) toks.size();
+                    std::cout << "[pair] infer prompt_tokens=" << prompt_tokens
+                              << " max_tokens=" << max_tokens << "\n";
+
+                    // Prompt prefill: one llama_decode over all prompt tokens,
+                    // logits emitted at the final position.
+                    std::vector<float> logits;
+                    if (!infer_engine->decode_tokens_logits(toks.data(), (int32_t) toks.size(),
+                                                            0, logits)) {
+                        std::string why = infer_engine->last_error();
+                        send_chunk(2, prompt_tokens, 0, "prefill decode failed: " + why);
+                        send_chunk(1, prompt_tokens, 0, "");
+                        continue;
+                    }
+                    int32_t pos = (int32_t) toks.size();
+                    const int32_t eos = infer_engine->eos_token();
+
+                    auto sample_greedy = [&](const std::vector<float> & ls) -> int32_t {
+                        int32_t best = 0; float best_s = ls[0];
+                        for (size_t i = 1; i < ls.size(); ++i) {
+                            if (ls[i] > best_s) { best_s = ls[i]; best = (int32_t) i; }
+                        }
+                        return best;
+                    };
+
+                    uint32_t out_tokens = 0;
+                    bool done = false;
+                    while (out_tokens < max_tokens && !done && ws.is_open()) {
+                        int32_t next = sample_greedy(logits);
+                        ++out_tokens;
+                        if (next == eos) {
+                            done = true;
+                            break;
+                        }
+                        std::string piece = infer_engine->detokenize(next);
+                        send_chunk(0 /* token */, prompt_tokens, out_tokens, piece);
+
+                        // Decode the just-sampled token to get next-step logits.
+                        int32_t one = next;
+                        if (!infer_engine->decode_tokens_logits(&one, 1, pos, logits)) {
+                            std::string why = infer_engine->last_error();
+                            send_chunk(2, prompt_tokens, out_tokens, "decode failed: " + why);
+                            done = true;
+                            break;
+                        }
+                        ++pos;
+                    }
+                    (void) ok;
+                    send_chunk(1 /* done */, prompt_tokens, out_tokens, "");
                 } else if (msg.size() >= 20 && be32(msg.data()) == MAGIC_ACTV
                            && msg[4] == 0x01) {
                     // ACTV frame.  See server/activation.go for layout.
