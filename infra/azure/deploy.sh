@@ -130,9 +130,15 @@ properties:
           - name: DIST_DB
             value: /data/distpool.sqlite
           # /data is an Azure Files (CIFS) mount; SQLite's WAL journal mode
-          # is broken over CIFS, so force DELETE.
+          # is broken over CIFS, so force DELETE. Also disable fcntl locking
+          # (nolock=1) — POSIX advisory locks are unreliable over CIFS and
+          # cause "database is locked" on every open. Safe with maxReplicas=1.
           - name: DIST_SQLITE_JOURNAL_MODE
             value: DELETE
+          - name: DIST_SQLITE_NOLOCK
+            value: "1"
+          - name: DIST_DEV_MODE
+            value: "1"
           - name: DIST_MODELS_DIR
             value: /data/models
           - name: DIST_RELEASES_DIR

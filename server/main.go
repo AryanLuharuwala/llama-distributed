@@ -95,8 +95,15 @@ func main() {
 	// SQLite WAL is broken over CIFS (Azure Files mounts /data via CIFS),
 	// so the journal mode must be overridable. Default stays WAL for local
 	// disk; set DIST_SQLITE_JOURNAL_MODE=DELETE on CIFS-backed hosts.
+	// On CIFS, also set DIST_SQLITE_NOLOCK=1 — POSIX advisory locks are
+	// unreliable on CIFS shares and cause "database is locked" on every
+	// open. Safe because ACA pins us to a single replica.
 	journalMode := envOr("DIST_SQLITE_JOURNAL_MODE", "WAL")
-	db, err := sql.Open("sqlite3", cfg.dbPath+"?_journal_mode="+journalMode+"&_foreign_keys=on")
+	dsn := cfg.dbPath + "?_journal_mode=" + journalMode + "&_foreign_keys=on&_busy_timeout=30000"
+	if v := strings.ToLower(os.Getenv("DIST_SQLITE_NOLOCK")); v == "1" || v == "true" || v == "yes" {
+		dsn += "&nolock=1"
+	}
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
