@@ -85,7 +85,11 @@ func envOr(k, d string) string {
 func main() {
 	cfg := loadConfig()
 
-	db, err := sql.Open("sqlite3", cfg.dbPath+"?_journal_mode=WAL&_foreign_keys=on")
+	// SQLite WAL is broken over CIFS (Azure Files mounts /data via CIFS),
+	// so the journal mode must be overridable. Default stays WAL for local
+	// disk; set DIST_SQLITE_JOURNAL_MODE=DELETE on CIFS-backed hosts.
+	journalMode := envOr("DIST_SQLITE_JOURNAL_MODE", "WAL")
+	db, err := sql.Open("sqlite3", cfg.dbPath+"?_journal_mode="+journalMode+"&_foreign_keys=on")
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}

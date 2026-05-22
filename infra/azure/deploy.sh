@@ -129,6 +129,10 @@ properties:
             value: ":8080"
           - name: DIST_DB
             value: /data/distpool.sqlite
+          # /data is an Azure Files (CIFS) mount; SQLite's WAL journal mode
+          # is broken over CIFS, so force DELETE.
+          - name: DIST_SQLITE_JOURNAL_MODE
+            value: DELETE
           - name: DIST_MODELS_DIR
             value: /data/models
           - name: DIST_RELEASES_DIR
