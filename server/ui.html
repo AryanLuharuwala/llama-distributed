@@ -566,8 +566,8 @@ async function devLogin(){
 function logout(){ fetch('/auth/logout',{method:'POST'}).then(()=>location.reload()); }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
-async function loadRigs()  { try{ const r=await jget('/api/rigs'); ST.rigs=r.rigs||r||[]; }catch(_){} }
-async function loadPools() { try{ const r=await jget('/api/pools'); ST.pools=r.pools||r||[]; }catch(_){} }
+async function loadRigs()  { try{ const r=await jget('/api/rigs'); ST.rigs=Array.isArray(r.rigs)?r.rigs:(Array.isArray(r)?r:[]); }catch(_){} }
+async function loadPools() { try{ const r=await jget('/api/pools'); ST.pools=Array.isArray(r.pools)?r.pools:(Array.isArray(r)?r:[]); }catch(_){} }
 async function loadKeys()  { try{ const r=await jget('/api/api_keys'); ST.keys=Array.isArray(r)?r:(r.keys||[]); }catch(_){} }
 async function loadUsage() { try{ ST.usage=await jget('/api/usage'); }catch(_){} }
 
