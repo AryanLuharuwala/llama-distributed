@@ -260,3 +260,104 @@ func strFallback(s, d string) string {
 	}
 	return s
 }
+
+// agentFromHeader resolves an agent_key (passed as Bearer or X-Agent-Key) to
+// (user, agent_id).  Used by /api/agent/* endpoints so a rig can self-serve
+// API keys + pool URLs without holding a browser session.
+func (s *server) agentFromRequest(r *http.Request) (uid int64, agentID string, ok bool) {
+	key := r.Header.Get("X-Agent-Key")
+	if key == "" {
+		if b := bearerFromRequest(r); strings.HasPrefix(b, "ak-") || (b != "" && !strings.HasPrefix(b, "sk-")) {
+			key = b
+		}
+	}
+	if key == "" {
+		return 0, "", false
+	}
+	err := s.db.QueryRow(
+		`SELECT user_id, agent_id FROM rigs WHERE agent_key = ? LIMIT 1`, key,
+	).Scan(&uid, &agentID)
+	if err != nil {
+		return 0, "", false
+	}
+	return uid, agentID, true
+}
+
+// POST /api/agent/api_key   { "label":"…" }
+// Header: Authorization: Bearer <agent_key>   (or X-Agent-Key: <agent_key>)
+// Mints a sk-dist-* API key bound to the user that owns the agent.  Used by
+// `dist-node url` so a freshly-logged-in rig can self-serve a Bearer token
+// for /v1/chat/completions without anyone touching the dashboard.
+func (s *server) handleAgentMintAPIKey(w http.ResponseWriter, r *http.Request) {
+	uid, agentID, ok := s.agentFromRequest(r)
+	if !ok {
+		writeErr(w, 401, "bad or missing agent_key")
+		return
+	}
+	var body struct {
+		Label string `json:"label"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Label == "" {
+		body.Label = "rig:" + agentID
+	}
+	plain, id, err := s.mintAPIKey(uid, body.Label)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"id":     id,
+		"key":    plain,
+		"prefix": plain[:12],
+		"label":  body.Label,
+	})
+}
+
+// GET /api/agent/pools
+// Returns the pools this agent's user can use for /v1/* — both pools the user
+// owns and any pool whose member list includes them.  Each row carries the
+// canonical base_url for the OpenAI-compat endpoint.
+func (s *server) handleAgentListPools(w http.ResponseWriter, r *http.Request) {
+	uid, _, ok := s.agentFromRequest(r)
+	if !ok {
+		writeErr(w, 401, "bad or missing agent_key")
+		return
+	}
+	rows, err := s.db.Query(`
+		SELECT DISTINCT p.id, p.name, COALESCE(p.slug,''), p.visibility
+		  FROM pools p
+		  LEFT JOIN pool_members m ON m.pool_id = p.id
+		 WHERE p.owner_id = ? OR m.user_id = ?
+		 ORDER BY p.id`,
+		uid, uid)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type poolOut struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		Slug       string `json:"slug"`
+		Visibility string `json:"visibility"`
+		BaseURL    string `json:"base_url"`
+	}
+	scheme := "https"
+	if r.TLS == nil && (strings.HasPrefix(r.Host, "localhost") || strings.HasPrefix(r.Host, "127.")) {
+		scheme = "http"
+	}
+	var out []poolOut
+	for rows.Next() {
+		var p poolOut
+		if err := rows.Scan(&p.ID, &p.Name, &p.Slug, &p.Visibility); err == nil {
+			ref := p.Slug
+			if ref == "" {
+				ref = fmt.Sprintf("%d", p.ID)
+			}
+			p.BaseURL = fmt.Sprintf("%s://%s/v1/%s", scheme, r.Host, ref)
+			out = append(out, p)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"pools": out})
+}

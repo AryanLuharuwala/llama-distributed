@@ -110,6 +110,10 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("POST /api/device/token", s.handleDeviceToken)
 	mux.HandleFunc("GET /device", s.handleDevicePage)
 
+	// Agent-key authenticated endpoints (used by `dist-node url`).
+	mux.HandleFunc("POST /api/agent/api_key", s.handleAgentMintAPIKey)
+	mux.HandleFunc("GET /api/agent/pools", s.handleAgentListPools)
+
 	// Install flow
 	mux.HandleFunc("GET /install.sh", s.handleInstallSh)
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
