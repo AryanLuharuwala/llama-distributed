@@ -70,7 +70,14 @@ func loadConfig() config {
 	flag.StringVar(&c.modelsDir, "models-dir", c.modelsDir, "dir to store model shards")
 	flag.StringVar(&c.splitterBin, "splitter", c.splitterBin, "path to llama-split-gguf")
 	flag.StringVar(&c.releasesDir, "releases-dir", c.releasesDir, "on-disk cache dir for release tarballs")
-	flag.BoolVar(&c.devMode, "dev", c.githubClient == "", "dev mode: enable /auth/dev endpoint")
+	// DIST_DEV_MODE=1/true forces /auth/dev on even when GitHub OAuth is
+	// configured — useful for first-boot smoke tests on a deployment where
+	// real OAuth isn't wired up yet.
+	devDefault := c.githubClient == ""
+	if v := strings.ToLower(os.Getenv("DIST_DEV_MODE")); v == "1" || v == "true" || v == "yes" {
+		devDefault = true
+	}
+	flag.BoolVar(&c.devMode, "dev", devDefault, "dev mode: enable /auth/dev endpoint")
 	flag.Parse()
 	return c
 }
