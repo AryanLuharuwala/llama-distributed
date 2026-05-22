@@ -157,8 +157,10 @@ target_include_directories(dist_common
         ${_LLAMA_INCDIRS}
 )
 
+find_package(OpenSSL REQUIRED)
+
 target_link_libraries(dist_common
-    PUBLIC  ${_LLAMA_LIBS} ${_PLATFORM_LIBS}
+    PUBLIC  ${_LLAMA_LIBS} ${_PLATFORM_LIBS} OpenSSL::SSL OpenSSL::Crypto
 )
 
 target_compile_options(dist_common PRIVATE

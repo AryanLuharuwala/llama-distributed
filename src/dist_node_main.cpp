@@ -39,11 +39,24 @@
 #include <thread>
 #include <vector>
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <signal.h>
+#include <unistd.h>
+
 static void print_usage(const char* prog) {
     fprintf(stderr,
-        "Usage: %s -s COORDINATOR_HOST [options]\n"
-        "   or: %s --pair distpool://pair?token=...&server=ws://...\n"
+        "Usage: %s <command> [options]\n"
         "\n"
+        "Commands:\n"
+        "  login [--server URL]       Browser device-code login (recommended)\n"
+        "  connect                    Run the agent using the saved login\n"
+        "  disconnect                 Stop the background agent started by connect\n"
+        "  logout                     Forget the saved login\n"
+        "  url [--openai|--anthropic|--env|--json]\n"
+        "                             Print API endpoint + bearer for this account\n"
+        "\n"
+        "Legacy / advanced flags (no subcommand):\n"
         "  -s, --server HOST         Coordinator host (direct-join mode)\n"
         "  -p, --control-port PORT   Coordinator control port (default: 7700)\n"
         "  -d, --data-port PORT      This node's data listen port (default: 7701)\n"
@@ -55,7 +68,7 @@ static void print_usage(const char* prog) {
         "      --token-secret HEX    Auth token secret, 64 hex chars (optional)\n"
         "      --pair URL            Deep-link pairing URL (distpool://…)\n"
         "  -h, --help\n",
-        prog, prog);
+        prog);
 }
 
 // ─── Pair mode helpers ──────────────────────────────────────────────────────
@@ -168,6 +181,168 @@ static bool state_write(const std::string& name, const std::string& value) {
     }
     std::filesystem::rename(tmp, dest, ec);
     return !ec;
+}
+
+// ─── Tiny HTTPS client (OpenSSL) ────────────────────────────────────────────
+// Used by the `dist-node login` / `dist-node url` subcommands to talk to the
+// control-plane HTTP API.  Returns true and fills (status, body) on success.
+// Supports http:// and https://.  Path includes the query string.
+struct HttpResp {
+    int         status = 0;
+    std::string body;
+};
+
+namespace {
+    bool g_dn_ssl_inited = false;
+    void dn_ssl_init() {
+        if (g_dn_ssl_inited) return;
+        SSL_library_init();
+        SSL_load_error_strings();
+        OpenSSL_add_all_algorithms();
+        g_dn_ssl_inited = true;
+    }
+}
+
+static bool parse_http_url_dn(const std::string& url,
+                              bool& tls, std::string& host,
+                              uint16_t& port, std::string& path) {
+    std::string u = url;
+    if      (u.rfind("https://", 0) == 0) { tls = true;  u = u.substr(8); port = 443; }
+    else if (u.rfind("http://",  0) == 0) { tls = false; u = u.substr(7); port = 80;  }
+    else return false;
+    size_t slash = u.find('/');
+    std::string hp = (slash == std::string::npos) ? u : u.substr(0, slash);
+    path = (slash == std::string::npos) ? "/" : u.substr(slash);
+    size_t colon = hp.find(':');
+    if (colon == std::string::npos) host = hp;
+    else { host = hp.substr(0, colon); port = (uint16_t)std::stoi(hp.substr(colon + 1)); }
+    return !host.empty();
+}
+
+static bool http_request(const std::string& base_url, const std::string& path,
+                         const std::string& method, const std::string& body,
+                         const std::vector<std::string>& extra_headers,
+                         HttpResp& out, std::string& err) {
+    bool tls; std::string host; uint16_t port; std::string root_path;
+    if (!parse_http_url_dn(base_url, tls, host, port, root_path)) {
+        err = "bad base URL: " + base_url;
+        return false;
+    }
+    (void)root_path;
+    // Resolve.
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char ps[16]; std::snprintf(ps, sizeof(ps), "%u", (unsigned)port);
+    if (getaddrinfo(host.c_str(), ps, &hints, &res) != 0 || !res) {
+        err = "dns: " + host; return false;
+    }
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) { freeaddrinfo(res); err = "socket"; return false; }
+    if (::connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
+        freeaddrinfo(res); dist::close_sock(fd);
+        err = "connect " + host; return false;
+    }
+    freeaddrinfo(res);
+
+    SSL_CTX* ctx = nullptr;
+    SSL*     ssl = nullptr;
+    if (tls) {
+        dn_ssl_init();
+        ctx = SSL_CTX_new(TLS_client_method());
+        SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+        SSL_CTX_set_default_verify_paths(ctx);
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+        ssl = SSL_new(ctx);
+        SSL_set_tlsext_host_name(ssl, host.c_str());
+        SSL_set1_host(ssl, host.c_str());
+        SSL_set_fd(ssl, fd);
+        if (SSL_connect(ssl) != 1) {
+            unsigned long e = ERR_get_error(); char buf[256] = {0};
+            ERR_error_string_n(e, buf, sizeof(buf));
+            err = std::string("TLS: ") + buf;
+            SSL_free(ssl); SSL_CTX_free(ctx); dist::close_sock(fd);
+            return false;
+        }
+    }
+
+    const bool default_port = (tls && port == 443) || (!tls && port == 80);
+    std::string host_hdr = default_port ? host : host + ":" + std::to_string(port);
+
+    std::ostringstream req;
+    req << method << " " << path << " HTTP/1.1\r\n"
+        << "Host: " << host_hdr << "\r\n"
+        << "User-Agent: dist-node/0.1\r\n"
+        << "Accept: application/json\r\n"
+        << "Connection: close\r\n";
+    if (!body.empty()) {
+        req << "Content-Type: application/json\r\n"
+            << "Content-Length: " << body.size() << "\r\n";
+    }
+    for (const auto& h : extra_headers) req << h << "\r\n";
+    req << "\r\n" << body;
+    std::string r = req.str();
+
+    auto sendall = [&](const char* p, size_t n) -> bool {
+        while (n > 0) {
+            int k = tls ? SSL_write(ssl, p, (int)n) : (int)::send(fd, p, n, 0);
+            if (k <= 0) return false;
+            p += k; n -= (size_t)k;
+        }
+        return true;
+    };
+    if (!sendall(r.data(), r.size())) { err = "send"; goto fail; }
+
+    {
+        std::string resp;
+        char rb[4096];
+        while (true) {
+            int k = tls ? SSL_read(ssl, rb, sizeof(rb))
+                        : (int)::recv(fd, rb, sizeof(rb), 0);
+            if (k <= 0) break;
+            resp.append(rb, (size_t)k);
+        }
+        // Status line
+        size_t sp1 = resp.find(' ');
+        size_t sp2 = (sp1 == std::string::npos) ? std::string::npos : resp.find(' ', sp1 + 1);
+        if (sp1 == std::string::npos || sp2 == std::string::npos) { err = "bad status"; goto fail; }
+        out.status = std::atoi(resp.substr(sp1 + 1, sp2 - sp1 - 1).c_str());
+        size_t hdr_end = resp.find("\r\n\r\n");
+        std::string body_raw = (hdr_end == std::string::npos) ? "" : resp.substr(hdr_end + 4);
+
+        // Crude chunked decoder — strip "<hex>\r\n" length prefixes if present.
+        std::string te_key = "Transfer-Encoding:";
+        size_t te = resp.find(te_key);
+        bool chunked = (te != std::string::npos && te < (hdr_end == std::string::npos ? resp.size() : hdr_end)
+                        && resp.substr(te, hdr_end - te).find("chunked") != std::string::npos);
+        if (chunked) {
+            std::string decoded;
+            size_t i = 0;
+            while (i < body_raw.size()) {
+                size_t eol = body_raw.find("\r\n", i);
+                if (eol == std::string::npos) break;
+                size_t len = std::strtoul(body_raw.substr(i, eol - i).c_str(), nullptr, 16);
+                i = eol + 2;
+                if (len == 0) break;
+                if (i + len > body_raw.size()) break;
+                decoded.append(body_raw, i, len);
+                i += len + 2; // skip trailing \r\n
+            }
+            out.body = decoded;
+        } else {
+            out.body = body_raw;
+        }
+    }
+
+    if (tls) { SSL_shutdown(ssl); SSL_free(ssl); SSL_CTX_free(ctx); }
+    ::shutdown(fd, SHUT_RDWR);
+    dist::close_sock(fd);
+    return true;
+
+fail:
+    if (tls) { if (ssl) SSL_free(ssl); if (ctx) SSL_CTX_free(ctx); }
+    dist::close_sock(fd);
+    return false;
 }
 
 // Extract a JSON string value, very permissively.  Returns "" on not-found.
@@ -929,7 +1104,327 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     return 0;
 }
 
+// ─── Subcommand helpers ─────────────────────────────────────────────────────
+
+// Default control-plane URL.  Picked once at install time via `dist-node login`,
+// persisted as agent.api_url in state_dir.  Falls back to the prod ACA FQDN.
+static std::string default_api_url() {
+    if (const char* s = std::getenv("DIST_API_URL"); s && *s) return s;
+    std::string saved = state_read("agent.api_url");
+    if (!saved.empty()) return saved;
+    return "https://distpool-server.gentlegrass-360d3389.centralindia.azurecontainerapps.io";
+}
+
+// Convert an https://host/… URL to a wss://host/ws/agent URL for the WS resume.
+static std::string ws_url_from_api(const std::string& api_url) {
+    if (api_url.rfind("https://", 0) == 0) return "wss://" + api_url.substr(8) + "/ws/agent";
+    if (api_url.rfind("http://",  0) == 0) return "ws://"  + api_url.substr(7) + "/ws/agent";
+    return api_url;
+}
+
+// Try to open `url` in the user's browser.  Best-effort; fails silently.
+static void open_browser(const std::string& url) {
+#if defined(__APPLE__)
+    std::string cmd = "open '" + url + "' >/dev/null 2>&1 &";
+#elif defined(_WIN32)
+    std::string cmd = "start \"\" \"" + url + "\"";
+#else
+    std::string cmd = "xdg-open '" + url + "' >/dev/null 2>&1 &";
+#endif
+    (void)std::system(cmd.c_str());
+}
+
+static std::string pid_file_path() { return state_path("dist-node.pid"); }
+
+static int cmd_login(int argc, char** argv) {
+    std::string api_url;
+    int n_gpus = 0; int64_t vram_bytes = 0;
+    for (int i = 0; i < argc; ++i) {
+        std::string a = argv[i];
+        if ((a == "-s" || a == "--server") && i + 1 < argc) api_url = argv[++i];
+        else if (a == "--n-gpus" && i + 1 < argc)           n_gpus = std::atoi(argv[++i]);
+        else if (a == "--vram"   && i + 1 < argc)           vram_bytes = std::atoll(argv[++i]);
+    }
+    if (api_url.empty()) api_url = default_api_url();
+
+    char hostname[256] = {};
+    ::gethostname(hostname, sizeof(hostname));
+
+    std::ostringstream body;
+    body << "{\"hostname\":\""    << json_escape(hostname) << "\","
+         << "\"n_gpus\":"          << n_gpus               << ","
+         << "\"vram_bytes\":"      << vram_bytes           << "}";
+
+    HttpResp rsp; std::string err;
+    if (!http_request(api_url, "/api/device/code", "POST", body.str(),
+                      {}, rsp, err) || rsp.status != 200) {
+        std::cerr << "[login] mint device code failed: " << err
+                  << " status=" << rsp.status << " body=" << rsp.body << "\n";
+        return 1;
+    }
+    std::string device_code = json_peek_string(rsp.body, "device_code");
+    std::string user_code   = json_peek_string(rsp.body, "user_code");
+    std::string verif       = json_peek_string(rsp.body, "verification_url");
+    std::string verif_full  = json_peek_string(rsp.body, "verification_url_complete");
+    if (device_code.empty() || user_code.empty() || verif_full.empty()) {
+        std::cerr << "[login] malformed response: " << rsp.body << "\n";
+        return 1;
+    }
+
+    std::cout << "\n  ┌──────────────────────────────────────────────────────┐\n"
+              << "  │  Visit:  " << verif      << std::string(std::max<int>(0, 41 - (int)verif.size()), ' ') << " │\n"
+              << "  │  Code:   " << user_code  << std::string(std::max<int>(0, 41 - (int)user_code.size()), ' ') << " │\n"
+              << "  └──────────────────────────────────────────────────────┘\n\n"
+              << "  Opening browser… (if it doesn't open, paste the URL above)\n\n";
+    open_browser(verif_full);
+
+    // Poll /api/device/token every 3s until approved or expired.
+    std::ostringstream pollbody;
+    pollbody << "{\"device_code\":\"" << json_escape(device_code) << "\"}";
+    auto t0 = std::chrono::steady_clock::now();
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        HttpResp pr; std::string perr;
+        if (!http_request(api_url, "/api/device/token", "POST", pollbody.str(),
+                          {}, pr, perr)) {
+            std::cerr << "[login] poll error: " << perr << " — retrying\n";
+            continue;
+        }
+        if (pr.status == 428) {
+            auto el = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            std::cout << "  Waiting for approval… (" << el << "s)\r" << std::flush;
+            continue;
+        }
+        if (pr.status == 410) {
+            std::cerr << "\n[login] code expired — run `dist-node login` again\n";
+            return 1;
+        }
+        if (pr.status != 200) {
+            std::cerr << "\n[login] poll failed: status=" << pr.status
+                      << " body=" << pr.body << "\n";
+            return 1;
+        }
+        std::string agent_id  = json_peek_string(pr.body, "agent_id");
+        std::string agent_key = json_peek_string(pr.body, "agent_key");
+        std::string server    = json_peek_string(pr.body, "server");
+        if (agent_id.empty() || agent_key.empty() || server.empty()) {
+            std::cerr << "\n[login] malformed token reply: " << pr.body << "\n";
+            return 1;
+        }
+        bool ok = state_write("agent.id",      agent_id)
+               && state_write("agent.key",     agent_key)
+               && state_write("agent.server",  server)
+               && state_write("agent.api_url", api_url);
+        if (!ok) {
+            std::cerr << "\n[login] could not persist to " << state_dir() << "\n";
+            return 1;
+        }
+        std::cout << "\n  ✓ Logged in. agent_id=" << agent_id
+                  << "\n    Saved to " << state_dir()
+                  << "\n    Run `dist-node connect` to join the pool.\n\n";
+        return 0;
+    }
+}
+
+static int cmd_connect(int argc, char** argv) {
+    bool daemonize = false;
+    int n_gpu_layers = 999;
+    std::string id_override;
+    for (int i = 0; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--daemon" || a == "-D")             daemonize = true;
+        else if (a == "-g" && i + 1 < argc)            n_gpu_layers = std::atoi(argv[++i]);
+        else if (a == "--id" && i + 1 < argc)          id_override = argv[++i];
+    }
+    std::string srv = state_read("agent.server");
+    std::string key = state_read("agent.key");
+    if (srv.empty() || key.empty()) {
+        std::cerr << "[connect] no saved login — run `dist-node login` first\n";
+        return 1;
+    }
+#ifndef _WIN32
+    if (daemonize) {
+        pid_t pid = fork();
+        if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
+        if (pid > 0) {
+            // Parent: write PID file and exit.
+            std::ofstream f(pid_file_path()); f << pid; f.close();
+            std::cout << "[connect] daemon pid=" << pid << " (saved to "
+                      << pid_file_path() << ")\n"
+                      << "[connect] Use `dist-node disconnect` to stop.\n";
+            return 0;
+        }
+        // Child continues.
+        ::setsid();
+    }
+#else
+    (void)daemonize;
+#endif
+    return run_pair_mode(std::string(), srv, id_override, n_gpu_layers);
+}
+
+static int cmd_disconnect() {
+#ifdef _WIN32
+    std::cerr << "[disconnect] not supported on Windows yet\n";
+    return 1;
+#else
+    std::ifstream f(pid_file_path());
+    if (!f.good()) {
+        std::cerr << "[disconnect] no PID file at " << pid_file_path()
+                  << " — is the daemon running?\n";
+        return 1;
+    }
+    pid_t pid = 0; f >> pid;
+    if (pid <= 0) {
+        std::cerr << "[disconnect] bad PID file\n";
+        return 1;
+    }
+    if (::kill(pid, SIGTERM) != 0) {
+        std::cerr << "[disconnect] kill " << pid << " failed: " << std::strerror(errno) << "\n";
+        std::error_code ec; std::filesystem::remove(pid_file_path(), ec);
+        return 1;
+    }
+    std::error_code ec; std::filesystem::remove(pid_file_path(), ec);
+    std::cout << "[disconnect] sent SIGTERM to pid " << pid << "\n";
+    return 0;
+#endif
+}
+
+static int cmd_logout() {
+    std::error_code ec;
+    for (const char* n : {"agent.key", "agent.id", "agent.server", "agent.api_url",
+                          "agent.api_key", "agent.api_key_id"}) {
+        std::filesystem::remove(state_path(n), ec);
+    }
+    std::cout << "[logout] removed saved login from " << state_dir() << "\n";
+    return 0;
+}
+
+static int cmd_url(int argc, char** argv) {
+    enum Fmt { F_PLAIN, F_OPENAI, F_ANTHROPIC, F_ENV, F_JSON };
+    Fmt fmt = F_PLAIN;
+    int pool_id = 0;
+    for (int i = 0; i < argc; ++i) {
+        std::string a = argv[i];
+        if      (a == "--openai")    fmt = F_OPENAI;
+        else if (a == "--anthropic") fmt = F_ANTHROPIC;
+        else if (a == "--env")       fmt = F_ENV;
+        else if (a == "--json")      fmt = F_JSON;
+        else if (a == "--pool" && i + 1 < argc) pool_id = std::atoi(argv[++i]);
+    }
+
+    std::string api_url = default_api_url();
+    std::string agent_key = state_read("agent.key");
+    if (agent_key.empty()) {
+        std::cerr << "[url] no saved login — run `dist-node login` first\n";
+        return 1;
+    }
+
+    // 1. Pick a pool (cached → first pool returned by /api/agent/pools).
+    HttpResp pr; std::string perr;
+    if (!http_request(api_url, "/api/agent/pools", "GET", "",
+                      {"Authorization: Bearer " + agent_key}, pr, perr) || pr.status != 200) {
+        std::cerr << "[url] list pools failed: " << perr
+                  << " status=" << pr.status << " body=" << pr.body << "\n";
+        return 1;
+    }
+    // very-light JSON: find first "base_url":"…" (or one whose "id":<pool_id>).
+    std::string base_url;
+    {
+        const std::string& s = pr.body;
+        size_t p = 0;
+        while (true) {
+            size_t pa = s.find("\"id\":", p);
+            if (pa == std::string::npos) break;
+            int    id = std::atoi(s.c_str() + pa + 5);
+            size_t bu = s.find("\"base_url\":\"", pa);
+            if (bu == std::string::npos) break;
+            bu += 12;
+            size_t end = s.find('"', bu);
+            if (end == std::string::npos) break;
+            std::string url = s.substr(bu, end - bu);
+            if (pool_id == 0 || pool_id == id) { base_url = url; break; }
+            p = end + 1;
+        }
+    }
+    if (base_url.empty()) {
+        std::cerr << "[url] no pools available for this account.\n"
+                  << "      Visit " << api_url << " and create or join a pool.\n";
+        return 1;
+    }
+
+    // 2. Reuse a cached API key, or mint a new one.
+    std::string api_key = state_read("agent.api_key");
+    if (api_key.empty() || api_key.rfind("sk-dist-", 0) != 0) {
+        HttpResp mr; std::string merr;
+        std::string body_s = "{\"label\":\"dist-node/" + std::string(state_read("agent.id").empty() ? "rig" : state_read("agent.id")) + "\"}";
+        if (!http_request(api_url, "/api/agent/api_key", "POST", body_s,
+                          {"Authorization: Bearer " + agent_key}, mr, merr)
+            || mr.status != 200) {
+            std::cerr << "[url] mint api_key failed: " << merr
+                      << " status=" << mr.status << " body=" << mr.body << "\n";
+            return 1;
+        }
+        api_key = json_peek_string(mr.body, "key");
+        if (api_key.empty()) {
+            std::cerr << "[url] api_key missing in response: " << mr.body << "\n";
+            return 1;
+        }
+        state_write("agent.api_key", api_key);
+    }
+
+    // 3. Print in the requested format.
+    switch (fmt) {
+        case F_OPENAI:
+            std::cout << "# OpenAI-compatible endpoint\n"
+                      << "export OPENAI_API_BASE=\"" << base_url << "\"\n"
+                      << "export OPENAI_BASE_URL=\""  << base_url << "\"\n"
+                      << "export OPENAI_API_KEY=\""   << api_key  << "\"\n";
+            break;
+        case F_ANTHROPIC:
+            std::cout << "# Anthropic-style env (uses the OpenAI-compat path)\n"
+                      << "export ANTHROPIC_API_URL=\"" << base_url << "\"\n"
+                      << "export ANTHROPIC_API_KEY=\"" << api_key  << "\"\n";
+            break;
+        case F_ENV:
+            std::cout << "DIST_API_BASE=" << base_url << "\n"
+                      << "DIST_API_KEY="  << api_key  << "\n";
+            break;
+        case F_JSON:
+            std::cout << "{\"base_url\":\"" << base_url
+                      << "\",\"api_key\":\"" << api_key << "\"}\n";
+            break;
+        case F_PLAIN:
+        default:
+            std::cout << "Endpoint: " << base_url << "\n"
+                      << "API Key:  " << api_key << "\n"
+                      << "\nTest with:\n"
+                      << "  curl " << base_url << "/chat/completions \\\n"
+                      << "    -H 'Authorization: Bearer " << api_key << "' \\\n"
+                      << "    -H 'Content-Type: application/json' \\\n"
+                      << "    -d '{\"model\":\"default\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'\n";
+            break;
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
+    // Line-buffer stdout/stderr so the user sees `[pair]` progress lines in
+    // real time even when piped to a log file or systemd journal.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    std::setvbuf(stderr, nullptr, _IOLBF, 0);
+    std::cout << std::unitbuf;
+
+    // Subcommand dispatch — runs before any flag parsing.
+    if (argc >= 2) {
+        std::string sub = argv[1];
+        if (sub == "login")      return cmd_login(argc - 2, argv + 2);
+        if (sub == "connect")    return cmd_connect(argc - 2, argv + 2);
+        if (sub == "disconnect") return cmd_disconnect();
+        if (sub == "logout")     return cmd_logout();
+        if (sub == "url")        return cmd_url(argc - 2, argv + 2);
+    }
     dist::net_startup();
     dist::NodeAgentConfig cfg;
     std::string pair_url;

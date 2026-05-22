@@ -7,7 +7,23 @@
 #include <errno.h>
 #include <sstream>
 
+#ifndef _WIN32
+#include <poll.h>
+#endif
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 namespace dist {
+
+static bool g_ssl_inited = false;
+static void ssl_global_init() {
+    if (g_ssl_inited) return;
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+    g_ssl_inited = true;
+}
 
 // ─── Base64 encode (for the RFC 6455 handshake only) ──────────────────────
 
@@ -33,9 +49,11 @@ static std::string base64(const uint8_t* data, size_t len) {
 bool WsClient::parse_url(const std::string& url,
                          std::string& host, uint16_t& port, std::string& path) {
     std::string u = url;
-    if (u.rfind("ws://", 0) == 0)        u = u.substr(5);
-    else if (u.rfind("wss://", 0) == 0)  { err_ = "wss:// not supported yet"; return false; }
-    else if (u.rfind("http://", 0) == 0) u = u.substr(7);
+    bool default_tls = false;
+    if      (u.rfind("ws://",    0) == 0) { u = u.substr(5);  tls_ = false; }
+    else if (u.rfind("wss://",   0) == 0) { u = u.substr(6);  tls_ = true;  default_tls = true; }
+    else if (u.rfind("https://", 0) == 0) { u = u.substr(8);  tls_ = true;  default_tls = true; }
+    else if (u.rfind("http://",  0) == 0) { u = u.substr(7);  tls_ = false; }
     else { err_ = "unsupported scheme: " + url; return false; }
 
     size_t slash = u.find('/');
@@ -44,7 +62,7 @@ bool WsClient::parse_url(const std::string& url,
 
     size_t colon = hp.find(':');
     if (colon == std::string::npos) {
-        host = hp; port = 80;
+        host = hp; port = default_tls ? 443 : 80;
     } else {
         host = hp.substr(0, colon);
         port = (uint16_t)std::stoi(hp.substr(colon + 1));
@@ -101,31 +119,60 @@ bool WsClient::http_upgrade(const std::string& host, uint16_t port,
     random_bytes(nonce, sizeof(nonce));
     std::string key = base64(nonce, sizeof(nonce));
 
+    // ACA's HTTP/1.1 ingress demands the Host header match the FQDN without
+    // a port (since 443/80 are implicit for https/http).  Omit the default
+    // port for TLS and plain HTTP so the gateway doesn't reject us.
+    const bool default_port = (tls_ && port == 443) || (!tls_ && port == 80);
+    std::string host_hdr = default_port ? host : host + ":" + std::to_string(port);
+    const char* origin_scheme = tls_ ? "https://" : "http://";
     std::ostringstream req;
     req << "GET " << path << " HTTP/1.1\r\n"
-        << "Host: " << host << ":" << port << "\r\n"
+        << "Host: " << host_hdr << "\r\n"
         << "Upgrade: websocket\r\n"
         << "Connection: Upgrade\r\n"
         << "Sec-WebSocket-Key: " << key << "\r\n"
         << "Sec-WebSocket-Version: 13\r\n"
-        << "Origin: http://" << host << ":" << port << "\r\n"
+        << "Origin: " << origin_scheme << host_hdr << "\r\n"
         << "\r\n";
 
     std::string r = req.str();
     if (!send_all(r.data(), r.size())) { err_ = "send handshake failed"; return false; }
 
-    // Read the response headers until we see \r\n\r\n.
+    // Read the response headers until we see \r\n\r\n.  Must go through SSL
+    // when TLS is active — calling ::recv on a TLS socket returns encrypted
+    // bytes (or, post-handshake, often nothing because OpenSSL buffered the
+    // first record).
     std::string resp;
     char buf[512];
     while (resp.find("\r\n\r\n") == std::string::npos && resp.size() < 32 * 1024) {
-        ssize_t n = ::recv(fd_, buf, sizeof(buf), 0);
+        int n;
+        if (ssl_) {
+            n = SSL_read((SSL*)ssl_, buf, sizeof(buf));
+        } else {
+            n = (int)::recv(fd_, buf, sizeof(buf), 0);
+        }
         if (n <= 0) { err_ = "recv handshake failed"; return false; }
-        resp.append(buf, n);
+        resp.append(buf, (size_t)n);
     }
 
     if (resp.rfind("HTTP/1.1 101", 0) != 0) {
         err_ = "ws upgrade refused: " + resp.substr(0, 80);
         return false;
+    }
+
+    // Stash any bytes that arrived after the \r\n\r\n header terminator.
+    // These belong to subsequent WS frames (server may push the welcome
+    // text or even a binary frame in the same TLS record as the 101
+    // response). recv_all consumes leftover_ before falling back to SSL_read.
+    size_t hdr_end = resp.find("\r\n\r\n");
+    if (hdr_end != std::string::npos) {
+        size_t body_off = hdr_end + 4;
+        if (body_off < resp.size()) {
+            leftover_.assign(
+                (const uint8_t*)resp.data() + body_off,
+                (const uint8_t*)resp.data() + resp.size());
+            leftover_off_ = 0;
+        }
     }
 
     // We don't validate the Accept header for M1.  (Same machine, trusted.)
@@ -140,7 +187,41 @@ bool WsClient::connect(const std::string& url) {
     uint16_t port;
     if (!parse_url(url, host, port, path))  return false;
     if (!tcp_connect(host, port))            return false;
+    if (tls_ && !tls_handshake(host))        { close(); return false; }
     if (!http_upgrade(host, port, path))     { close(); return false; }
+    return true;
+}
+
+bool WsClient::tls_handshake(const std::string& host) {
+    ssl_global_init();
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx) { err_ = "SSL_CTX_new failed"; return false; }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    // We don't ship a CA bundle with the agent; trust the system default trust
+    // store (Linux: /etc/ssl/certs; macOS: SecureTransport via OpenSSL).
+    SSL_CTX_set_default_verify_paths(ctx);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+
+    SSL* ssl = SSL_new(ctx);
+    if (!ssl) { SSL_CTX_free(ctx); err_ = "SSL_new failed"; return false; }
+    // SNI is mandatory for ACA and most CDN-fronted hosts.
+    SSL_set_tlsext_host_name(ssl, host.c_str());
+    // Hostname verification against the server cert.
+    SSL_set1_host(ssl, host.c_str());
+    SSL_set_fd(ssl, fd_);
+
+    int rc = SSL_connect(ssl);
+    if (rc != 1) {
+        unsigned long e = ERR_get_error();
+        char buf[256] = {0};
+        ERR_error_string_n(e, buf, sizeof(buf));
+        err_ = std::string("TLS handshake failed: ") + buf;
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        return false;
+    }
+    ssl_     = ssl;
+    ssl_ctx_ = ctx;
     return true;
 }
 
@@ -149,6 +230,15 @@ void WsClient::close() {
         // Send a CLOSE frame best-effort.
         uint8_t empty[2] = { 0x03, 0xE8 };   // status 1000
         send_frame(OP_CLOSE, empty, 2);
+        if (ssl_) {
+            SSL_shutdown((SSL*)ssl_);
+            SSL_free((SSL*)ssl_);
+            ssl_ = nullptr;
+        }
+        if (ssl_ctx_) {
+            SSL_CTX_free((SSL_CTX*)ssl_ctx_);
+            ssl_ctx_ = nullptr;
+        }
         ::shutdown(fd_, SHUT_RDWR);
         dist::close_sock(fd_);
         fd_ = -1;
@@ -157,24 +247,71 @@ void WsClient::close() {
 
 bool WsClient::set_recv_timeout_ms(uint32_t ms) {
     if (fd_ < 0) return false;
+    // ms == 0 → non-blocking drain (return immediately if no data).
+    // ms  > 0 → wait up to ms milliseconds in recv_all via poll().
+    recv_timeout_ms_ = (int)ms;
 #ifdef _WIN32
     DWORD tv = ms;
     return ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO,
                         (const char*)&tv, sizeof(tv)) == 0;
 #else
-    struct timeval tv{};
-    tv.tv_sec  = ms / 1000;
-    tv.tv_usec = (ms % 1000) * 1000;
-    return ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO,
-                        (const char*)&tv, sizeof(tv)) == 0;
+    // Always keep the socket non-blocking once the heartbeat phase starts.
+    // recv_all drives the actual wait via poll() with recv_timeout_ms_.
+    int flags = ::fcntl(fd_, F_GETFL, 0);
+    if (flags < 0) {
+        err_ = "fcntl F_GETFL failed";
+        return false;
+    }
+    int want = flags | O_NONBLOCK;
+    if (want != flags) {
+        if (::fcntl(fd_, F_SETFL, want) < 0) {
+            err_ = "fcntl F_SETFL failed";
+            return false;
+        }
+    }
+    return true;
 #endif
 }
 
 bool WsClient::send_all(const void* buf, size_t n) {
     const char* p = (const char*)buf;
     while (n > 0) {
-        ssize_t k = ::send(fd_, p, n, MSG_NOSIGNAL);
-        if (k <= 0) return false;
+        int k;
+        if (ssl_) {
+            k = SSL_write((SSL*)ssl_, p, (int)n);
+            if (k <= 0) {
+                int ssl_err = SSL_get_error((SSL*)ssl_, k);
+                if (ssl_err == SSL_ERROR_WANT_READ ||
+                    ssl_err == SSL_ERROR_WANT_WRITE) {
+#ifndef _WIN32
+                    struct pollfd pfd{};
+                    pfd.fd = fd_;
+                    pfd.events = (ssl_err == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+                    int pr = ::poll(&pfd, 1, 5000);
+                    if (pr <= 0) return false;
+                    continue;
+#else
+                    return false;
+#endif
+                }
+                return false;
+            }
+        } else {
+            k = (int)::send(fd_, p, n, MSG_NOSIGNAL);
+            if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+#ifndef _WIN32
+                struct pollfd pfd{};
+                pfd.fd = fd_;
+                pfd.events = POLLOUT;
+                int pr = ::poll(&pfd, 1, 5000);
+                if (pr <= 0) return false;
+                continue;
+#else
+                return false;
+#endif
+            }
+            if (k <= 0) return false;
+        }
         p += k; n -= (size_t)k;
     }
     return true;
@@ -182,9 +319,51 @@ bool WsClient::send_all(const void* buf, size_t n) {
 
 bool WsClient::recv_all(void* buf, size_t n) {
     char* p = (char*)buf;
+    // Drain bytes captured during http_upgrade past the \r\n\r\n boundary
+    // before issuing any new read on the socket / SSL session.
+    if (!leftover_.empty() && leftover_off_ < leftover_.size()) {
+        size_t avail = leftover_.size() - leftover_off_;
+        size_t take  = (avail < n) ? avail : n;
+        std::memcpy(p, leftover_.data() + leftover_off_, take);
+        leftover_off_ += take;
+        p += take; n -= take;
+        if (leftover_off_ == leftover_.size()) {
+            leftover_.clear();
+            leftover_off_ = 0;
+        }
+    }
     while (n > 0) {
-        ssize_t k = ::recv(fd_, p, n, 0);
-        if (k <= 0) return false;
+        int k;
+        if (ssl_) {
+            // Drive SSL_read in non-blocking-ish fashion: rely on the
+            // socket's O_NONBLOCK + poll() for actual timeout enforcement.
+            // SO_RCVTIMEO + AUTO_RETRY interact poorly; explicit poll()
+            // keeps the loop deterministic.
+            k = SSL_read((SSL*)ssl_, p, (int)n);
+            if (k <= 0) {
+                int ssl_err = SSL_get_error((SSL*)ssl_, k);
+                if (ssl_err == SSL_ERROR_WANT_READ ||
+                    ssl_err == SSL_ERROR_WANT_WRITE) {
+#ifndef _WIN32
+                    // ms == 0 → don't wait; caller asked for an immediate
+                    // drain.  Otherwise wait up to recv_timeout_ms_.
+                    if (recv_timeout_ms_ == 0) return false;
+                    struct pollfd pfd{};
+                    pfd.fd = fd_;
+                    pfd.events = (ssl_err == SSL_ERROR_WANT_WRITE) ? POLLOUT : POLLIN;
+                    int pr = ::poll(&pfd, 1, recv_timeout_ms_);
+                    if (pr <= 0) return false;
+                    continue;   // retry SSL_read
+#else
+                    return false;
+#endif
+                }
+                return false;
+            }
+        } else {
+            k = (int)::recv(fd_, p, n, 0);
+            if (k <= 0) return false;
+        }
         p += k; n -= (size_t)k;
     }
     return true;

@@ -22,6 +22,10 @@
 #include <string>
 #include <vector>
 
+// Forward-declare OpenSSL types so the header doesn't have to expose <openssl/*>.
+struct ssl_st;
+struct ssl_ctx_st;
+
 namespace dist {
 
 class WsClient {
@@ -61,8 +65,20 @@ public:
     const std::string& last_error() const { return err_; }
 
 private:
-    int         fd_ = -1;
-    std::string err_;
+    int          fd_ = -1;
+    bool         tls_ = false;
+    ssl_ctx_st*  ssl_ctx_ = nullptr;
+    ssl_st*      ssl_     = nullptr;
+    std::string  err_;
+
+    // Bytes captured past the HTTP/1.1 101 \r\n\r\n that belong to subsequent
+    // WS frames. Drained by recv_all before any further SSL_read/recv.
+    std::vector<uint8_t> leftover_;
+    size_t       leftover_off_ = 0;
+
+    // Receive timeout in ms (0 = blocking).  Applied via poll() before
+    // SSL_read since SO_RCVTIMEO + AUTO_RETRY can stall the SSL layer.
+    int          recv_timeout_ms_ = 0;
 
     // RFC6455 opcodes we care about
     enum : uint8_t {
@@ -78,6 +94,7 @@ private:
                    std::string& host, uint16_t& port, std::string& path);
 
     bool tcp_connect(const std::string& host, uint16_t port);
+    bool tls_handshake(const std::string& host);
     bool http_upgrade(const std::string& host, uint16_t port, const std::string& path);
 
     bool recv_all(void* buf, size_t n);
