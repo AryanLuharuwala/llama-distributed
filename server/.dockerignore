@@ -1,0 +1,18 @@
+# Local dev artefacts that must not end up in the build context — they would
+# bloat the image, leak local data (sqlite WAL), and trip caching.
+distpool-server
+dist-server
+server
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+models-store/
+releases-cache/
+
+# The runtime image already has its own healthchecks/probes — no need to ship
+# editor/SCM clutter into the builder.
+.git/
+.gitignore
+*.swp
+.vscode/
+.idea/
