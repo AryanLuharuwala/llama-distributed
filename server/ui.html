@@ -499,6 +499,24 @@ main{flex:1;padding:24px 20px;max-width:1160px;width:100%;margin:0 auto}
   </div>
 </div>
 
+<div class="overlay hidden" id="m-device-approve">
+  <div class="modal" style="width:460px;max-width:95vw">
+    <div class="modal-hd">
+      <div class="modal-t">Approve rig</div>
+      <button class="modal-x" onclick="closeModal('m-device-approve')">×</button>
+    </div>
+    <div class="fg">
+      <p class="xs dim" style="margin:0 0 8px 0">A rig is asking to join your account. Confirm the code shown on the rig's terminal:</p>
+      <input id="dc-code" placeholder="ABCD-1234" type="text" style="font-family:monospace;font-size:18px;letter-spacing:2px;text-align:center;text-transform:uppercase">
+      <div id="dc-msg" class="xs dim" style="margin-top:8px"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-g" onclick="closeModal('m-device-approve')">Cancel</button>
+      <button class="btn btn-p" onclick="approveDeviceCode()">Approve</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay hidden" id="m-pool-detail">
   <div class="modal" style="width:580px;max-width:95vw">
     <div class="modal-hd">
@@ -544,9 +562,23 @@ async function boot(){
   catch(_){ ST.me = null; }
 
   if(!ST.me || ST.me.error){
+    // Stash any pending device code so it survives the GitHub auth round-trip.
+    const params=new URLSearchParams(location.search);
+    const pendingCode=(params.get('code')||'').trim().toUpperCase();
+    if(pendingCode){ try{ localStorage.setItem('dist_pending_device_code', pendingCode); }catch(_){} }
     $('login-screen').classList.remove('hidden');
     return;
   }
+  // Restore a pending device code from a pre-login round-trip.
+  try{
+    const cached=localStorage.getItem('dist_pending_device_code');
+    if(cached){
+      localStorage.removeItem('dist_pending_device_code');
+      const u=new URL(location.href);
+      u.searchParams.set('code', cached);
+      history.replaceState({},'',u.toString());
+    }
+  }catch(_){}
   $('login-screen').classList.add('hidden');
   $('app').classList.remove('hidden');
   $('hdr-user').textContent = '@' + (ST.me.github_login || ST.me.display_name);
@@ -555,6 +587,7 @@ async function boot(){
   renderAll();
   connectWS();
   handleInviteParam();
+  handleDeviceParam();
   setInterval(loadUsage, 30000);
 }
 
@@ -811,6 +844,35 @@ async function handleInviteParam(){
     addEvt({kind:'pool_joined',message:'joined pool '+r.pool_id+' via invite'});
     await loadPools(); renderPools(); populatePoolSelects();
   }catch(e){alert('Invite failed: '+(e.error||e));}
+}
+
+// ── Device-code approval ─────────────────────────────────────────────────────
+function handleDeviceParam(){
+  const params=new URLSearchParams(location.search);
+  const code=(params.get('code')||'').trim().toUpperCase();
+  const isDevicePath=location.pathname.replace(/\/+$/,'')==='/device';
+  if(!code && !isDevicePath)return;
+  history.replaceState({},'',location.pathname);
+  openModal('m-device-approve');
+  if(code){ $('dc-code').value=code; }
+  $('dc-msg').textContent='';
+}
+
+async function approveDeviceCode(){
+  const code=($('dc-code').value||'').trim().toUpperCase();
+  if(!code){ $('dc-msg').textContent='Enter the code shown on the rig.'; return; }
+  $('dc-msg').textContent='Approving…';
+  try{
+    const r=await jpost('/api/device/approve',{user_code:code});
+    $('dc-msg').textContent='✓ Approved '+(r.hostname||r.agent_id||'rig')+'. The rig will connect within a few seconds.';
+    addEvt({kind:'rig_paired',message:'approved rig '+(r.agent_id||code)});
+    setTimeout(async()=>{
+      closeModal('m-device-approve');
+      await loadRigs(); renderRigs(); renderStats();
+    }, 1500);
+  }catch(e){
+    $('dc-msg').textContent='Failed: '+(e.error||e);
+  }
 }
 
 // ── API Keys ──────────────────────────────────────────────────────────────────

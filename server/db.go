@@ -199,6 +199,27 @@ func migrate(db *sql.DB) error {
 		// Unique index on pools.slug.  NULLs are allowed (pre-migration
 		// pools) — SQLite ignores NULLs in UNIQUE indexes by default.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_pools_slug ON pools(slug) WHERE slug IS NOT NULL`,
+
+		// Device-code flow: `dist-node login` mints a (device_code,
+		// user_code) row; the user approves the user_code from the
+		// dashboard; the rig polls and pulls the agent_key out.
+		`CREATE TABLE IF NOT EXISTS device_codes (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			device_code  TEXT NOT NULL UNIQUE,
+			user_code    TEXT NOT NULL UNIQUE,
+			hostname     TEXT NOT NULL DEFAULT '',
+			n_gpus       INTEGER NOT NULL DEFAULT 0,
+			vram_bytes   INTEGER NOT NULL DEFAULT 0,
+			user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+			agent_id     TEXT,
+			agent_key    TEXT,
+			approved     INTEGER NOT NULL DEFAULT 0,
+			approved_at  INTEGER,
+			created_at   INTEGER NOT NULL,
+			expires_at   INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_device_codes_user_code ON device_codes(user_code)`,
+		`CREATE INDEX IF NOT EXISTS idx_device_codes_device_code ON device_codes(device_code)`,
 	}
 	for _, s := range more {
 		if _, err := db.Exec(s); err != nil {

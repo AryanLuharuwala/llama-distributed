@@ -104,6 +104,12 @@ func (s *server) router() http.Handler {
 	// Pairing (browser mints, agent consumes)
 	mux.HandleFunc("POST /api/pair", s.handlePairMint)
 
+	// Device-code flow (`dist-node login`): rig mints code, user confirms.
+	mux.HandleFunc("POST /api/device/code", s.handleDeviceCodeMint)
+	mux.HandleFunc("POST /api/device/approve", s.handleDeviceApprove)
+	mux.HandleFunc("POST /api/device/token", s.handleDeviceToken)
+	mux.HandleFunc("GET /device", s.handleDevicePage)
+
 	// Install flow
 	mux.HandleFunc("GET /install.sh", s.handleInstallSh)
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)

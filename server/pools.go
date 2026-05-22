@@ -57,6 +57,7 @@ type createPoolReq struct {
 	Parallelism string `json:"parallelism,omitempty"` // pp|tp|pp+tp
 	PPStages    int    `json:"pp_stages,omitempty"`
 	TPSize      int    `json:"tp_size,omitempty"`
+	ModelID     int64  `json:"model_id,omitempty"`
 }
 
 func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +130,14 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	); err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if body.ModelID > 0 {
+		if _, err := tx.Exec(
+			`UPDATE pools SET model_id = ? WHERE id = ?`, body.ModelID, pid,
+		); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		writeErr(w, 500, err.Error())
