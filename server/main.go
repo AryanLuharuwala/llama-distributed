@@ -199,6 +199,84 @@ func parseDurationEnv(k string, d time.Duration) time.Duration {
 	return d
 }
 
+// cleanStaleSQLiteSidecars removes -journal / -wal / -shm files when the
+// main DB is zero-length.  On Azure Files (CIFS), a writer that crashes
+// mid-migration leaves these in place and the next start sees
+// "database is locked" forever because SQLite cannot complete recovery
+// against an empty main file.  Safe at boot — we only touch sidecars
+// when the DB itself has no useful state to recover.
+func cleanStaleSQLiteSidecars(dbPath string) {
+	if dbPath == "" {
+		return
+	}
+	st, err := os.Stat(dbPath)
+	if err != nil || st.Size() > 0 {
+		return
+	}
+	for _, suf := range []string{"-journal", "-wal", "-shm"} {
+		p := dbPath + suf
+		if _, err := os.Stat(p); err == nil {
+			if rmErr := os.Remove(p); rmErr == nil {
+				log.Printf("sqlite: cleared stale sidecar %s", p)
+			}
+		}
+	}
+	// Drop the zero-byte main file too so SQLite creates fresh.
+	if err := os.Remove(dbPath); err == nil {
+		log.Printf("sqlite: cleared zero-length %s", dbPath)
+	}
+}
+
+// runMigrationsWithRetry executes the eight migration steps in order,
+// retrying transient SQLITE_BUSY ("database is locked") errors with
+// exponential backoff.  The 30 s busy_timeout baked into the DSN handles
+// the common case; this outer loop covers the rarer case where a
+// previous-replica crash leaves the CIFS file lease pinned for longer
+// than the busy_timeout window.
+func runMigrationsWithRetry(db *sql.DB, d sqlDialect) error {
+	steps := []struct {
+		name string
+		fn   func(*sql.DB, sqlDialect) error
+	}{
+		{"core", migrate},
+		{"hf", migrateHF},
+		{"comfy", migrateComfy},
+		{"reputation", migrateReputation},
+		{"mcp", migrateMCP},
+		{"rag", migrateRAG},
+		{"conv_memory", migrateConvMemory},
+		{"quarantine", migrateQuarantine},
+	}
+	const maxAttempts = 8
+	backoff := 2 * time.Second
+	for _, s := range steps {
+		var lastErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			err := s.fn(db, d)
+			if err == nil {
+				lastErr = nil
+				break
+			}
+			lastErr = err
+			msg := strings.ToLower(err.Error())
+			if !strings.Contains(msg, "locked") && !strings.Contains(msg, "busy") {
+				return fmt.Errorf("%s: %w", s.name, err)
+			}
+			log.Printf("migrate %s: attempt %d/%d hit lock (%v); backing off %s",
+				s.name, attempt, maxAttempts, err, backoff)
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+		}
+		if lastErr != nil {
+			return fmt.Errorf("%s: %w", s.name, lastErr)
+		}
+		backoff = 2 * time.Second
+	}
+	return nil
+}
+
 func main() {
 	cfg := loadConfig()
 
@@ -206,6 +284,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("db driver: %v", err)
 	}
+
+	// Stale journal files from a previous crash on a CIFS-backed mount
+	// (Azure Files) can leave SQLite returning SQLITE_BUSY indefinitely.
+	// When the journal/wal/shm sidecar files exist but the main DB is
+	// zero-length, recovery is impossible — clear them so the first
+	// connection can re-initialize cleanly.  Only runs for sqlite paths.
+	if cfg.dbDriver == "" || cfg.dbDriver == "sqlite3" {
+		cleanStaleSQLiteSidecars(cfg.dbPath)
+	}
+
 	dsn := buildDSN(cfg)
 	db, err := sql.Open(dialect.Name(), dsn)
 	if err != nil {
@@ -221,29 +309,8 @@ func main() {
 	if n := parseIntEnv("DIST_DB_MAX_IDLE_CONNS", 0); n > 0 {
 		db.SetMaxIdleConns(n)
 	}
-	if err := migrate(db, dialect); err != nil {
+	if err := runMigrationsWithRetry(db, dialect); err != nil {
 		log.Fatalf("migrate: %v", err)
-	}
-	if err := migrateHF(db, dialect); err != nil {
-		log.Fatalf("migrate hf: %v", err)
-	}
-	if err := migrateComfy(db, dialect); err != nil {
-		log.Fatalf("migrate comfy: %v", err)
-	}
-	if err := migrateReputation(db, dialect); err != nil {
-		log.Fatalf("migrate reputation: %v", err)
-	}
-	if err := migrateMCP(db, dialect); err != nil {
-		log.Fatalf("migrate mcp: %v", err)
-	}
-	if err := migrateRAG(db, dialect); err != nil {
-		log.Fatalf("migrate rag: %v", err)
-	}
-	if err := migrateConvMemory(db, dialect); err != nil {
-		log.Fatalf("migrate conv_memory: %v", err)
-	}
-	if err := migrateQuarantine(db, dialect); err != nil {
-		log.Fatalf("migrate quarantine: %v", err)
 	}
 
 	srv := newServer(cfg, db)
