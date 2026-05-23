@@ -284,6 +284,9 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/me/rigs/stream", s.handleMeRigsStream)
 	mux.HandleFunc("GET /api/me/earnings", s.handleMeEarnings)
 	mux.HandleFunc("GET /api/pools/{id}/topology", s.handlePoolTopology)
+	mux.HandleFunc("GET /api/pools/{id}/plan",    s.handlePoolPlanGet)
+	mux.HandleFunc("PUT /api/pools/{id}/plan",    s.handlePoolPlanPut)
+	mux.HandleFunc("DELETE /api/pools/{id}/plan", s.handlePoolPlanDelete)
 	mux.HandleFunc("GET /api/pools/{id}/sessions", s.handlePoolSessions)
 	mux.HandleFunc("GET /api/console/network", s.handleConsoleNetwork)
 	mux.HandleFunc("GET /api/install/oneliner", s.handleInstallOneliner)
@@ -524,6 +527,16 @@ func (s *server) createSession(userID int64) (string, time.Time, error) {
 }
 
 func (s *server) userFromRequest(r *http.Request) (*user, bool) {
+	// Headless callers (dist-cli, scripts) authenticate via
+	// Authorization: Bearer sk-dist-...  — the same api_key minted by
+	// /api/api_keys or /api/agent/api_key.  Browsers send cookies; CLIs
+	// send bearers.  We accept either so the dashboard endpoints can be
+	// driven from a script without a browser session.
+	if bearer := bearerFromRequest(r); bearer != "" {
+		if u, ok := s.userFromAPIKey(bearer); ok {
+			return u, true
+		}
+	}
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c.Value == "" {
 		return nil, false

@@ -9,11 +9,24 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <random>
+#include <set>
 #include <sstream>
 #include <iostream>
+
+#ifdef __unix__
+#  include <arpa/inet.h>
+#  include <netdb.h>
+#  include <netinet/in.h>
+#  include <poll.h>
+#  include <sys/socket.h>
+#  include <unistd.h>
+#  define DIST_HAVE_BSD_SOCKETS 1
+#endif
 
 #ifdef DIST_HAVE_P2P
 #  include <rtc/rtc.hpp>
@@ -311,6 +324,148 @@ void close_actv_peer(ActvPeerPtr peer) {
     } catch (...) {}
 }
 
+// ─── UDP reachability test ────────────────────────────────────────────────
+//
+// Ground-truth check for whether a peer can actually deliver packets to our
+// public mapping.  STUN-based classification is a heuristic — a port-
+// preserving symmetric NAT will look like cone when you compare reflexive
+// ports across STUN servers, but inbound packets from a fresh source still
+// get dropped.
+//
+// We bind socket A, STUN-discover its external (ip:port), then send a probe
+// from socket B (a fresh source port) to that external endpoint and see if
+// A receives it.  Returns true iff at least one packet round-trips.
+#ifdef DIST_HAVE_BSD_SOCKETS
+namespace {
+
+constexpr uint32_t kStunMagicCookie = 0x2112A442u;
+
+bool stun_query(int sock, const sockaddr_in& server,
+                std::string& out_ip, uint16_t& out_port) {
+    uint8_t req[20];
+    std::memset(req, 0, sizeof(req));
+    req[0] = 0x00; req[1] = 0x01;
+    req[2] = 0x00; req[3] = 0x00;
+    uint32_t magic_be = htonl(kStunMagicCookie);
+    std::memcpy(req + 4, &magic_be, 4);
+    std::mt19937 rng{std::random_device{}()};
+    for (int i = 8; i < 20; ++i) req[i] = static_cast<uint8_t>(rng() & 0xff);
+
+    if (::sendto(sock, req, sizeof(req), 0,
+                 reinterpret_cast<const sockaddr*>(&server),
+                 sizeof(server)) < 0) return false;
+
+    pollfd pfd{sock, POLLIN, 0};
+    if (::poll(&pfd, 1, 2500) <= 0) return false;
+
+    uint8_t buf[1024];
+    sockaddr_in from{};
+    socklen_t fl = sizeof(from);
+    ssize_t n = ::recvfrom(sock, buf, sizeof(buf), 0,
+                           reinterpret_cast<sockaddr*>(&from), &fl);
+    if (n < 20 || buf[0] != 0x01 || buf[1] != 0x01) return false;
+
+    size_t off = 20;
+    while (off + 4 <= static_cast<size_t>(n)) {
+        uint16_t type = (uint16_t(buf[off]) << 8) | buf[off + 1];
+        uint16_t alen = (uint16_t(buf[off + 2]) << 8) | buf[off + 3];
+        off += 4;
+        if (off + alen > static_cast<size_t>(n)) break;
+        if ((type == 0x0020 || type == 0x0001) && alen >= 8 && buf[off + 1] == 0x01) {
+            uint16_t p = (uint16_t(buf[off + 2]) << 8) | buf[off + 3];
+            uint32_t a;
+            std::memcpy(&a, buf + off + 4, 4);
+            if (type == 0x0020) {
+                p ^= static_cast<uint16_t>(kStunMagicCookie >> 16);
+                a ^= htonl(kStunMagicCookie);
+            }
+            char ip[INET_ADDRSTRLEN];
+            ::inet_ntop(AF_INET, &a, ip, sizeof(ip));
+            out_ip = ip;
+            out_port = p;
+            return true;
+        }
+        off += (alen + 3) & ~3u;
+    }
+    return false;
+}
+
+bool resolve_udp_v4(const std::string& host, uint16_t port, sockaddr_in& out) {
+    addrinfo hints{};
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    char pb[8];
+    std::snprintf(pb, sizeof(pb), "%u", port);
+    if (::getaddrinfo(host.c_str(), pb, &hints, &res) != 0 || !res) return false;
+    std::memcpy(&out, res->ai_addr, sizeof(sockaddr_in));
+    ::freeaddrinfo(res);
+    return true;
+}
+
+// Returns true iff a packet sent from a fresh source port to our STUN-
+// discovered external mapping is delivered inbound.  On false, the NAT is
+// effectively symmetric / inbound-blocked from this rig's perspective — it
+// cannot be a TURN relay regardless of what STUN candidate geometry says.
+//
+// Also writes the discovered external (ip:port) into `ext_ip` so the caller
+// can use it as a fallback for public_ip.
+bool udp_reachability_check(std::string& ext_ip, uint16_t& ext_port) {
+    ext_ip.clear();
+    ext_port = 0;
+
+    int a = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (a < 0) return false;
+    int b = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (b < 0) { ::close(a); return false; }
+
+    sockaddr_in any{};
+    any.sin_family = AF_INET;
+    any.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (::bind(a, reinterpret_cast<sockaddr*>(&any), sizeof(any)) < 0 ||
+        ::bind(b, reinterpret_cast<sockaddr*>(&any), sizeof(any)) < 0) {
+        ::close(a); ::close(b); return false;
+    }
+
+    sockaddr_in stun{};
+    if (!resolve_udp_v4("stun.l.google.com", 19302, stun)) {
+        ::close(a); ::close(b); return false;
+    }
+    if (!stun_query(a, stun, ext_ip, ext_port)) {
+        ::close(a); ::close(b); return false;
+    }
+
+    // Fire a probe from socket B at our own external mapping.
+    sockaddr_in tgt{};
+    tgt.sin_family = AF_INET;
+    tgt.sin_port = htons(ext_port);
+    ::inet_pton(AF_INET, ext_ip.c_str(), &tgt.sin_addr);
+
+    const char* payload = "dist-reachability";
+    bool reached = false;
+    // Send a few times in case of single-packet loss.
+    for (int i = 0; i < 3 && !reached; ++i) {
+        ::sendto(b, payload, std::strlen(payload), 0,
+                 reinterpret_cast<sockaddr*>(&tgt), sizeof(tgt));
+        pollfd pfd{a, POLLIN, 0};
+        if (::poll(&pfd, 1, 600) > 0) {
+            uint8_t buf[256];
+            sockaddr_in src{};
+            socklen_t sl = sizeof(src);
+            ssize_t n = ::recvfrom(a, buf, sizeof(buf), 0,
+                                   reinterpret_cast<sockaddr*>(&src), &sl);
+            if (n > 0) reached = true;
+        }
+    }
+
+    ::close(a);
+    ::close(b);
+    return reached;
+}
+
+} // namespace
+#endif // DIST_HAVE_BSD_SOCKETS
+
 // ─── NAT-type probe ────────────────────────────────────────────────────────
 //
 // We classify the local network by spinning a throwaway PeerConnection with
@@ -318,13 +473,18 @@ void close_actv_peer(ActvPeerPtr peer) {
 // `timeout_ms`, and inspecting what came back:
 //
 //   * any non-private (public) host candidate            -> "open"
-//   * any srflx (server-reflexive) candidate             -> "cone"
+//   * srflx with SAME (ip:port) across ≥2 STUN servers   -> "cone"
+//   * srflx with DIFFERENT ports across STUN servers     -> "symmetric"
+//                                                          (port mapping is
+//                                                           destination-
+//                                                           dependent — no
+//                                                           direct hole-punch)
+//   * srflx from a single STUN only                      -> "cone" (best
+//                                                          guess; cannot
+//                                                          distinguish
+//                                                          without a second
+//                                                          STUN reachable)
 //   * only host candidates inside RFC1918 + no srflx     -> "symmetric"
-//                                                          (best guess —
-//                                                           we can't fully
-//                                                           differentiate
-//                                                           symmetric vs
-//                                                           blocked here)
 //   * nothing useful gathered before the timeout         -> "blocked"
 //
 // "relay_capable" mirrors (type == "open" || type == "cone").  This is
@@ -336,6 +496,7 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
     out.relay_capable = false;
 
     rtc::Configuration cfg;
+    int stun_count = 0;
     for (const auto& s : stun_servers) {
         if (s.url.empty()) continue;
         // Only feed real STUN/TURN URLs into the probe; "peer:..." entries
@@ -344,10 +505,21 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
             s.url.rfind("turns:", 0) != 0) continue;
         try {
             cfg.iceServers.emplace_back(s.url);
+            ++stun_count;
         } catch (...) { /* ignore — bad URL */ }
     }
-    if (cfg.iceServers.empty()) {
+    // Symmetric-NAT discrimination requires ≥2 STUN destinations on different
+    // hosts.  Always append a second well-known STUN so we can compare
+    // reflexive port mappings.
+    if (stun_count == 0) {
         cfg.iceServers.emplace_back("stun:stun.l.google.com:19302");
+        cfg.iceServers.emplace_back("stun:stun.cloudflare.com:3478");
+        stun_count = 2;
+    } else if (stun_count == 1) {
+        try {
+            cfg.iceServers.emplace_back("stun:stun.cloudflare.com:3478");
+            ++stun_count;
+        } catch (...) {}
     }
 
     std::mutex      mu;
@@ -356,9 +528,16 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
     bool            got_public_host = false;
     bool            got_srflx       = false;
     bool            got_private_host = false;
+    // Unique reflexive mappings.  For symmetric NAT detection we look at
+    // whether two different STUN servers see the same external port; if
+    // they don't, the NAT is symmetric (port-restricted per destination).
+    std::set<std::string> srflx_ip_port;
+    std::set<std::string> srflx_ips;
+    std::set<int>         srflx_ports;
 
-    auto is_private_ipv4 = [](const std::string& ip) -> bool {
-        // crude RFC1918 / link-local / loopback / CGNAT check
+    auto is_private_or_local = [](const std::string& ip) -> bool {
+        if (ip.empty()) return true;
+        // IPv4 RFC1918 / link-local / loopback / CGNAT.
         if (ip.rfind("10.", 0) == 0) return true;
         if (ip.rfind("127.", 0) == 0) return true;
         if (ip.rfind("192.168.", 0) == 0) return true;
@@ -382,6 +561,13 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
             }
             if (sec >= 16 && sec <= 31) return true;
         }
+        // IPv6: a global unicast address on a NIC does NOT prove inbound
+        // reachability — campus / corp firewalls routinely hand out 2000::/3
+        // addresses but block inbound v6.  We treat ALL IPv6 host candidates
+        // as non-evidence of "open" mode; only an srflx via STUN can promote
+        // us to "cone".  Callers can still see the v6 address via srflx if
+        // STUN can echo it back.
+        if (ip.find(':') != std::string::npos) return true;
         return false;
     };
 
@@ -390,34 +576,34 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
 
         pc->onLocalCandidate([&](rtc::Candidate cand) {
             std::string s = std::string(cand);
-            // candidate strings look like:
-            //   "candidate:1 1 UDP 2130706431 192.168.1.10 51544 typ host"
-            //   "candidate:2 1 UDP 1694498815 203.0.113.5 51544 typ srflx ..."
-            auto p = s.find(" typ ");
-            if (p == std::string::npos) return;
-            std::string typ = s.substr(p + 5);
-            auto sp = typ.find(' ');
-            if (sp != std::string::npos) typ = typ.substr(0, sp);
-
-            // Extract the IP — the address sits two tokens before "typ".
-            std::string addr;
+            // SDP candidate grammar (RFC 8445 §5.1):
+            //   candidate:<foundation> <component-id> <transport> <priority>
+            //             <connection-address> <port> typ <cand-type> ...
+            // Tokenise on spaces — addr is tokens[4], type is the token
+            // immediately after "typ".
+            std::vector<std::string> tok;
             {
-                // Walk back from p, find the address token.  Tokens are
-                // space-separated; address is 4 tokens to the left of typ.
-                size_t end = p;
-                int back = 0;
-                while (end > 0 && back < 4) {
-                    if (s[end - 1] == ' ') ++back;
-                    if (back >= 4) break;
-                    --end;
+                std::string cur;
+                for (char c : s) {
+                    if (c == ' ') {
+                        if (!cur.empty()) tok.push_back(std::move(cur));
+                        cur.clear();
+                    } else {
+                        cur += c;
+                    }
                 }
-                size_t start = end;
-                while (start > 0 && s[start - 1] != ' ') --start;
-                addr = s.substr(start, end - start);
+                if (!cur.empty()) tok.push_back(std::move(cur));
             }
+            if (tok.size() < 8) return;
+            const std::string& addr = tok[4];
+            std::string typ;
+            for (size_t i = 5; i + 1 < tok.size(); ++i) {
+                if (tok[i] == "typ") { typ = tok[i + 1]; break; }
+            }
+            if (typ.empty()) return;
 
             if (typ == "host") {
-                if (is_private_ipv4(addr)) {
+                if (is_private_or_local(addr)) {
                     got_private_host = true;
                 } else {
                     got_public_host  = true;
@@ -427,8 +613,21 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
                 }
             } else if (typ == "srflx" || typ == "prflx") {
                 got_srflx = true;
+                // Port is tok[5] per RFC 8445 grammar.
+                int port = 0;
+                if (tok.size() > 5) {
+                    for (char c : tok[5]) {
+                        if (c < '0' || c > '9') { port = 0; break; }
+                        port = port * 10 + (c - '0');
+                    }
+                }
                 std::lock_guard<std::mutex> lk(mu);
                 if (out.public_ip.empty()) out.public_ip = addr;
+                srflx_ips.insert(addr);
+                if (port > 0) {
+                    srflx_ports.insert(port);
+                    srflx_ip_port.insert(addr + ":" + std::to_string(port));
+                }
             }
         });
 
@@ -455,12 +654,54 @@ NatProbe probe_nat_type(const std::vector<IceServer>& stun_servers,
         return out;
     }
 
-    if (got_public_host)       out.type = "open";
-    else if (got_srflx)        out.type = "cone";
-    else if (got_private_host) out.type = "symmetric";
-    else                       out.type = "blocked";
+    if (got_public_host) {
+        out.type = "open";
+    } else if (got_srflx) {
+        // If we probed ≥2 STUN servers and saw ≥2 distinct external
+        // (ip:port) mappings, the NAT is allocating a fresh port per
+        // destination — symmetric, no direct hole-punch.  A single
+        // unique mapping across multiple STUN servers means cone/EIM.
+        bool multi_probe = stun_count >= 2;
+        bool divergent   = srflx_ip_port.size() >= 2 ||
+                           srflx_ports.size()   >= 2;
+        if (multi_probe && divergent) {
+            out.type = "symmetric";
+        } else {
+            out.type = "cone";
+        }
+    } else if (got_private_host) {
+        out.type = "symmetric";
+    } else {
+        out.type = "blocked";
+    }
 
+    // Symmetric NAT needs a TURN relay; direct WebRTC hole-punching to
+    // peers behind other NATs will not work.
     out.relay_capable = (out.type == "open" || out.type == "cone");
+
+#ifdef DIST_HAVE_BSD_SOCKETS
+    // Ground-truth override: a port-preserving symmetric NAT can fool the
+    // STUN-only classifier into reporting "cone" (both STUN destinations see
+    // the same reflexive port, so the divergence heuristic doesn't fire).
+    // The reachability check sends a packet from a fresh source port to our
+    // discovered external mapping; if it never lands, the NAT is filtering
+    // inbound from anyone other than the STUN server that opened the hole,
+    // and we cannot serve as a relay regardless of candidate geometry.
+    //
+    // Only run when the heuristic claimed relay-capability, since a "blocked"
+    // or already-symmetric verdict needs no further demotion.
+    if (out.relay_capable && out.type != "open") {
+        std::string ext_ip;
+        uint16_t    ext_port = 0;
+        bool reached = udp_reachability_check(ext_ip, ext_port);
+        if (!ext_ip.empty() && out.public_ip.empty()) out.public_ip = ext_ip;
+        if (!reached) {
+            out.type          = "symmetric";
+            out.relay_capable = false;
+        }
+    }
+#endif
+
     return out;
 }
 

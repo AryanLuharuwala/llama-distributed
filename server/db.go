@@ -204,6 +204,16 @@ func migrate(db *sql.DB, d sqlDialect) error {
 		`ALTER TABLE users ADD COLUMN google_id    TEXT`,
 		`ALTER TABLE users ADD COLUMN google_email TEXT`,
 		`CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)`,
+		// Total bytes for the model on disk — sum of shard files.  Exposed in
+		// /api/models so the splitter UI can compute per-layer VRAM estimates.
+		`ALTER TABLE models ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0`,
+		// Manual layer-to-rig placement override.  NULL ⇒ planner uses the
+		// cost-based picker.  Non-NULL ⇒ JSON document with shape:
+		//   {"stages":[{"stage_idx":0,"layer_lo":0,"layer_hi":N,"agent_id":"…"}, …]}
+		// The planner validates the override against current pool membership +
+		// online status; if any pinned rig is missing it falls through to the
+		// cost-based picker so a stale override doesn't take the pool down.
+		`ALTER TABLE pools ADD COLUMN plan_override TEXT`,
 	}
 	for _, s := range alters {
 		if err := addColumnIfMissing(db, d, s); err != nil {

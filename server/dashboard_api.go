@@ -55,6 +55,12 @@ type meRig struct {
 	// Derived health classification: "ok" | "stale" | "saturated" | "offline".
 	// The frontend uses this to pick a single colour for the rig tile.
 	Health string `json:"health"`
+
+	// First pool this rig is attached to (alphabetically by id).  Empty if the
+	// rig isn't pooled yet.  The console table uses this to show *where* a rig
+	// is wired up so users don't have to cross-check from /nexus.
+	PoolID   int64  `json:"pool_id,omitempty"`
+	PoolName string `json:"pool_name,omitempty"`
 }
 
 func (s *server) collectMeRigs(uid int64) []meRig {
@@ -96,6 +102,17 @@ func (s *server) collectMeRigs(uid int64) []meRig {
 			r.RemoteIP = ac.remoteIP
 		}
 		r.Health = classifyRigHealth(r)
+		// First pool membership for this rig, if any.  Lets the console table
+		// show a "Pool" column without a second round-trip.
+		_ = s.db.QueryRow(`
+			SELECT p.id, p.name
+			FROM pool_rigs pr
+			JOIN rigs r2 ON r2.id = pr.rig_id
+			JOIN pools p ON p.id = pr.pool_id
+			WHERE r2.user_id = ? AND r2.agent_id = ?
+			ORDER BY p.id ASC LIMIT 1`,
+			uid, r.AgentID,
+		).Scan(&r.PoolID, &r.PoolName)
 		out = append(out, r)
 	}
 	return out

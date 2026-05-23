@@ -160,6 +160,43 @@ func (s *server) planPipeline(poolID int64, reqID uint32, modelOverride string, 
 		return nil, fmt.Errorf("pool has no model bound and request did not supply n_layers")
 	}
 
+	// Manual override (if any).  The override is honoured iff every pinned
+	// rig is currently online; otherwise we silently fall through to the
+	// cost-based picker so a stale override doesn't 5xx the pool.
+	if po, _ := s.loadPlanOverride(poolID); po != nil {
+		// Reuse cfg.NLayers/ModelName for the plan envelope, but the override
+		// may legitimately exist for a request that supplied its own n_layers
+		// — only honour the override when its layer span matches.
+		spanOK := true
+		if len(po.Stages) > 0 {
+			last := po.Stages[0]
+			for _, st := range po.Stages {
+				if st.StageIdx > last.StageIdx {
+					last = st
+				}
+			}
+			if last.LayerHi+1 != nLayers {
+				spanOK = false
+			}
+		}
+		if spanOK {
+			cfgForOverride := cfg
+			cfgForOverride.ModelName = modelName
+			cfgForOverride.NLayers = nLayers
+			if plan := s.applyPlanOverride(poolID, reqID, cfgForOverride, po); plan != nil {
+				// Mint shard URLs the same way the auto path does.
+				if cfg.ModelID > 0 {
+					for i := range plan.Stages {
+						file := fmt.Sprintf("stage-%d.gguf", plan.Stages[i].StageIdx)
+						plan.Stages[i].ShardFile = file
+						plan.Stages[i].ShardURL = s.mintShardURL(cfg.ModelID, file, 15*time.Minute)
+					}
+				}
+				return plan, nil
+			}
+		}
+	}
+
 	// Cost-based picker: scores rigs by throughput + VRAM + bandwidth and
 	// allocates layer counts proportional to score.  Falls back to equal
 	// slabs when no telemetry has arrived yet (cold pool).

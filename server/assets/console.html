@@ -707,7 +707,10 @@ table.t .center { text-align: center; }
         <div class="section-head">
           <div class="sn"><b>§ 06</b> Models</div>
           <h2>Registered <em>models</em></h2>
-          <button class="act" id="import-hf">+ Import from Hugging Face</button>
+          <div class="row" style="gap:8px;">
+            <button class="act ghost" id="discover-hf">⌕ Discover</button>
+            <button class="act" id="import-hf">+ Import from Hugging Face</button>
+          </div>
         </div>
         <div class="card">
           <table class="t">
@@ -715,13 +718,15 @@ table.t .center { text-align: center; }
               <tr>
                 <th>Name</th>
                 <th>Family</th>
+                <th class="right">Layers</th>
                 <th class="right">Shards</th>
+                <th class="right">Size</th>
                 <th class="right">Peers ready</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="models-rows">
-              <tr><td colspan="5" class="empty">loading…</td></tr>
+              <tr><td colspan="7" class="empty">loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -885,6 +890,31 @@ table.t .center { text-align: center; }
       <button class="btn ghost" data-close>Cancel</button>
       <button class="btn primary" id="m-hf-submit">Queue import</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-discover">
+  <div class="modal" style="max-width:780px;">
+    <button class="close">×</button>
+    <h3>Discover <em>models</em></h3>
+    <div class="sub">§ 06 · Browse GGUF + transformer repos on Hugging Face</div>
+    <div class="row" style="gap:8px;align-items:center;">
+      <input type="text" id="m-disc-q" placeholder="search e.g. llama-3, qwen…" autocomplete="off" style="flex:1;" />
+      <select id="m-disc-library" style="font-family:var(--mono);font-size:12px;padding:6px 8px;">
+        <option value="gguf">gguf</option>
+        <option value="">any</option>
+        <option value="transformers">transformers</option>
+      </select>
+      <select id="m-disc-sort" style="font-family:var(--mono);font-size:12px;padding:6px 8px;">
+        <option value="trendingScore">trending</option>
+        <option value="downloads">downloads</option>
+        <option value="likes">likes</option>
+        <option value="lastModified">recent</option>
+      </select>
+      <button class="btn" id="m-disc-go">Search</button>
+    </div>
+    <div class="err" id="m-disc-err"></div>
+    <div id="m-disc-results" style="margin-top:10px;max-height:50vh;overflow:auto;"></div>
   </div>
 </div>
 
@@ -1081,25 +1111,38 @@ $('#m-pool-submit').addEventListener('click', async () => {
 
 // ─── 04 RIGS ─────────────────────────────────────────────────────
 async function loadRigs() {
-  let d;
-  try { d = await api('GET', '/api/me/rigs'); } catch { return; }
-  const rigs = d.rigs || d || [];
-  $('#strip-rigs').textContent = rigs.length;
   const tb = $('#rigs-rows');
-  if (!rigs.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">No rigs yet — run the install one-liner above.</td></tr>'; return; }
+  let d;
+  try {
+    d = await api('GET', '/api/me/rigs');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="7" class="empty">Couldn't load rigs: ${esc(e.message || e)}</td></tr>`;
+    return;
+  }
+  const rigs = (d && (d.rigs || (Array.isArray(d) ? d : []))) || [];
+  $('#strip-rigs').textContent = rigs.length;
+  if (!rigs.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="empty">No rigs yet — run the install one-liner above.</td></tr>';
+    return;
+  }
   tb.innerHTML = '';
   for (const r of rigs) {
     const tr = document.createElement('tr');
-    const st = r.status || (r.online ? 'online' : 'offline');
-    const cls = st === 'online' ? 'ok' : (st === 'stale' ? 'warn' : (st === 'offline' ? 'err' : ''));
+    // Health is authoritative when present (server-classified); fall back to
+    // the online flag for older payloads.
+    const st = r.health || (r.online ? 'online' : 'offline');
+    const cls =
+      st === 'ok' || st === 'online'           ? 'ok'   :
+      st === 'stale' || st === 'saturated'     ? 'warn' :
+      st === 'offline'                         ? 'err'  : '';
     tr.innerHTML = `
-      <td>${esc(r.name || r.hostname || r.agent_id)}</td>
-      <td><span class="mono">${esc(r.pool_name || r.pool_id || '—')}</span></td>
-      <td>${esc(r.gpu_name || '—')}</td>
-      <td class="right mono">${fmtBytes((r.vram_bytes || 0))}</td>
+      <td>${esc(r.hostname || r.agent_id || '—')}</td>
+      <td><span class="mono">${esc(r.pool_name || (r.pool_id ? '#'+r.pool_id : '—'))}</span></td>
+      <td>${esc(r.gpu_model || '—')}</td>
+      <td class="right mono">${fmtBytes(r.vram_total || 0)}</td>
       <td><span class="chip ${cls}"><span class="dot"></span>${esc(st)}</span></td>
       <td><span class="mono">${fmtAge(r.last_seen)}</span></td>
-      <td class="right"><a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || r.id)}">Open</a></td>`;
+      <td class="right"><a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || '')}">Open</a></td>`;
     tb.appendChild(tr);
   }
 }
@@ -1155,19 +1198,30 @@ $('#m-key-copy').addEventListener('click', async () => {
 
 // ─── 06 MODELS ───────────────────────────────────────────────────
 async function loadModels() {
-  let d;
-  try { d = await api('GET', '/api/models'); } catch { return; }
-  const models = d.models || d || [];
   const tb = $('#models-rows');
-  if (!models.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No models registered — import one from Hugging Face above.</td></tr>'; return; }
+  let d;
+  try {
+    d = await api('GET', '/api/models');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="7" class="empty">Couldn't load models: ${esc(e.message || e)}</td></tr>`;
+    return;
+  }
+  const models = (d && (d.models || (Array.isArray(d) ? d : []))) || [];
+  if (!models.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="empty">No models registered — import one from Hugging Face above.</td></tr>';
+    return;
+  }
   tb.innerHTML = '';
   for (const m of models) {
     const tr = document.createElement('tr');
     const st = m.ready ? 'ok' : (m.loading ? 'warn' : '');
+    const sz = m.size_bytes || m.total_bytes || 0;
     tr.innerHTML = `
       <td>${esc(m.name || m.id)}</td>
       <td class="mono">${esc(m.family || m.arch || '—')}</td>
+      <td class="right mono">${m.n_layers ?? '—'}</td>
       <td class="right mono">${m.n_shards ?? m.shard_count ?? '—'}</td>
+      <td class="right mono">${sz ? fmtBytes(sz) : '—'}</td>
       <td class="right mono">${m.n_peers_ready ?? m.ready_peers ?? '—'}</td>
       <td><span class="chip ${st}"><span class="dot"></span>${m.ready ? 'ready' : (m.loading ? 'loading' : 'idle')}</span></td>`;
     tb.appendChild(tr);
@@ -1175,6 +1229,87 @@ async function loadModels() {
 }
 
 $('#import-hf').addEventListener('click', () => { $('#m-hf-repo').value=''; $('#m-hf-rev').value=''; openModal('modal-hf'); });
+
+// Discover: hits /api/hf/search and cross-references the imported set so the
+// user can see at a glance what's already in the fleet vs. what's new.
+async function discoverImportedSet() {
+  try {
+    const d = await api('GET', '/api/models');
+    const ms = (d && (d.models || (Array.isArray(d) ? d : []))) || [];
+    return new Set(ms.map(m => (m.repo_id || m.name || '').toLowerCase()).filter(Boolean));
+  } catch { return new Set(); }
+}
+async function runDiscover() {
+  const out = $('#m-disc-results');
+  const err = $('#m-disc-err');
+  err.classList.remove('on');
+  out.innerHTML = '<div class="empty">searching…</div>';
+  const q   = $('#m-disc-q').value.trim();
+  const lib = $('#m-disc-library').value;
+  const srt = $('#m-disc-sort').value;
+  const qs  = new URLSearchParams({ q, sort: srt, limit: '25' });
+  if (lib) qs.set('library', lib);
+  let d, imported;
+  try {
+    [d, imported] = await Promise.all([
+      api('GET', '/api/hf/search?' + qs.toString()),
+      discoverImportedSet(),
+    ]);
+  } catch (e) {
+    err.textContent = 'Search failed: ' + (e.message || e);
+    err.classList.add('on');
+    out.innerHTML = '';
+    return;
+  }
+  const rows = (d && (d.results || (Array.isArray(d) ? d : []))) || [];
+  if (!rows.length) { out.innerHTML = '<div class="empty">No matches.</div>'; return; }
+  out.innerHTML = '';
+  for (const row of rows) {
+    const id = row.id || '';
+    const have = imported.has(id.toLowerCase());
+    const div = document.createElement('div');
+    div.style.cssText = 'display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--rule);';
+    div.innerHTML = `
+      <div>
+        <div style="font-family:var(--serif);font-size:14px;">${esc(id)}</div>
+        <div class="mono" style="font-size:11px;color:var(--ink-3);">
+          ${esc(row.library || '—')} · ${esc(row.pipeline_tag || '—')}
+          ${row.gated ? ' · gated' : ''}
+        </div>
+      </div>
+      <div class="right mono" style="font-size:11px;">${(row.downloads||0).toLocaleString()} dl</div>
+      <div class="right mono" style="font-size:11px;">♥ ${row.likes||0}</div>
+      <div>
+        ${have
+          ? '<span class="chip ok"><span class="dot"></span>imported</span>'
+          : `<button class="btn primary" data-import="${esc(id)}">Import</button>`}
+      </div>`;
+    out.appendChild(div);
+  }
+  $$('#m-disc-results button[data-import]').forEach(b => b.addEventListener('click', async () => {
+    const repo = b.dataset.import;
+    b.disabled = true; b.textContent = 'queueing…';
+    try {
+      await api('POST', '/api/hf/import', { repo, revision: 'main' });
+      b.textContent = 'queued ✓';
+      flash('Import queued for ' + repo);
+      loadModels();
+    } catch (e) {
+      b.disabled = false; b.textContent = 'Import';
+      flash('Import failed: ' + (e.message || e), 'err');
+    }
+  }));
+}
+$('#discover-hf').addEventListener('click', () => {
+  $('#m-disc-q').value = '';
+  $('#m-disc-library').value = 'gguf';
+  $('#m-disc-sort').value = 'trendingScore';
+  $('#m-disc-results').innerHTML = '';
+  openModal('modal-discover');
+  runDiscover();
+});
+$('#m-disc-go').addEventListener('click', runDiscover);
+$('#m-disc-q').addEventListener('keydown', e => { if (e.key === 'Enter') runDiscover(); });
 $('#m-hf-submit').addEventListener('click', async () => {
   const repo = $('#m-hf-repo').value.trim();
   if (!repo) { $('#m-hf-err').textContent = 'Repo is required'; $('#m-hf-err').classList.add('on'); return; }

@@ -37,8 +37,25 @@ type modelRow struct {
 	Name       string `json:"name"`
 	NLayers    int    `json:"n_layers"`
 	NShards    int    `json:"n_shards"`
+	SizeBytes  int64  `json:"size_bytes"`
 	ShardsDir  string `json:"-"` // filesystem path, not exposed
 	CreatedAt  int64  `json:"created_at"`
+}
+
+// shardsTotalBytes sums every regular file under shardsDir.  Cheap enough to
+// run once at registration and lazily again for any backfilled row that still
+// has size_bytes=0.  Returns 0 on any error — callers treat that as "unknown"
+// and degrade gracefully (the splitter just hides the VRAM estimate).
+func shardsTotalBytes(shardsDir string) int64 {
+	var sum int64
+	_ = filepath.Walk(shardsDir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		sum += info.Size()
+		return nil
+	})
+	return sum
 }
 
 type shardManifestEntry struct {
@@ -123,9 +140,10 @@ func (s *server) handleRegisterModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	totalBytes := shardsTotalBytes(shardsDir)
 	res, err := s.db.Exec(
-		`INSERT INTO models (name, n_layers, n_shards, shards_dir, created_at) VALUES (?, ?, ?, ?, ?)`,
-		body.Name, man.NBlocks, man.NStages, shardsDir, nowUnix(),
+		`INSERT INTO models (name, n_layers, n_shards, shards_dir, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		body.Name, man.NBlocks, man.NStages, shardsDir, totalBytes, nowUnix(),
 	)
 	if err != nil {
 		writeErr(w, 500, "db insert: "+err.Error())
@@ -152,19 +170,32 @@ func (s *server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(
-		`SELECT id, name, n_layers, n_shards, created_at FROM models ORDER BY id ASC`)
+		`SELECT id, name, n_layers, n_shards, shards_dir, size_bytes, created_at FROM models ORDER BY id ASC`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	defer rows.Close()
 	var out []modelRow
+	type backfill struct{ id int64; bytes int64 }
+	var pending []backfill
 	for rows.Next() {
 		var m modelRow
-		if err := rows.Scan(&m.ID, &m.Name, &m.NLayers, &m.NShards, &m.CreatedAt); err != nil {
+		var shardsDir string
+		if err := rows.Scan(&m.ID, &m.Name, &m.NLayers, &m.NShards, &shardsDir, &m.SizeBytes, &m.CreatedAt); err != nil {
 			continue
 		}
+		// Lazy backfill for rows registered before size_bytes existed.
+		if m.SizeBytes == 0 && shardsDir != "" {
+			if b := shardsTotalBytes(shardsDir); b > 0 {
+				m.SizeBytes = b
+				pending = append(pending, backfill{m.ID, b})
+			}
+		}
 		out = append(out, m)
+	}
+	for _, b := range pending {
+		_, _ = s.db.Exec(`UPDATE models SET size_bytes = ? WHERE id = ?`, b.bytes, b.id)
 	}
 	writeJSON(w, 200, map[string]any{"models": out})
 }

@@ -264,6 +264,57 @@ add_executable(dist-join src/dist_join_main.cpp)
 target_include_directories(dist-join PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(dist-join PRIVATE ${_PLATFORM_LIBS})
 
+# nat-pingpong: standalone UDP reachability tester for diagnosing symmetric
+# NAT inbound-blocking.  Two modes: `listen` (STUNs its external mapping and
+# echoes) and `probe` (sends pings to a listener's printed ip:port).
+add_executable(nat-pingpong src/nat_pingpong.cpp)
+
+# ─── dist-cli — operator CLI ────────────────────────────────────────────────
+#
+# Single binary that mirrors the dashboard's surface: pools, models, rigs,
+# inference logs, plus a live TUI dashboard (`dist-cli top`) built on FTXUI.
+# Auth is read from the same on-disk state dist-node maintains so users who
+# have run `dist-node login` are immediately authenticated for CLI ops.
+option(DIST_BUILD_CLI     "Build dist-cli operator CLI"               ON)
+option(DIST_BUILD_CLI_TUI "Vendor FTXUI to enable `dist-cli top` TUI" ON)
+
+if(DIST_BUILD_CLI)
+    set(_DIST_CLI_LIBS OpenSSL::SSL OpenSSL::Crypto ${_PLATFORM_LIBS})
+
+    if(DIST_BUILD_CLI_TUI)
+        include(FetchContent)
+        FetchContent_Declare(
+            ftxui
+            GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+            GIT_TAG        v5.0.0
+        )
+        set(FTXUI_BUILD_DOCS    OFF CACHE BOOL "" FORCE)
+        set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(FTXUI_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
+        set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(ftxui)
+        message(STATUS "[llama-distributed] vendored FTXUI for dist-cli top")
+        list(APPEND _DIST_CLI_LIBS
+            ftxui::screen ftxui::dom ftxui::component)
+    endif()
+
+    add_executable(dist-cli
+        src/cli_common.cpp
+        src/dist_cli_main.cpp
+        src/dist_cli_top.cpp
+        src/dist_cli_split.cpp
+    )
+    target_include_directories(dist-cli PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(dist-cli PRIVATE ${_DIST_CLI_LIBS})
+
+    if(DIST_BUILD_CLI_TUI)
+        target_compile_definitions(dist-cli PRIVATE DIST_HAVE_FTXUI=1)
+    endif()
+endif()
+
 # ─── Install ─────────────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
