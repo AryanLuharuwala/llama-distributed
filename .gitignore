@@ -34,3 +34,4 @@ server/models-store/
 .DS_Store
 .idea/
 .vscode/
+.claude/

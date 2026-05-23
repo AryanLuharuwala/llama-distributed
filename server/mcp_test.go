@@ -28,6 +28,9 @@ func openMCPTestDB(t *testing.T) (*server, *sql.DB) {
 	if err := migrateRAG(db, d); err != nil {
 		t.Fatalf("migrateRAG: %v", err)
 	}
+	if err := migrateConvMemory(db, d); err != nil {
+		t.Fatalf("migrateConvMemory: %v", err)
+	}
 	s := &server{db: db, dialect: d}
 	return s, db
 }

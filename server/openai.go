@@ -415,11 +415,14 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Model       string   `json:"model"`
-		Messages    []oaiMsg `json:"messages"`
-		MaxTokens   *int     `json:"max_tokens"`
-		Temperature *float64 `json:"temperature"`
-		Stream      bool     `json:"stream"`
+		Model       string          `json:"model"`
+		Messages    []oaiMsg        `json:"messages"`
+		MaxTokens   *int            `json:"max_tokens"`
+		Temperature *float64        `json:"temperature"`
+		Stream      bool            `json:"stream"`
+		RAG         *chatRAGOpts    `json:"rag"`
+		Memory      *chatMemoryOpts `json:"memory"`
+		Tools       *chatToolsOpts  `json:"tools"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
@@ -428,6 +431,29 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	if len(body.Messages) == 0 {
 		writeErr(w, 400, "messages required")
 		return
+	}
+	// Capture the last user turn before augmentation so we can summarise
+	// the (user → assistant) pair after the response lands.
+	origUserTurn := lastUserContent(body.Messages)
+
+	augmented, augErr := s.augmentMessages(r.Context(), u.ID, body.Messages, body.RAG, body.Memory)
+	if augErr != nil {
+		writeErr(w, 400, augErr.Error())
+		return
+	}
+	body.Messages = augmented
+
+	// Tool manifest is a separate prepend so its scope is obvious to the
+	// model: tools are an instruction frame, not retrieved context.
+	if !body.Tools.isEmpty() {
+		manifest, mErr := s.buildToolsManifest(u.ID, body.Tools)
+		if mErr != nil {
+			writeErr(w, 400, mErr.Error())
+			return
+		}
+		if manifest != "" {
+			body.Messages = append([]oaiMsg{{Role: "system", Content: manifest}}, body.Messages...)
+		}
 	}
 	maxTokens := 256
 	if body.MaxTokens != nil && *body.MaxTokens > 0 {
@@ -455,6 +481,12 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	slotBilled := false
+	defer func() {
+		if !slotBilled {
+			s.refundRequestSlot(u.ID)
+		}
+	}()
 
 	// Attach inference peer.  Pick a rig with a free slot AND reserve it
 	// in one atomic step so multi-slot rigs actually receive the batched
@@ -466,7 +498,6 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ac := s.pickAndReserveRig(poolID, ip)
 	if ac == nil {
-		s.refundRequestSlot(u.ID)
 		s.logInference(u.ID, poolID, 0, "", 0, 0, "no_rig")
 		writeErr(w, 503, "no online rigs with free slots")
 		return
@@ -507,7 +538,6 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	})
 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(prompt)), payloadJSON)
 	if !ac.sendBin(reqFrame) {
-		s.refundRequestSlot(u.ID)
 		s.finishInference(logID, 0, 0, "failed")
 		writeErr(w, 503, "agent buffer full")
 		return
@@ -533,6 +563,8 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		writeOAIDelta(w, flusher, respID, created, modelName, "role", "assistant")
 
 		var inTok, outTok uint32
+		var bytesStreamed int
+		var streamBuf strings.Builder
 		for {
 			select {
 			case c, ok := <-ip.incoming:
@@ -541,27 +573,48 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 					// terminating chunk arriving first.  Don't fabricate
 					// a successful "done" delta — surface the failure.
 					writeOAIErr(w, flusher, "agent disconnected")
-					s.finishInference(logID, int(inTok), int(outTok), "failed")
-					s.recordTokens(u.ID, int(inTok), int(outTok))
+					inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+					s.finishInference(logID, inSafe, outSafe, "failed")
+					s.recordTokens(u.ID, inSafe, outSafe)
 					return
 				}
 				inTok, outTok = c.tokIn, c.tokOut
 				switch c.kind {
 				case chunkKindToken:
+					bytesStreamed += len(c.payload)
+					streamBuf.Write(c.payload)
 					writeOAIDelta(w, flusher, respID, created, modelName, "content", string(c.payload))
 				case chunkKindDone:
+					// If the model emitted tool_call envelopes and auto_execute
+					// was set, invoke them now and stream the structured results
+					// as a follow-up delta so SSE clients can render them inline.
+					if body.Tools != nil && body.Tools.AutoExecute {
+						if calls := extractToolCalls(streamBuf.String()); len(calls) > 0 {
+							results := s.executeToolCalls(r.Context(), u.ID, body.Tools, calls)
+							if blob, mErr := json.Marshal(map[string]any{"tool_calls": results}); mErr == nil {
+								writeOAIDelta(w, flusher, respID, created, modelName, "tool_results", string(blob))
+							}
+						}
+					}
 					writeOAIDone(w, flusher, respID, created, modelName)
-					s.finishInference(logID, int(inTok), int(outTok), "ok")
-					s.recordTokens(u.ID, int(inTok), int(outTok))
+					inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+					s.finishInference(logID, inSafe, outSafe, "ok")
+					s.recordTokens(u.ID, inSafe, outSafe)
+					slotBilled = true
+					if body.Memory != nil && body.Memory.SummarizeAfter {
+						go s.summarizeChatTurnSafely(u.ID, body.Memory.ConversationID, origUserTurn, streamBuf.String())
+					}
 					return
 				case chunkKindError:
 					writeOAIErr(w, flusher, string(c.payload))
-					s.finishInference(logID, int(inTok), int(outTok), "failed")
+					inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+					s.finishInference(logID, inSafe, outSafe, "failed")
 					return
 				}
 			case <-ctx.Done():
 				writeOAIErr(w, flusher, "timeout")
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
 				return
 			}
 		}
@@ -570,6 +623,7 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	// Non-streaming: buffer all tokens, return one JSON response.
 	var builder strings.Builder
 	var inTok, outTok uint32
+	var bytesStreamed int
 	for {
 		select {
 		case c, ok := <-ip.incoming:
@@ -577,30 +631,69 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 				// Same disconnect-without-done semantics as the streaming
 				// path: report the failure instead of returning whatever
 				// partial bytes accumulated as if they were complete.
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
 				writeErr(w, 502, "agent disconnected")
 				return
 			}
 			inTok, outTok = c.tokIn, c.tokOut
 			switch c.kind {
 			case chunkKindToken:
+				bytesStreamed += len(c.payload)
 				builder.Write(c.payload)
 			case chunkKindDone:
 				goto DONE
 			case chunkKindError:
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
 				writeErr(w, 502, string(c.payload))
 				return
 			}
 		case <-ctx.Done():
-			s.finishInference(logID, int(inTok), int(outTok), "failed")
+			inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+			s.finishInference(logID, inSafe, outSafe, "failed")
 			writeErr(w, 504, "timeout")
 			return
 		}
 	}
 DONE:
-	s.finishInference(logID, int(inTok), int(outTok), "ok")
-	s.recordTokens(u.ID, int(inTok), int(outTok))
+	inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), len(prompt), bytesStreamed)
+	s.finishInference(logID, inSafe, outSafe, "ok")
+	s.recordTokens(u.ID, inSafe, outSafe)
+	slotBilled = true
+	inTok, outTok = uint32(inSafe), uint32(outSafe)
+	if body.Memory != nil && body.Memory.SummarizeAfter {
+		go s.summarizeChatTurnSafely(u.ID, body.Memory.ConversationID, origUserTurn, builder.String())
+	}
+
+	// If the model emitted tool_call envelopes, execute them through the
+	// MCP broker (when auto_execute=true) and return both the assistant
+	// text (with envelopes stripped) and the structured tool_calls array.
+	assistantContent := builder.String()
+	var toolResults []chatToolResult
+	if !body.Tools.isEmpty() {
+		calls := extractToolCalls(assistantContent)
+		if len(calls) > 0 {
+			assistantContent = stripToolCalls(assistantContent)
+			if body.Tools.AutoExecute {
+				toolResults = s.executeToolCalls(r.Context(), u.ID, body.Tools, calls)
+			} else {
+				toolResults = make([]chatToolResult, len(calls))
+				for i, c := range calls {
+					toolResults[i] = chatToolResult{Call: c}
+				}
+			}
+		}
+	}
+
+	message := map[string]any{"role": "assistant", "content": assistantContent}
+	if len(toolResults) > 0 {
+		message["tool_calls"] = toolResults
+	}
+	finishReason := "stop"
+	if len(toolResults) > 0 && !body.Tools.AutoExecute {
+		finishReason = "tool_calls"
+	}
 	writeJSON(w, 200, map[string]any{
 		"id":      respID,
 		"object":  "chat.completion",
@@ -608,8 +701,8 @@ DONE:
 		"model":   modelName,
 		"choices": []map[string]any{{
 			"index":         0,
-			"message":       map[string]any{"role": "assistant", "content": builder.String()},
-			"finish_reason": "stop",
+			"message":       message,
+			"finish_reason": finishReason,
 		}},
 		"usage": map[string]any{
 			"prompt_tokens":     inTok,

@@ -235,11 +235,23 @@ func main() {
 	if err := migrateRAG(db, dialect); err != nil {
 		log.Fatalf("migrate rag: %v", err)
 	}
+	if err := migrateConvMemory(db, dialect); err != nil {
+		log.Fatalf("migrate conv_memory: %v", err)
+	}
+	if err := migrateQuarantine(db, dialect); err != nil {
+		log.Fatalf("migrate quarantine: %v", err)
+	}
 
 	srv := newServer(cfg, db)
 	srv.dialect = dialect
 	if err := srv.backfillSlugs(); err != nil {
 		log.Fatalf("backfill slugs: %v", err)
+	}
+	if err := srv.backfillAgentKeyHashes(); err != nil {
+		log.Fatalf("backfill agent_key_hashes: %v", err)
+	}
+	if err := srv.drift.hydrateQuarantine(db); err != nil {
+		log.Printf("hydrate quarantine: %v", err)
 	}
 	httpSrv := &http.Server{
 		Addr:              cfg.addr,

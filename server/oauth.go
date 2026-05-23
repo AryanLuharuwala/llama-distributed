@@ -2,14 +2,73 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// oauthStateMaxAge bounds how long a freshly-minted state token is
+// honored on callback.  Long enough for a slow GitHub round-trip on a
+// flaky network; short enough to make a stolen state token useless.
+const oauthStateMaxAge = int64(600) // 10 minutes
+
+// mintOAuthState returns a state string that binds the calling client
+// IP and a freshly-stamped timestamp to a server secret.  The format is
+// "<unix-ts>.<base64-hmac>" — both halves are echoed back by the OAuth
+// provider, so verify() can recompute the HMAC for the same IP and
+// reject mismatches.  This is the companion to the Secure cookie
+// hardening done in A2: even if the oauth_state cookie escapes, an
+// attacker on a different IP can't drive the callback through to a
+// stage where the session is minted.
+func (s *server) mintOAuthState(clientIP string) string {
+	ts := nowUnix()
+	mac := s.computeOAuthStateMAC(ts, clientIP)
+	return fmt.Sprintf("%d.%s", ts, base64.RawURLEncoding.EncodeToString(mac))
+}
+
+// verifyOAuthState parses the timestamp + HMAC, checks both against the
+// server secret and the calling client IP, and confirms the timestamp
+// is within oauthStateMaxAge.  Returns true only if everything lines
+// up.  Constant-time HMAC compare so attackers can't time-attack the
+// secret material.
+func (s *server) verifyOAuthState(state, clientIP string) bool {
+	dot := strings.IndexByte(state, '.')
+	if dot <= 0 || dot == len(state)-1 {
+		return false
+	}
+	ts, err := strconv.ParseInt(state[:dot], 10, 64)
+	if err != nil {
+		return false
+	}
+	now := nowUnix()
+	if ts > now+5 || now-ts > oauthStateMaxAge {
+		return false
+	}
+	got, err := base64.RawURLEncoding.DecodeString(state[dot+1:])
+	if err != nil {
+		return false
+	}
+	want := s.computeOAuthStateMAC(ts, clientIP)
+	return hmac.Equal(got, want)
+}
+
+func (s *server) computeOAuthStateMAC(ts int64, clientIP string) []byte {
+	h := hmac.New(sha256.New, []byte(s.cfg.sessionSecret))
+	fmt.Fprintf(h, "oauth-state:%d:%s", ts, clientIP)
+	sum := h.Sum(nil)
+	// Truncate to 16 bytes — plenty against forgery given the timestamp
+	// and IP material are already included.
+	return sum[:16]
+}
 
 //go:embed assets/auth.html
 var authPageHTML []byte
@@ -55,12 +114,14 @@ func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub OAuth not configured (set DIST_GITHUB_CLIENT/SECRET)", 501)
 		return
 	}
-	state := newRandomToken(16)
+	state := s.mintOAuthState(clientIP(r))
+	secure := s.secureCookies()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
 		Value:    state,
 		Path:     "/auth",
 		HttpOnly: true,
+		Secure:   secure,
 		MaxAge:   600,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -72,6 +133,7 @@ func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 			Value:    next,
 			Path:     "/auth",
 			HttpOnly: true,
+			Secure:   secure,
 			MaxAge:   600,
 			SameSite: http.SameSiteLaxMode,
 		})
@@ -95,6 +157,14 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 	sc, err := r.Cookie("oauth_state")
 	if err != nil || sc.Value == "" || sc.Value != state {
 		http.Error(w, "bad oauth state", 400)
+		return
+	}
+	if !s.verifyOAuthState(state, clientIP(r)) {
+		// Cookie matched the state echoed back by GitHub but the HMAC
+		// doesn't validate against this client IP or has expired.
+		// Refuse — an attacker who pried the cookie loose from a
+		// different IP shouldn't be able to complete the flow.
+		http.Error(w, "oauth state expired or bound to a different client", 400)
 		return
 	}
 	if code == "" {
@@ -126,6 +196,17 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		if display == "" {
 			display = gh.Login
 		}
+		// Github profile names are user-controlled and can carry the
+		// same hostile shapes (BiDi overrides, overlong, non-NFC) as a
+		// dev-login submission.  Fall back to the login on rejection,
+		// then to a placeholder so we never persist garbage.
+		if clean, err := sanitizeDisplayName(display); err == nil {
+			display = clean
+		} else if clean, err := sanitizeDisplayName(gh.Login); err == nil {
+			display = clean
+		} else {
+			display = "user"
+		}
 		res, err := s.db.Exec(
 			`INSERT INTO users (github_id, github_login, display_name, created_at)
 			 VALUES (?, ?, ?, ?)`,
@@ -148,7 +229,14 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("oauth_next"); err == nil && strings.HasPrefix(c.Value, "/") && !strings.HasPrefix(c.Value, "//") {
 		dest = c.Value
 		// Clear the cookie so it doesn't sticky across logins.
-		http.SetCookie(w, &http.Cookie{Name: "oauth_next", Value: "", Path: "/auth", MaxAge: -1})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauth_next",
+			Value:    "",
+			Path:     "/auth",
+			HttpOnly: true,
+			Secure:   s.secureCookies(),
+			MaxAge:   -1,
+		})
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
 }

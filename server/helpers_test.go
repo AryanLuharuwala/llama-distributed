@@ -101,29 +101,36 @@ func TestIsSafeOutputFile(t *testing.T) {
 func TestSignComfyOutputRoundtripAndTamper(t *testing.T) {
 	s := &server{cfg: config{sessionSecret: "test-secret-1234", publicURL: "https://x.example.com"}}
 
-	// Sign two slightly different inputs — they MUST produce different sigs.
+	// Sign across distinct (uid, id, file, exp) tuples — every change MUST
+	// flip the signature.  Mirrors the four collision axes for v2.
 	exp := time.Now().Add(time.Hour).Unix()
-	sig1 := s.signComfyOutput(42, "out.png", exp)
-	sig2 := s.signComfyOutput(42, "out.png", exp+1)
-	sig3 := s.signComfyOutput(43, "out.png", exp)
-	sig4 := s.signComfyOutput(42, "OUT.png", exp)
-	if sig1 == sig2 || sig1 == sig3 || sig1 == sig4 {
-		t.Fatal("HMAC collision across distinct inputs")
+	sig1 := s.signComfyOutputV2(7, 42, "out.png", exp)
+	sig2 := s.signComfyOutputV2(7, 42, "out.png", exp+1)
+	sig3 := s.signComfyOutputV2(7, 43, "out.png", exp)
+	sig4 := s.signComfyOutputV2(7, 42, "OUT.png", exp)
+	sig5 := s.signComfyOutputV2(8, 42, "out.png", exp)
+	if sig1 == sig2 || sig1 == sig3 || sig1 == sig4 || sig1 == sig5 {
+		t.Fatal("HMAC collision across distinct (uid,id,file,exp) tuples")
 	}
 
-	// A second computation with the same inputs must reproduce sig1 (determinism).
-	if got := s.signComfyOutput(42, "out.png", exp); got != sig1 {
-		t.Fatalf("signComfyOutput non-deterministic: got %q want %q", got, sig1)
+	if got := s.signComfyOutputV2(7, 42, "out.png", exp); got != sig1 {
+		t.Fatalf("signComfyOutputV2 non-deterministic: got %q want %q", got, sig1)
 	}
 
 	// Changing the secret invalidates the signature.
 	s2 := &server{cfg: config{sessionSecret: "different-secret", publicURL: "https://x.example.com"}}
-	if s2.signComfyOutput(42, "out.png", exp) == sig1 {
+	if s2.signComfyOutputV2(7, 42, "out.png", exp) == sig1 {
 		t.Fatal("signature did not change when secret rotated")
 	}
 
-	// signComfyOutputURL wraps it in a URL with exp + sig query params.
-	u := s.signComfyOutputURL(42, "out.png", time.Hour)
+	// v1 must produce a different signature than v2 for the same (id,file,exp)
+	// — the "comfyv2/" prefix is what prevents cross-version replay.
+	if s.signComfyOutputV1(42, "out.png", exp) == s.signComfyOutputV2(7, 42, "out.png", exp) {
+		t.Fatal("v1 and v2 signatures collide; cross-version replay is possible")
+	}
+
+	// signComfyOutputURL wraps it in a v2 URL with v/uid/exp/sig query params.
+	u := s.signComfyOutputURL(7, 42, "out.png", time.Hour)
 	parsed, err := url.Parse(u)
 	if err != nil {
 		t.Fatalf("signComfyOutputURL produced invalid URL: %v", err)
@@ -132,6 +139,12 @@ func TestSignComfyOutputRoundtripAndTamper(t *testing.T) {
 		t.Errorf("URL path = %q", parsed.Path)
 	}
 	q := parsed.Query()
+	if q.Get("v") != "2" {
+		t.Errorf("URL is not v2: v=%q", q.Get("v"))
+	}
+	if q.Get("uid") != "7" {
+		t.Errorf("URL uid = %q want 7", q.Get("uid"))
+	}
 	if q.Get("exp") == "" || q.Get("sig") == "" {
 		t.Error("URL missing exp/sig query params")
 	}

@@ -57,6 +57,22 @@ type server struct {
 	// might still be migrating.
 	startedAt time.Time
 
+	// Per-IP token-bucket limiters for endpoints reached before auth
+	// (device-code approve/poll, oauth_start, hello-fail).  Constructed
+	// in newServer; consumed by handleDeviceApprove + handleDeviceToken
+	// + handleGithubStart + the ws auth path.
+	ipRL *ipRateLimiterSet
+
+	// Per-rig billing-drift estimator.  Records (reported, server-cap)
+	// from each settled inference; once 100 samples accumulate, rigs
+	// that over-report by >5% get flagged in rig_quarantine and stop
+	// earning reputation credit.  See tokenization.go.
+	drift *rigDriftTable
+
+	// Live MCP broker connections, keyed by (uid, server_id).  Lazy-init
+	// on first call; janitor closes idle entries past mcpConnTTL.
+	brokers *brokerRegistry
+
 	// Flipped to true when graceful shutdown begins.  /readyz watches
 	// this so load balancers can stop sending new connections while the
 	// process drains in-flight work.
@@ -74,6 +90,8 @@ func newServer(cfg config, db *sql.DB) *server {
 		comfyJobs: newComfyJobs(),
 		relays:    newActiveRelays(),
 		costCache: newRigCostCache(2 * time.Second),
+		ipRL:      newIPRateLimiterSet(),
+		drift:     newRigDriftTable(),
 		startedAt: time.Now(),
 	}
 }
@@ -269,6 +287,27 @@ func (s *server) router() http.Handler {
 	// Desktop-widget combined feed (session OR agent-key auth).
 	mux.HandleFunc("GET /api/widget/state", s.handleWidgetState)
 	mux.HandleFunc("GET /console", s.handleConsolePage)
+	mux.HandleFunc("GET /observatory", s.handleObservatoryPage)
+	mux.HandleFunc("GET /nexus", s.handleNexusPage)
+
+	// RAG control plane.
+	mux.HandleFunc("POST /api/rag/collections", s.handleRAGCreateCollection)
+	mux.HandleFunc("GET /api/rag/collections", s.handleRAGListCollections)
+	mux.HandleFunc("DELETE /api/rag/collections/{id}", s.handleRAGDeleteCollection)
+	mux.HandleFunc("POST /api/rag/collections/{id}/documents", s.handleRAGUploadDocument)
+	mux.HandleFunc("GET /api/rag/collections/{id}/documents", s.handleRAGListDocuments)
+	mux.HandleFunc("DELETE /api/rag/collections/{id}/documents/{doc_id}", s.handleRAGDeleteDocument)
+	mux.HandleFunc("POST /api/rag/collections/{id}/search", s.handleRAGSearch)
+	mux.HandleFunc("POST /api/rag/collections/{id}/hybrid_search", s.handleRAGHybridSearch)
+
+	// MCP control plane.  Registry CRUD for user-owned tool servers,
+	// plus the broker call path that proxies JSON-RPC through to them.
+	mux.HandleFunc("GET /api/mcp/servers", s.handleMCPListServers)
+	mux.HandleFunc("POST /api/mcp/servers", s.handleMCPCreateServer)
+	mux.HandleFunc("GET /api/mcp/servers/{id}", s.handleMCPGetServer)
+	mux.HandleFunc("PUT /api/mcp/servers/{id}", s.handleMCPUpdateServer)
+	mux.HandleFunc("DELETE /api/mcp/servers/{id}", s.handleMCPDeleteServer)
+	mux.HandleFunc("POST /api/mcp/{server}/call", s.handleMCPCall)
 
 	// Health + readiness + metrics.  /healthz is a cheap liveness
 	// probe (always 200 if the process is up); /readyz pings the DB and
@@ -509,12 +548,23 @@ func (s *server) userFromRequest(r *http.Request) (*user, bool) {
 	return u, true
 }
 
+// secureCookies returns true when publicURL is HTTPS, so we should set
+// the Secure flag on every Set-Cookie we emit.  Plain-HTTP deployments
+// (dev, behind-a-trusted-proxy testing) don't get the flag because
+// browsers will refuse to send it back and the user is silently logged
+// out.  This is the single source of truth — every SetCookie site
+// reads from here.
+func (s *server) secureCookies() bool {
+	return strings.HasPrefix(strings.ToLower(s.cfg.publicURL), "https://")
+}
+
 func (s *server) setSessionCookie(w http.ResponseWriter, sid string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sid,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   s.secureCookies(),
 		Expires:  expires,
 		SameSite: http.SameSiteLaxMode,
 	})
@@ -522,10 +572,12 @@ func (s *server) setSessionCookie(w http.ResponseWriter, sid string, expires tim
 
 func (s *server) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:   sessionCookieName,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.secureCookies(),
+		MaxAge:   -1,
 	})
 }
 
@@ -601,10 +653,16 @@ func (s *server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DisplayName string `json:"display_name"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil || body.DisplayName == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "display_name required")
 		return
 	}
+	clean, err := sanitizeDisplayName(body.DisplayName)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	body.DisplayName = clean
 	res, err := s.db.Exec(
 		`INSERT INTO users (github_login, display_name, created_at) VALUES (NULL, ?, ?)`,
 		body.DisplayName, nowUnix(),

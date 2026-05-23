@@ -363,7 +363,7 @@ func TestComfyOutput_AuthGaps(t *testing.T) {
 
 	// expired
 	exp := nowUnix() - 60
-	sig := s.signComfyOutput(1, "x.png", exp)
+	sig := s.signComfyOutputV1(1, "x.png", exp)
 	rr = httptest.NewRecorder()
 	r = httptest.NewRequest("GET", fmt.Sprintf("/comfy/out/1/x.png?exp=%d&sig=%s", exp, sig), nil)
 	r.SetPathValue("id", "1")
@@ -385,7 +385,7 @@ func TestComfyOutput_AuthGaps(t *testing.T) {
 
 	// signature replay across files — sig minted for foo.png cannot be reused for bar.png.
 	expOK := nowUnix() + 3600
-	sigFoo := s.signComfyOutput(7, "foo.png", expOK)
+	sigFoo := s.signComfyOutputV1(7, "foo.png", expOK)
 	rr = httptest.NewRecorder()
 	r = httptest.NewRequest("GET", fmt.Sprintf("/comfy/out/7/bar.png?exp=%d&sig=%s", expOK, sigFoo), nil)
 	r.SetPathValue("id", "7")

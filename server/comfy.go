@@ -514,7 +514,7 @@ func (s *server) handleComfyJobDetail(w http.ResponseWriter, r *http.Request) {
 	// Sign per-file URLs so they're shareable.
 	signed := make([]string, 0, len(files))
 	for _, f := range files {
-		signed = append(signed, s.signComfyOutputURL(id, f, 15*time.Minute))
+		signed = append(signed, s.signComfyOutputURL(u.ID, id, f, 15*time.Minute))
 	}
 	writeJSON(w, 200, map[string]any{
 		"id":         id,
@@ -584,17 +584,26 @@ func (s *server) handleComfyListJobs(w http.ResponseWriter, r *http.Request) {
 		var files []string
 		_ = json.Unmarshal([]byte(outFiles), &files)
 		for _, f := range files {
-			j.OutURLs = append(j.OutURLs, s.signComfyOutputURL(j.ID, f, 15*time.Minute))
+			j.OutURLs = append(j.OutURLs, s.signComfyOutputURL(u.ID, j.ID, f, 15*time.Minute))
 		}
 		out = append(out, j)
 	}
 	writeJSON(w, 200, map[string]any{"jobs": out})
 }
 
-// GET /comfy/out/{id}/{file}?exp=...&sig=...
+// GET /comfy/out/{id}/{file}?v=2&uid=...&exp=...&sig=...
 //
-// HMAC-signed output retrieval — mirrors the shard-download URL signing
-// scheme so the dashboard can serve images straight from disk.
+// HMAC-signed output retrieval.  Two URL formats are accepted:
+//
+//   v2 (current):  ?v=2&uid=<uid>&exp=...&sig=hmac("comfyv2/<uid>/<id>/<file>@<exp>")
+//                  Additionally requires an authenticated session whose
+//                  user_id matches uid — leaking the URL is not enough.
+//
+//   v1 (legacy):   ?exp=...&sig=hmac("comfy/<id>/<file>@<exp>")
+//                  Accepted only within comfyV1GraceWindow of server
+//                  startup, to let pre-existing dashboard tabs finish
+//                  resolving any URLs minted before this code shipped.
+//                  After the window: 401 (bad signature).
 func (s *server) handleComfyOutput(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -606,8 +615,9 @@ func (s *server) handleComfyOutput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad file")
 		return
 	}
-	exp, _ := strconv.ParseInt(r.URL.Query().Get("exp"), 10, 64)
-	sig := r.URL.Query().Get("sig")
+	q := r.URL.Query()
+	exp, _ := strconv.ParseInt(q.Get("exp"), 10, 64)
+	sig := q.Get("sig")
 	if exp == 0 || sig == "" {
 		writeErr(w, 401, "missing signature")
 		return
@@ -616,10 +626,47 @@ func (s *server) handleComfyOutput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "url expired")
 		return
 	}
-	want := s.signComfyOutput(id, file, exp)
-	if want != sig {
-		writeErr(w, 401, "bad signature")
-		return
+
+	version := q.Get("v")
+	if version == "2" {
+		uidStr := q.Get("uid")
+		uid, err := strconv.ParseInt(uidStr, 10, 64)
+		if err != nil || uid <= 0 {
+			writeErr(w, 401, "bad uid")
+			return
+		}
+		want := s.signComfyOutputV2(uid, id, file, exp)
+		if !hmac.Equal([]byte(want), []byte(sig)) {
+			writeErr(w, 401, "bad signature")
+			return
+		}
+		// User binding: leaked v2 URL alone is not enough — caller must
+		// also hold a session for the uid encoded in the URL.
+		u, ok := s.userFromRequest(r)
+		if !ok {
+			// Allow API-key fallback so the OAI client polling pattern
+			// keeps working without a browser cookie.
+			if tok := bearerFromRequest(r); tok != "" {
+				if au, aok := s.userFromAPIKey(tok); aok {
+					u, ok = au, true
+				}
+			}
+		}
+		if !ok || u.ID != uid {
+			writeErr(w, 403, "url is bound to another user")
+			return
+		}
+	} else {
+		// Legacy v1 path — only valid for comfyV1GraceWindow after boot.
+		if time.Since(s.startedAt) > comfyV1GraceWindow {
+			writeErr(w, 401, "legacy url no longer accepted; please refresh")
+			return
+		}
+		want := s.signComfyOutputV1(id, file, exp)
+		if !hmac.Equal([]byte(want), []byte(sig)) {
+			writeErr(w, 401, "bad signature")
+			return
+		}
 	}
 	// Resolve and confine the file path to the configured output root —
 	// `isSafeOutputFile` already rejected slashes, but compute the clean
@@ -748,7 +795,7 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 				_ = json.Unmarshal([]byte(outFiles), &files)
 				out := make([]map[string]string, 0, len(files))
 				for _, f := range files {
-					out = append(out, map[string]string{"url": s.signComfyOutputURL(jobID, f, 1*time.Hour)})
+					out = append(out, map[string]string{"url": s.signComfyOutputURL(u.ID, jobID, f, 1*time.Hour)})
 				}
 				writeJSON(w, 200, map[string]any{
 					"created": nowUnix(),
@@ -848,7 +895,7 @@ func (s *server) runComfyJob(
 	s.hub.broadcastToUser(uid, "comfy_progress", map[string]any{
 		"job_id":   jobID,
 		"status":   "done",
-		"out_urls": s.signedURLsFor(jobID, allFiles, 15*time.Minute),
+		"out_urls": s.signedURLsFor(uid, jobID, allFiles, 15*time.Minute),
 	})
 }
 
@@ -1077,28 +1124,54 @@ func (s *server) countComfyJobs() (active, queued, totalFailed int64) {
 	return active, queued, totalFailed
 }
 
-func (s *server) signComfyOutput(id int64, file string, exp int64) string {
-	// Reuse the shard-URL HMAC scheme with a distinct prefix so signed
-	// shard URLs can't be replayed at the comfy endpoint.
+// signComfyOutputV1 is the legacy URL signature scheme: HMAC over
+// (id, file, exp).  Kept only for the 24h grace window after deploy —
+// any URL minted before A11 shipped will still verify against this
+// function for one day.  After that, handleComfyOutput refuses v1 sigs
+// entirely.
+func (s *server) signComfyOutputV1(id int64, file string, exp int64) string {
 	h := hmac.New(sha256.New, []byte(s.cfg.sessionSecret))
 	fmt.Fprintf(h, "comfy/%d/%s@%d", id, file, exp)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (s *server) signComfyOutputURL(id int64, file string, ttl time.Duration) string {
-	exp := time.Now().Add(ttl).Unix()
-	sig := s.signComfyOutput(id, file, exp)
-	return fmt.Sprintf("%s/comfy/out/%d/%s?exp=%d&sig=%s",
-		strings.TrimRight(s.cfg.publicURL, "/"), id, file, exp, sig)
+// signComfyOutputV2 binds the URL to the user_id that minted it.  Even
+// if the URL leaks (image embedded in a public blog, copied into a
+// chat log, indexed by a crawler), a third party can't open it: the
+// HTTP handler additionally requires an authenticated session whose
+// user_id matches the bound uid.
+//
+// Format:  HMAC-SHA256(secret, "comfyv2/<uid>/<id>/<file>@<exp>")
+// URL:     /comfy/out/<id>/<file>?v=2&uid=<uid>&exp=<unix>&sig=<hex>
+//
+// The "comfyv2/" prefix prevents replay of v1 signatures at the v2
+// verifier and vice versa.
+func (s *server) signComfyOutputV2(uid, id int64, file string, exp int64) string {
+	h := hmac.New(sha256.New, []byte(s.cfg.sessionSecret))
+	fmt.Fprintf(h, "comfyv2/%d/%d/%s@%d", uid, id, file, exp)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (s *server) signedURLsFor(id int64, files []string, ttl time.Duration) []string {
+func (s *server) signComfyOutputURL(uid, id int64, file string, ttl time.Duration) string {
+	exp := time.Now().Add(ttl).Unix()
+	sig := s.signComfyOutputV2(uid, id, file, exp)
+	return fmt.Sprintf("%s/comfy/out/%d/%s?v=2&uid=%d&exp=%d&sig=%s",
+		strings.TrimRight(s.cfg.publicURL, "/"), id, file, uid, exp, sig)
+}
+
+func (s *server) signedURLsFor(uid, id int64, files []string, ttl time.Duration) []string {
 	out := make([]string, 0, len(files))
 	for _, f := range files {
-		out = append(out, s.signComfyOutputURL(id, f, ttl))
+		out = append(out, s.signComfyOutputURL(uid, id, f, ttl))
 	}
 	return out
 }
+
+// comfyV1GraceWindow is how long after server start we'll still accept
+// v1 (uid-free) signatures.  Bounded so the audit answer to "can a
+// leaked pre-A11 URL still be opened by anyone?" is "only for 24h
+// after this server booted, then no."
+const comfyV1GraceWindow = 24 * time.Hour
 
 func isSafeOutputFile(f string) bool {
 	if f == "" || strings.Contains(f, "/") || strings.Contains(f, "\\") {

@@ -102,11 +102,16 @@ func (s *server) iceServersFor(audience string) []map[string]any {
 // planner to insert a relay between two adjacent stages when either of
 // them is behind a symmetric NAT.
 //
-// Selection is reputation-aware: we bulk-load the rig_reputation rows for
-// all live candidates and pick the highest score (Bayesian-smoothed
-// success rate × confidence × recency).  Brand-new rigs sit at ~0.4 so
-// they get tried before known-bad ones but after established performers.
-// See reputation.go::relayScore for the formula.
+// Selection is Thompson-sampled (see reputation.go::relayScoreSampled):
+// each call draws once from each rig's Beta posterior and picks the
+// max. Provably regret-optimal for the Bernoulli-bandit framing of
+// "which relay is best?" — converges to the true optimum while still
+// exploring untrusted newcomers.
+//
+// rng is private to this call so concurrent picks don't contend on a
+// shared math/rand mutex.  Seeding from time.Now().UnixNano() ^ a
+// per-call pointer is enough entropy here — the goal is decorrelation
+// across picks, not crypto-strong unpredictability.
 func (s *server) findRelayAgent(exclude map[string]struct{}) *agentConn {
 	if s == nil || s.hub == nil {
 		return nil
@@ -136,12 +141,13 @@ func (s *server) findRelayAgent(exclude map[string]struct{}) *agentConn {
 	}
 	reps := s.allReputations(ids)
 	now := nowUnix()
+	rng := mathRandFresh()
 	best := -1.0
 	var pick *agentConn
 	for i := range cands {
 		r := reps[cands[i].ac.agentID]
 		r.AgentID = cands[i].ac.agentID
-		cands[i].score = relayScore(r, now)
+		cands[i].score = relayScoreSampled(r, now, rng)
 		if cands[i].score > best {
 			best = cands[i].score
 			pick = cands[i].ac

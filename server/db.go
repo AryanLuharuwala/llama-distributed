@@ -181,6 +181,15 @@ func migrate(db *sql.DB, d sqlDialect) error {
 		// and replays it on every reconnect, so pair tokens become a
 		// one-shot bootstrap rather than a per-restart requirement.
 		`ALTER TABLE rigs ADD COLUMN agent_key TEXT`,
+		// sha256(agent_key) — the resume + bearer-lookup paths read this
+		// column, never agent_key.  See agent_key.go for the hashing helper
+		// and the constant-time verify.  Plaintext column stays around for
+		// legacy rescue scripts but is no longer authoritative.
+		`ALTER TABLE rigs ADD COLUMN agent_key_hash TEXT`,
+		// Bearer-token lookup (agentFromRequest) has no agent_id to scope on,
+		// so we need an index on agent_key_hash to avoid a full-table scan
+		// on every /api/agent/* request.
+		`CREATE INDEX IF NOT EXISTS idx_rigs_agent_key_hash ON rigs(agent_key_hash)`,
 		// Signed agent identity.  The rig generates an ed25519 keypair
 		// on first boot and registers the public key here.  On every
 		// resume the rig signs a per-connect nonce so a leaked agent_key

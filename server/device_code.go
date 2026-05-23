@@ -102,6 +102,10 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 // Marks the row approved + binds the current user_id, mints an agent_key
 // and a stable agent_id, and inserts/updates the rigs row.
 func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
+	if s.ipRL != nil && !s.ipRL.deviceApprove.allow(remoteIPForRateLimit(r)) {
+		writeErr(w, 429, "too many approval attempts — slow down")
+		return
+	}
 	u, ok := s.userFromRequest(r)
 	if !ok {
 		writeErr(w, 401, "not logged in")
@@ -164,16 +168,20 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pre-create the rig row so the dashboard shows it immediately, even
-	// before the rig connects via WS.
+	// before the rig connects via WS.  We store only the hash here; the
+	// plaintext lives in device_codes.agent_key for exactly one polled
+	// fetch (see handleDeviceToken below, which nulls it out on read).
+	akHash := hashAgentKey(agentKey)
 	if _, err := tx.Exec(`INSERT INTO rigs
-		(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, agent_key_hash)
+		VALUES (?, ?, ?, ?, ?, ?, '', ?)
 		ON CONFLICT (user_id, agent_id) DO UPDATE SET
-		   hostname   = excluded.hostname,
-		   n_gpus     = excluded.n_gpus,
-		   vram_bytes = excluded.vram_bytes,
-		   agent_key  = excluded.agent_key`,
-		u.ID, agentID, hostname, nGPUs, vramBytes, nowUnix(), agentKey,
+		   hostname       = excluded.hostname,
+		   n_gpus         = excluded.n_gpus,
+		   vram_bytes     = excluded.vram_bytes,
+		   agent_key      = '',
+		   agent_key_hash = excluded.agent_key_hash`,
+		u.ID, agentID, hostname, nGPUs, vramBytes, nowUnix(), akHash,
 	); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -196,6 +204,10 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 // Returns 428 (precondition_required) until approved, then 200 with
 // {agent_id, agent_key, server}.
 func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
+	if s.ipRL != nil && !s.ipRL.devicePoll.allow(remoteIPForRateLimit(r)) {
+		writeErr(w, 429, "poll too fast — back off")
+		return
+	}
 	var body struct {
 		DeviceCode string `json:"device_code"`
 	}
@@ -227,6 +239,26 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		// clients see a clear "not yet" without it looking like a hard
 		// error.
 		writeJSON(w, 428, map[string]any{"status": "pending"})
+		return
+	}
+
+	// Consume-once: null out the plaintext column the moment the rig
+	// fetches it.  A second poll for the same device_code returns 410.
+	// We do the CAS-style UPDATE … WHERE agent_key IS NOT NULL so two
+	// concurrent polls race to read-and-null exactly once.
+	res, err := s.db.Exec(
+		`UPDATE device_codes SET agent_key = NULL
+		   WHERE device_code = ? AND agent_key IS NOT NULL`,
+		body.DeviceCode,
+	)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Someone else already consumed it (or it was never set).  Treat
+		// as expired so the second poller doesn't keep retrying forever.
+		writeErr(w, 410, "device_code already consumed")
 		return
 	}
 
@@ -270,10 +302,21 @@ func (s *server) agentFromRequest(r *http.Request) (uid int64, agentID string, o
 	if key == "" {
 		return 0, "", false
 	}
-	err := s.db.QueryRow(
-		`SELECT user_id, agent_id FROM rigs WHERE agent_key = ? LIMIT 1`, key,
-	).Scan(&uid, &agentID)
-	if err != nil {
+	// Look up by hash, not plaintext — the indexed agent_key_hash column
+	// is the canonical bearer mapping post-A1.  Falls back to the plaintext
+	// column only for rows that the boot-time backfill hasn't touched yet
+	// (e.g. an in-flight reconnect on a freshly-migrated DB).
+	hash := hashAgentKey(key)
+	if err := s.db.QueryRow(
+		`SELECT user_id, agent_id FROM rigs WHERE agent_key_hash = ? LIMIT 1`, hash,
+	).Scan(&uid, &agentID); err == nil {
+		return uid, agentID, true
+	}
+	if err := s.db.QueryRow(
+		`SELECT user_id, agent_id FROM rigs
+		   WHERE (agent_key_hash IS NULL OR agent_key_hash = '')
+		     AND agent_key = ? LIMIT 1`, key,
+	).Scan(&uid, &agentID); err != nil {
 		return 0, "", false
 	}
 	return uid, agentID, true

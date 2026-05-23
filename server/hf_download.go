@@ -705,19 +705,20 @@ func (s *server) handleHFResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	convertible := false
-	files, err := hfListGGUF(ctx, body.RepoID, body.Revision, s.userHFToken(u.ID))
-	if err != nil && strings.Contains(err.Error(), "no .gguf files") {
-		// Fall back to the convertible listing so the picker UI can show
-		// what would be downloaded under the convert path.
-		var err2 error
-		files, err2 = hfListConvertible(ctx, body.RepoID, body.Revision, s.userHFToken(u.ID))
-		if err2 != nil {
-			writeErr(w, 502, err.Error()+" — convert fallback: "+err2.Error())
-			return
-		}
-		convertible = true
-	} else if err != nil {
+	token := s.userHFToken(u.ID)
+	files, convertible, err := getHFCoalescer().resolve(ctx, body.RepoID, body.Revision, token,
+		func(inner context.Context) ([]hfFileInfo, bool, error) {
+			f, e := hfListGGUF(inner, body.RepoID, body.Revision, token)
+			if e != nil && strings.Contains(e.Error(), "no .gguf files") {
+				f2, e2 := hfListConvertible(inner, body.RepoID, body.Revision, token)
+				if e2 != nil {
+					return nil, false, fmt.Errorf("%s — convert fallback: %s", e.Error(), e2.Error())
+				}
+				return f2, true, nil
+			}
+			return f, false, e
+		})
+	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}

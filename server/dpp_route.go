@@ -398,6 +398,13 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 429, map[string]any{"error": "rate limit", "policy": policy, "usage": snap})
 		return
 	}
+	// Unconditional slot-refund guard — see inference.go for rationale.
+	slotBilled := false
+	defer func() {
+		if !slotBilled {
+			s.refundRequestSlot(u.ID)
+		}
+	}()
 
 	config := map[string]any{
 		"steps":     body.Steps,
@@ -568,9 +575,11 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 						{"url": outPath},
 					},
 				})
+				slotBilled = true
 				return
 			case actvTypeDone:
 				writeJSON(w, 200, map[string]any{"done": true})
+				slotBilled = true
 				return
 			case actvTypeError:
 				writeErr(w, 500, string(f.Payload))
@@ -609,7 +618,7 @@ func (s *server) persistDPPImage(uid int64, reqID uint16, data []byte) (string, 
 		`UPDATE comfy_jobs SET status='done', out_files=?, updated_at=? WHERE id=?`,
 		string(outFilesJSON), nowUnix(), jobID,
 	)
-	return s.signComfyOutputURL(jobID, file, 1*time.Hour), nil
+	return s.signComfyOutputURL(uid, jobID, file, 1*time.Hour), nil
 }
 
 type dppErr string

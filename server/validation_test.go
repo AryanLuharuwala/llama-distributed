@@ -135,7 +135,30 @@ func TestIsAllowedPublicIP(t *testing.T) {
 		{"junk", "not-an-ip", "1.2.3.4", false},
 		{"oversize", strings.Repeat("a", 100), "1.2.3.4", false},
 		{"public IPv6", "2001:4860:4860::8888", "1.2.3.4", true},
-		{"ULA IPv6", "fc00::1", "1.2.3.4", false},
+		{"ULA IPv6 fc00", "fc00::1", "1.2.3.4", false},
+		{"ULA IPv6 fd00", "fd12:3456:789a::1", "1.2.3.4", false},
+		{"ULA IPv6 fdff boundary", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "1.2.3.4", false},
+		{"6to4 IPv6 2002", "2002:c0a8:0101::1", "1.2.3.4", false},
+		{"Teredo 2001::/32", "2001:0:53aa:64c:0:0:0:1", "1.2.3.4", false},
+		{"IPv6 documentation 2001:db8", "2001:db8::1", "1.2.3.4", false},
+		{"deprecated 6bone 3ffe", "3ffe::1", "1.2.3.4", false},
+		{"discard 100::/64", "100::1", "1.2.3.4", false},
+		{"reserved 240/4", "240.0.0.1", "1.2.3.4", false},
+		{"broadcast 255.255.255.255", "255.255.255.255", "1.2.3.4", false},
+		{"benchmarking 198.18", "198.18.0.5", "1.2.3.4", false},
+		{"benchmarking 198.19", "198.19.99.99", "1.2.3.4", false},
+		{"documentation TEST-NET-1", "192.0.2.50", "1.2.3.4", false},
+		{"documentation TEST-NET-2", "198.51.100.50", "1.2.3.4", false},
+		{"documentation TEST-NET-3", "203.0.113.50", "1.2.3.4", false},
+		{"this-network 0.x", "0.1.2.3", "1.2.3.4", false},
+		{"RFC1918 172.16 boundary", "172.16.0.1", "1.2.3.4", false},
+		{"RFC1918 172.31 boundary", "172.31.255.254", "1.2.3.4", false},
+		{"172.32 is public (just outside RFC1918)", "172.32.0.1", "1.2.3.4", true},
+		{"CGNAT 100.64 boundary", "100.64.0.0", "1.2.3.4", false},
+		{"CGNAT 100.127 boundary", "100.127.255.255", "1.2.3.4", false},
+		{"100.128 is public (just outside CGNAT)", "100.128.0.1", "1.2.3.4", true},
+		{"IPv4-mapped IPv6 to public", "::ffff:8.8.8.8", "1.2.3.4", true},
+		{"IPv4-mapped IPv6 to RFC1918", "::ffff:10.0.0.1", "1.2.3.4", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -168,6 +191,36 @@ func TestClampRelayBytes(t *testing.T) {
 			t.Errorf("clampRelayBytes(%d) = (%d, %v); want (%d, %v)",
 				c.in, out, clamped, c.out, c.clamped)
 		}
+	}
+}
+
+func TestClampRelayBytesByElapsed(t *testing.T) {
+	const startedAt = int64(1_000_000)
+	// At 10 Gbps the per-second byte budget is 10*2^30/8 = 1342177280.
+	const perSec = int64(10) << 30 / 8
+	cases := []struct {
+		name     string
+		reported int64
+		now      int64
+		want     int64
+		clamped  bool
+	}{
+		{"zero passes through", 0, startedAt + 5, 0, false},
+		{"under cap", 1024, startedAt + 60, 1024, false},
+		{"exactly at cap", perSec * 10, startedAt + 10, perSec * 10, false},
+		{"over cap is clamped", perSec * 100, startedAt + 1, perSec, true},
+		{"fresh release uses 1-sec grace", perSec + 1, startedAt, perSec, true},
+		{"long session allows large totals", 32 << 30, startedAt + 600, 32 << 30, false},
+		{"negative input is normalized", -7, startedAt + 10, 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, clamped := clampRelayBytesByElapsed(c.reported, startedAt, c.now)
+			if got != c.want || clamped != c.clamped {
+				t.Errorf("clampRelayBytesByElapsed(%d, %d, %d) = (%d, %v); want (%d, %v)",
+					c.reported, startedAt, c.now, got, clamped, c.want, c.clamped)
+			}
+		})
 	}
 }
 

@@ -12,6 +12,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -155,6 +156,28 @@ func (s *server) recordTokens(userID int64, inTok, outTok int) {
 		   output_tokens = output_tokens + excluded.output_tokens`,
 		userID, periodKey, inTok, outTok,
 	)
+}
+
+// settleTokens applies serverside upper-bound clamps to a rig-reported
+// (inTok, outTok) using the original prompt's character count and the
+// observed completion byte stream as ceilings.  It also feeds the
+// running drift estimator so chronic over-reporters get quarantined.
+//
+// Returns the safe (in, out) values that callers should persist to
+// inference_log / usage_counters / OAI response usage block.
+func (s *server) settleTokens(
+	agentID string,
+	reportedIn, reportedOut, promptChars, completionBytes int,
+) (inTok, outTok int) {
+	inTok, outTok, clamped := clampReportedTokens(reportedIn, reportedOut, promptChars, completionBytes)
+	if clamped {
+		log.Printf("settleTokens: clamped rig=%s reported=(%d,%d) -> (%d,%d) prompt=%dchars completion=%dbytes",
+			agentID, reportedIn, reportedOut, inTok, outTok, promptChars, completionBytes)
+	}
+	if s.drift != nil {
+		s.drift.observe(s.db, agentID, reportedOut, bytesToMaxTokens(completionBytes), completionBytes)
+	}
+	return
 }
 
 // ─── REST: GET /api/usage ──────────────────────────────────────────────────

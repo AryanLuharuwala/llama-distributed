@@ -149,29 +149,91 @@ func isAllowedPublicIP(claimed, remoteIP string) bool {
 	return !isPrivateOrCGN(ip)
 }
 
-// isPrivateOrCGN returns true for RFC1918, CGNAT (100.64.0.0/10), and
-// loopback ranges.  These are all addresses that can't be the source of
-// a STUN srflx response in practice; rigs claiming them are either
-// confused or hostile.
+// isPrivateOrCGN returns true for any address that can't be the source
+// of a STUN srflx response from the public Internet.  Rigs claiming
+// these ranges are either confused or actively trying to redirect
+// TURN traffic at a victim.
+//
+// Covers:
+//   IPv4: RFC1918 (10/8, 172.16/12, 192.168/16), loopback (127/8),
+//         CGNAT (100.64/10), link-local (169.254/16 — also caught by
+//         net.IP.IsLinkLocalUnicast at the call site), benchmarking
+//         (198.18/15), documentation (192.0.2/24, 198.51.100/24,
+//         203.0.113/24), 0/8, 240/4 future-reserved, and broadcast.
+//   IPv6: ULA (fc00::/7), 6to4 (2002::/16 — the encapsulated v4
+//         address would let a rig tunnel through to private space),
+//         Teredo (2001::/32), discard (100::/64), documentation
+//         (2001:db8::/32), 6bone (deprecated, 3ffe::/16).
 func isPrivateOrCGN(ip net.IP) bool {
 	if ip4 := ip.To4(); ip4 != nil {
 		switch {
+		case ip4[0] == 0:
+			return true
 		case ip4[0] == 10:
 			return true
 		case ip4[0] == 127:
 			return true
+		case ip4[0] == 169 && ip4[1] == 254:
+			return true
 		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+			return true
+		case ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 0:
+			return true
+		case ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 2:
 			return true
 		case ip4[0] == 192 && ip4[1] == 168:
 			return true
-		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127: // CGNAT
+		case ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19):
+			return true
+		case ip4[0] == 198 && ip4[1] == 51 && ip4[2] == 100:
+			return true
+		case ip4[0] == 203 && ip4[1] == 0 && ip4[2] == 113:
+			return true
+		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127:
+			return true
+		case ip4[0] >= 224: // 224/4 multicast (caught upstream) + 240/4 reserved + 255.255.255.255
 			return true
 		}
 		return false
 	}
-	// IPv6: fc00::/7 is ULA, ::1 loopback (already caught), fe80::/10
-	// link-local (already caught).
-	return len(ip) == 16 && (ip[0]&0xfe) == 0xfc
+	if len(ip) != 16 {
+		return false
+	}
+	// ULA: fc00::/7 — top 7 bits are 1111110.
+	if (ip[0] & 0xfe) == 0xfc {
+		return true
+	}
+	// 6to4: 2002::/16 — embeds an IPv4 in the next 32 bits.  Lets a
+	// rig tunnel a claim through to private IPv4 space.  Reject the
+	// whole block; legitimate public-IPv6 rigs use native 2000::/3.
+	if ip[0] == 0x20 && ip[1] == 0x02 {
+		return true
+	}
+	// Teredo: 2001::/32.  Same reasoning — encapsulated v4.
+	if ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x00 && ip[3] == 0x00 {
+		return true
+	}
+	// Discard prefix: 100::/64.
+	if ip[0] == 0x01 && ip[1] == 0x00 && ip[2] == 0x00 && ip[3] == 0x00 &&
+		ip[4] == 0x00 && ip[5] == 0x00 && ip[6] == 0x00 && ip[7] == 0x00 {
+		return true
+	}
+	// IPv6 documentation: 2001:db8::/32.
+	if ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x0d && ip[3] == 0xb8 {
+		return true
+	}
+	// Deprecated 6bone: 3ffe::/16.
+	if ip[0] == 0x3f && ip[1] == 0xfe {
+		return true
+	}
+	// IPv4-mapped (::ffff:0:0/96).  Re-check as IPv4 — defensive,
+	// net.IP.To4() above should already have caught this.
+	if ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0 &&
+		ip[4] == 0 && ip[5] == 0 && ip[6] == 0 && ip[7] == 0 &&
+		ip[8] == 0 && ip[9] == 0 && ip[10] == 0xff && ip[11] == 0xff {
+		return isPrivateOrCGN(net.IPv4(ip[12], ip[13], ip[14], ip[15]))
+	}
+	return false
 }
 
 // clampRelayBytes bounds the byte count a rig can claim per session.
@@ -185,4 +247,45 @@ func clampRelayBytes(v int64) (int64, bool) {
 		return maxRelayBytesPerSession, true
 	}
 	return v, false
+}
+
+// maxRelayBitsPerSec is the upper bound on plausible throughput per
+// direction on a relay link.  A residential 10 GbE uplink is unrealistic
+// for nearly every operator but we don't want to penalize that one shop
+// with a dark-fiber drop.  Anything beyond is a rig trying to inflate
+// its tiebreaker score by reporting bytes that physically could not
+// have transited within the session window.
+//
+// At 10 Gbps, a 60-second session can plausibly move ~75 GB — well
+// above the per-session 64 GiB hard cap, so for short sessions the
+// per-session cap still binds.  This second cap kicks in for sessions
+// that release a few seconds after assign with a giant byte report.
+const maxRelayBitsPerSec = int64(10) << 30 // 10 Gbps
+
+// clampRelayBytesByElapsed bounds the reported byte count against the
+// physical wall-clock window the session occupied.  A relay rig that
+// claims 64 GiB across a 1-second session is lying — the link couldn't
+// carry it.  We grant a 1-second grace so freshly-assigned sessions
+// that release immediately don't divide-by-zero.
+//
+// Returns the clamped value plus whether clamping happened so the
+// caller can log.
+func clampRelayBytesByElapsed(reported, startedAt, nowSec int64) (int64, bool) {
+	if reported <= 0 {
+		// Pass through (clampRelayBytes already normalized negatives).
+		if reported < 0 {
+			return 0, true
+		}
+		return 0, false
+	}
+	elapsed := nowSec - startedAt
+	if elapsed < 1 {
+		elapsed = 1
+	}
+	// max bytes = elapsed_sec * (max_bps / 8)
+	limit := elapsed * (maxRelayBitsPerSec / 8)
+	if limit < 0 || reported > limit {
+		return limit, true
+	}
+	return reported, false
 }

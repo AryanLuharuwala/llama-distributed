@@ -647,6 +647,34 @@ func (s *server) handleConsolePage(w http.ResponseWriter, r *http.Request) {
 	w.Write(consoleHTML)
 }
 
+//go:embed assets/observatory.html
+var observatoryHTML []byte
+
+// /observatory — tactical operations dashboard.  A distinct aesthetic
+// from /console: amber/copper command-deck palette, layer-by-layer model
+// visualizer, NAT/firewall matrix, route attribution, per-rig modal.
+// Same data sources as /console — pure JS composition, no new server endpoints.
+func (s *server) handleObservatoryPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(observatoryHTML)
+}
+
+//go:embed assets/nexus.html
+var nexusHTML []byte
+
+// /nexus — third dashboard.  Indigo/mint quantum-lab palette with a
+// force-directed network graph, model loader, layer-by-stage visualizer,
+// rig fleet grid with per-rig modal, NAT/firewall posture matrix,
+// bottleneck inspector, and live route attribution.  All data sourced
+// from existing read-only APIs (/api/me, /api/me/rigs, /api/me/rigs/stream,
+// /api/console/network, /api/pools/{id}/topology) — no new server endpoints.
+// The model-load form posts to /api/models/load which can be wired by a
+// future agent-side endpoint; the UI degrades cleanly when it's absent.
+func (s *server) handleNexusPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(nexusHTML)
+}
+
 // ─── /api/widget/state — desktop widget combined feed ─────────────────────
 //
 // One-shot endpoint the surd desktop widget polls every few seconds.

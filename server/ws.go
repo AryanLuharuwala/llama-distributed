@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"log"
@@ -15,6 +18,33 @@ import (
 
 	"github.com/coder/websocket"
 )
+
+// authFailJitter sleeps a small randomised amount to defeat timing-based
+// user enumeration on the hello/resume paths.  Anywhere from 75ms to
+// 250ms — small enough not to harm honest reconnects, large enough to
+// dwarf any branch-timing differential between "no such rig" and
+// "wrong key".
+func authFailJitter() {
+	var n uint16
+	_ = binary.Read(rand.Reader, binary.BigEndian, &n)
+	// 75ms base, up to ~250ms total.
+	d := 75*time.Millisecond + time.Duration(n%176)*time.Millisecond
+	time.Sleep(d)
+}
+
+// failWSAuth records a hello/resume failure against the per-IP rate
+// limiter, jitters the close so an attacker can't tell which auth
+// branch they hit, sends an error frame, and closes.
+func (s *server) failWSAuth(ctx context.Context, conn *websocket.Conn, ip, msg string) {
+	if s.ipRL != nil {
+		s.ipRL.helloFail.allow(ip)
+	}
+	authFailJitter()
+	_ = wsjsonWrite(ctx, conn, map[string]any{
+		"kind": "error", "message": msg,
+	})
+	_ = conn.Close(websocket.StatusPolicyViolation, msg)
+}
 
 // clientIP returns the request's originating IP, honoring X-Forwarded-For
 // when set (we run behind nginx/cloudflare in prod).  Returns "" if the
@@ -544,6 +574,27 @@ type liveStatus struct {
 }
 
 func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
+	srcIP := clientIP(r)
+
+	// Per-IP throttle before any handshake work.  Burst of 3, refill 12s
+	// (≈5/min) — generous for an honest rig that reconnects on transient
+	// network failure, but a brute-force attacker spamming hello/resume
+	// frames hits the wall after a few tries.  Brief jitter on close so
+	// the rejection can't double as a timing oracle.
+	if s.ipRL != nil && !s.ipRL.helloFail.peek(srcIP) {
+		authFailJitter()
+		// Accept then immediately close — we still need a websocket
+		// session to send a clean status code to the client.
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			InsecureSkipVerify: true,
+			OriginPatterns:     []string{"*"},
+		})
+		if err == nil {
+			_ = conn.Close(websocket.StatusTryAgainLater, "too many auth attempts; back off")
+		}
+		return
+	}
+
 	// The agent is not a browser — accept any origin.  Auth is via pair token
 	// in the first message.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -575,10 +626,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		(hello.Kind != "hello" && hello.Kind != "resume") ||
 		(hello.Kind == "hello" && hello.Token == "") ||
 		(hello.Kind == "resume" && hello.AgentKey == "") {
-		_ = wsjsonWrite(ctx, conn, map[string]any{
-			"kind": "error", "message": "expected hello or resume frame",
-		})
-		_ = conn.Close(websocket.StatusPolicyViolation, "bad hello")
+		s.failWSAuth(ctx, conn, srcIP, "expected hello or resume frame")
 		return
 	}
 
@@ -614,10 +662,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		var err2 error
 		uid, preferPoolID, err2 = s.consumePairToken(hello.Token)
 		if err2 != nil {
-			_ = wsjsonWrite(ctx, conn, map[string]any{
-				"kind": "error", "message": "bad pair token",
-			})
-			_ = conn.Close(websocket.StatusPolicyViolation, "bad token")
+			s.failWSAuth(ctx, conn, srcIP, "bad pair token")
 			return
 		}
 		// Mint a fresh agent_key that the rig persists for future reconnects.
@@ -634,17 +679,20 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// resume: look up (agent_id, agent_key) → user_id + stored pubkey.
+		// resume: look up by agent_id, then constant-time verify the hash.
+		// We deliberately don't WHERE on agent_key here — that would give a
+		// (tiny) timing differential between "no such rig" and "rig exists
+		// but wrong key", and it also forced us to keep plaintext in the
+		// table.  See agent_key.go for the hashing helper.
 		var pkRaw []byte
+		var storedHash sql.NullString
+		var legacyPlain sql.NullString // read for the transitional rescue path below
 		err2 := s.db.QueryRow(
-			`SELECT user_id, pubkey FROM rigs WHERE agent_id = ? AND agent_key = ?`,
-			hello.AgentID, hello.AgentKey,
-		).Scan(&uid, &pkRaw)
-		if err2 != nil {
-			_ = wsjsonWrite(ctx, conn, map[string]any{
-				"kind": "error", "message": "bad agent_key — re-run the pair flow from the dashboard",
-			})
-			_ = conn.Close(websocket.StatusPolicyViolation, "bad agent_key")
+			`SELECT user_id, pubkey, agent_key_hash, agent_key FROM rigs WHERE agent_id = ? LIMIT 1`,
+			hello.AgentID,
+		).Scan(&uid, &pkRaw, &storedHash, &legacyPlain)
+		if err2 != nil || !verifyAgentKeyWithFallback(storedHash, legacyPlain, hello.AgentKey) {
+			s.failWSAuth(ctx, conn, srcIP, "bad agent_key — re-run the pair flow from the dashboard")
 			return
 		}
 		pubkeyBytes = pkRaw
@@ -675,26 +723,17 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			err = wsjsonRead(sigCtx, conn, &sigMsg)
 			scancel()
 			if err != nil || sigMsg.Kind != "sig" || sigMsg.SigB64 == "" {
-				_ = wsjsonWrite(ctx, conn, map[string]any{
-					"kind": "error", "message": "missing or bad sig frame",
-				})
-				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				s.failWSAuth(ctx, conn, srcIP, "missing or bad sig frame")
 				return
 			}
 			sigBytes, err := decodeSigB64(sigMsg.SigB64)
 			if err != nil {
-				_ = wsjsonWrite(ctx, conn, map[string]any{
-					"kind": "error", "message": "sig decode: " + err.Error(),
-				})
-				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				s.failWSAuth(ctx, conn, srcIP, "sig decode failed")
 				return
 			}
 			if err := verifyAgentSig(pubkeyBytes, hello.AgentID, nonce, ts, sigBytes); err != nil {
 				log.Printf("agent %s: sig verify failed: %v", hello.AgentID, err)
-				_ = wsjsonWrite(ctx, conn, map[string]any{
-					"kind": "error", "message": "sig verify failed",
-				})
-				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				s.failWSAuth(ctx, conn, srcIP, "sig verify failed")
 				return
 			}
 		} else {
@@ -709,17 +748,21 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		if len(pubkeyBytes) > 0 {
 			pkArg = pubkeyBytes
 		}
+		// Store hash, not plaintext.  We blank out the legacy agent_key
+		// column so a DB dump never exposes the bearer credential.
+		akHash := hashAgentKey(agentKey)
 		_, err = s.db.Exec(`INSERT INTO rigs
-			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, pubkey)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, agent_key_hash, pubkey)
+			VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)
 			ON CONFLICT (user_id, agent_id)
-			DO UPDATE SET hostname   = excluded.hostname,
-			              n_gpus     = excluded.n_gpus,
-			              vram_bytes = excluded.vram_bytes,
-			              last_seen  = excluded.last_seen,
-			              agent_key  = excluded.agent_key,
-			              pubkey     = COALESCE(excluded.pubkey, rigs.pubkey)`,
-			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), agentKey, pkArg,
+			DO UPDATE SET hostname        = excluded.hostname,
+			              n_gpus          = excluded.n_gpus,
+			              vram_bytes      = excluded.vram_bytes,
+			              last_seen       = excluded.last_seen,
+			              agent_key       = '',
+			              agent_key_hash  = excluded.agent_key_hash,
+			              pubkey          = COALESCE(excluded.pubkey, rigs.pubkey)`,
+			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), akHash, pkArg,
 		)
 	} else {
 		_, err = s.db.Exec(`UPDATE rigs SET hostname = ?, n_gpus = ?, vram_bytes = ?, last_seen = ?
@@ -967,24 +1010,36 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				// session.  We attribute the count to the assignment record
 				// in-flight; the actual reputation row is updated when the
 				// release path runs `recordRelaySuccess(sum)`.
+				//
+				// Two clamps are applied: (1) absolute per-session ceiling
+				// (clampRelayBytes), (2) physically-plausible throughput
+				// over the assignment's wall-clock window
+				// (clampRelayBytesByElapsed).  Both must pass to credit
+				// reputation; either being applied is suspicious enough to
+				// log.
 				if s.relays != nil {
 					sid, _ := msg["session_id"].(string)
-					var l2r, r2l int64
+					var l2rRaw, r2lRaw int64
 					var clampedL, clampedR bool
 					if v, ok := msg["bytes_l2r"].(float64); ok {
-						l2r, clampedL = clampRelayBytes(int64(v))
+						l2rRaw, clampedL = clampRelayBytes(int64(v))
 					}
 					if v, ok := msg["bytes_r2l"].(float64); ok {
-						r2l, clampedR = clampRelayBytes(int64(v))
-					}
-					if clampedL || clampedR {
-						log.Printf("relay_stats: clamped bytes from agent %s session %s (raw l2r=%v r2l=%v)",
-							hello.AgentID, sid, msg["bytes_l2r"], msg["bytes_r2l"])
+						r2lRaw, clampedR = clampRelayBytes(int64(v))
 					}
 					s.relays.mu.Lock()
-					if a := s.relays.byKey[relayKey{sid, hello.AgentID}]; a != nil {
+					a := s.relays.byKey[relayKey{sid, hello.AgentID}]
+					if a != nil {
+						now := nowUnix()
+						l2r, eClampL := clampRelayBytesByElapsed(l2rRaw, a.StartedAt, now)
+						r2l, eClampR := clampRelayBytesByElapsed(r2lRaw, a.StartedAt, now)
 						a.BytesL2R = l2r
 						a.BytesR2L = r2l
+						if clampedL || clampedR || eClampL || eClampR {
+							log.Printf("relay_stats: clamped bytes from agent %s session %s elapsed=%ds (raw l2r=%v r2l=%v -> %d/%d)",
+								hello.AgentID, sid, now-a.StartedAt,
+								msg["bytes_l2r"], msg["bytes_r2l"], l2r, r2l)
+						}
 					}
 					s.relays.mu.Unlock()
 				}

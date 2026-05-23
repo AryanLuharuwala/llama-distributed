@@ -1,0 +1,1131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nexus / distributed inference control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Palette — quantum lab. Deep indigo void, mint signal, coral alert.       */
+  --void: #08080f;
+  --vellum: #0e0d18;
+  --paper: #16142a;
+  --line:  #2a2452;
+  --mute:  #5a4e8a;
+  --ink:   #d8d2ff;
+  --ash:   #8780b5;
+  --mint:  #9fffd7;
+  --mint-dim: #4dc89a;
+  --coral: #ff5e74;
+  --amber: #ffb86b;
+  --violet:#9c7bff;
+  --aqua:  #6df0ff;
+
+  --display: "Major Mono Display", ui-monospace, monospace;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --sans: "Outfit", system-ui, sans-serif;
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+html, body{ height:100%; background:var(--void); color:var(--ink); font-family:var(--sans); font-weight:300; -webkit-font-smoothing:antialiased; }
+body{
+  background:
+    radial-gradient(900px 700px at 12% -10%, rgba(156,123,255,.10), transparent 60%),
+    radial-gradient(700px 500px at 92% 8%, rgba(109,240,255,.08), transparent 60%),
+    radial-gradient(1200px 800px at 50% 120%, rgba(159,255,215,.06), transparent 60%),
+    var(--void);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,255,255,.012) 2px 3px);
+  mix-blend-mode: screen;
+}
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='3'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.25'/></svg>");
+  opacity:.10; mix-blend-mode: overlay;
+}
+button{ font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
+a{ color:var(--mint); text-decoration:none; }
+::-webkit-scrollbar{ width:8px; height:8px; }
+::-webkit-scrollbar-thumb{ background:var(--line); border-radius:2px;}
+::-webkit-scrollbar-track{ background:transparent; }
+::selection{ background:var(--mint); color:var(--void); }
+
+/* ─── shell ─────────────────────────────────────────────────────── */
+.shell{ position:relative; z-index:1; min-height:100vh; display:grid; grid-template-columns: 220px 1fr; }
+.rail{
+  position:sticky; top:0; align-self:start; height:100vh;
+  border-right:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(14,13,24,.96), rgba(8,8,15,.96));
+  padding:24px 18px;
+  display:flex; flex-direction:column; gap:24px;
+}
+.brand{
+  font-family:var(--display); font-size:22px; letter-spacing:.06em; color:var(--mint);
+  line-height:1; padding-bottom:6px; border-bottom:1px solid var(--line);
+}
+.brand .sub{ display:block; font-family:var(--mono); font-size:9px; color:var(--ash); letter-spacing:.34em; margin-top:8px; text-transform:uppercase; }
+.nav{ display:flex; flex-direction:column; gap:1px; }
+.nav a{
+  display:flex; align-items:center; gap:10px;
+  padding:9px 10px; border-radius:2px;
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ash); border:1px solid transparent;
+}
+.nav a:hover{ color:var(--ink); border-color:var(--line); background:rgba(156,123,255,.05); }
+.nav a.active{ color:var(--mint); border-color:var(--mint-dim); background:rgba(159,255,215,.04); }
+.nav a .dot{ width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.6; }
+.rail .footer{ margin-top:auto; font-family:var(--mono); font-size:9px; color:var(--mute); letter-spacing:.22em; line-height:1.6; }
+
+/* ─── main ─────────────────────────────────────────────────────── */
+.main{ padding:0; }
+.top{
+  position:sticky; top:0; z-index:5; backdrop-filter:blur(8px);
+  background: linear-gradient(180deg, rgba(14,13,24,.92), rgba(14,13,24,.6));
+  border-bottom:1px solid var(--line);
+  padding:18px 32px; display:grid; grid-template-columns: 1fr auto; gap:24px; align-items:center;
+}
+.top h1{
+  font-family:var(--display); font-size:34px; line-height:.95;
+  letter-spacing:.02em; color:var(--ink);
+}
+.top h1 em{ font-style:normal; color:var(--mint); }
+.top .meta{ display:flex; align-items:center; gap:18px; font-family:var(--mono); font-size:10px; color:var(--ash); letter-spacing:.18em; text-transform:uppercase;}
+.pulse{ display:inline-flex; align-items:center; gap:8px; padding:4px 8px; border:1px solid var(--line); border-radius:2px; color:var(--mint); }
+.pulse .o{ width:6px; height:6px; border-radius:50%; background:var(--mint); box-shadow:0 0 0 0 rgba(159,255,215,.7); animation:pulse 1.8s infinite; }
+@keyframes pulse{ 0%{ box-shadow:0 0 0 0 rgba(159,255,215,.7);} 70%{ box-shadow:0 0 0 8px rgba(159,255,215,0);} 100%{ box-shadow:0 0 0 0 rgba(159,255,215,0);} }
+
+.section{ padding:36px 32px; border-bottom:1px solid var(--line); position:relative; }
+.section .head{
+  display:grid; grid-template-columns:auto 1fr auto; gap:24px; align-items:end; margin-bottom:22px;
+}
+.section .ix{ font-family:var(--display); font-size:14px; color:var(--mint); letter-spacing:.12em; }
+.section h2{ font-family:var(--display); font-size:28px; letter-spacing:.04em; color:var(--ink); }
+.section .blurb{ font-size:12px; color:var(--ash); line-height:1.55; max-width:540px; justify-self:start; padding-top:6px; }
+.section .ctl{ display:flex; gap:8px; align-items:center; }
+.kpi-strip{
+  display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:2px;
+  overflow:hidden;
+}
+.kpi{ background:var(--vellum); padding:18px 18px 16px; display:flex; flex-direction:column; gap:6px; min-height:96px; }
+.kpi .label{ font-family:var(--mono); font-size:9px; letter-spacing:.22em; color:var(--ash); text-transform:uppercase; }
+.kpi .val{ font-family:var(--display); font-size:28px; letter-spacing:.02em; color:var(--ink); }
+.kpi .val span{ font-family:var(--mono); font-size:11px; color:var(--ash); margin-left:6px; letter-spacing:.12em; }
+.kpi.alert .val{ color:var(--coral); }
+.kpi.ok .val{ color:var(--mint); }
+.kpi.warn .val{ color:var(--amber); }
+
+.btn{
+  font-family:var(--mono); font-size:10px; letter-spacing:.22em; text-transform:uppercase;
+  border:1px solid var(--line); padding:8px 12px; color:var(--ash); border-radius:2px;
+  transition: color .15s, border .15s, background .15s;
+}
+.btn:hover{ color:var(--mint); border-color:var(--mint-dim); background:rgba(159,255,215,.04); }
+.btn.primary{ color:var(--void); background:var(--mint); border-color:var(--mint); }
+.btn.primary:hover{ background:var(--ink); color:var(--void); border-color:var(--ink); }
+.btn .k{ color:var(--mute); }
+.btn.danger{ color:var(--coral); border-color:var(--coral); }
+.btn.danger:hover{ background:rgba(255,94,116,.08); }
+
+/* ─── grid layouts ─────────────────────────────────────────────── */
+.split{ display:grid; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:2px; overflow:hidden;}
+.split.two{ grid-template-columns: 1.4fr 1fr; }
+.split.three{ grid-template-columns: 1fr 1fr 1fr; }
+.split > .pane{ background:var(--vellum); padding:22px; }
+.pane h3{ font-family:var(--mono); font-size:10px; color:var(--ash); letter-spacing:.22em; text-transform:uppercase; margin-bottom:14px; }
+.pane h3 em{ font-style:normal; color:var(--mint); }
+
+/* ─── rig grid ─────────────────────────────────────────────────── */
+.rig-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:14px; }
+.rig{
+  position:relative;
+  border:1px solid var(--line); border-radius:3px;
+  background:linear-gradient(180deg, var(--vellum), rgba(14,13,24,.85));
+  padding:18px 18px 16px; cursor:pointer; transition: border .15s, transform .15s;
+  overflow:hidden;
+}
+.rig:hover{ border-color:var(--mint-dim); transform:translateY(-2px); }
+.rig::before{
+  content:""; position:absolute; left:0; top:0; bottom:0; width:2px;
+  background:linear-gradient(180deg, var(--mint), transparent);
+  opacity:.6;
+}
+.rig.offline::before{ background:linear-gradient(180deg, var(--coral), transparent); opacity:.5; }
+.rig.warn::before{ background:linear-gradient(180deg, var(--amber), transparent); }
+.rig .name{ font-family:var(--mono); font-size:12px; color:var(--ink); display:flex; align-items:center; gap:8px; }
+.rig .name .s{ width:7px; height:7px; border-radius:50%; background:var(--mint); box-shadow:0 0 6px var(--mint); }
+.rig.offline .name .s{ background:var(--coral); box-shadow:none; opacity:.6; }
+.rig.warn .name .s{ background:var(--amber); }
+.rig .id{ font-family:var(--mono); font-size:9px; color:var(--mute); letter-spacing:.14em; margin-top:4px; }
+.rig .stats{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+.rig .stat{ font-family:var(--mono); font-size:10px; color:var(--ash); display:flex; flex-direction:column; gap:2px; }
+.rig .stat .v{ font-family:var(--display); font-size:18px; color:var(--ink); letter-spacing:.02em; }
+.rig .stat.bottleneck .v{ color:var(--coral); }
+.rig .roles{ display:flex; gap:4px; margin-top:12px; flex-wrap:wrap;}
+.rig .role{ font-family:var(--mono); font-size:8px; letter-spacing:.18em; padding:3px 6px; border:1px solid var(--line); color:var(--ash); border-radius:2px; }
+.rig .role.host{ border-color:var(--mint-dim); color:var(--mint); }
+.rig .role.embed{ border-color:var(--aqua); color:var(--aqua); }
+
+/* ─── modal ─────────────────────────────────────────────────────── */
+.modal-bg{
+  position:fixed; inset:0; z-index:50; display:none;
+  background:rgba(8,8,15,.78); backdrop-filter:blur(6px);
+  align-items:center; justify-content:center; padding:32px;
+}
+.modal-bg.open{ display:flex; }
+.modal{
+  width:min(820px, 100%); max-height:85vh; overflow:auto;
+  background:linear-gradient(180deg, rgba(20,18,42,.98), rgba(14,13,24,.99));
+  border:1px solid var(--violet); border-radius:3px; padding:28px;
+  box-shadow: 0 0 0 1px rgba(156,123,255,.18), 0 30px 80px rgba(0,0,0,.6);
+  position:relative;
+}
+.modal .x{
+  position:absolute; right:18px; top:18px; font-family:var(--mono); font-size:11px;
+  color:var(--ash); letter-spacing:.2em; border:1px solid var(--line); padding:4px 8px;
+}
+.modal h3{ font-family:var(--display); font-size:22px; color:var(--mint); }
+.modal .sub{ font-family:var(--mono); font-size:10px; color:var(--ash); letter-spacing:.18em; margin-top:6px; text-transform:uppercase; }
+.modal .grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:22px; }
+.modal .row{ display:grid; grid-template-columns:160px 1fr; gap:14px; padding:8px 0; border-bottom:1px solid var(--line); }
+.modal .row .k{ font-family:var(--mono); font-size:10px; color:var(--ash); letter-spacing:.16em; text-transform:uppercase; align-self:center;}
+.modal .row .v{ font-family:var(--mono); font-size:12px; color:var(--ink); }
+.modal .row .v.mute{ color:var(--ash); }
+.modal section + section{ margin-top:24px; }
+.modal h4{ font-family:var(--mono); font-size:10px; color:var(--mint); letter-spacing:.22em; text-transform:uppercase; margin-bottom:10px; }
+
+/* ─── model visualizer ─────────────────────────────────────────── */
+.model-card{
+  display:grid; grid-template-columns: 280px 1fr; gap:24px;
+}
+.model-meta{ display:flex; flex-direction:column; gap:14px; }
+.model-name{ font-family:var(--display); font-size:24px; color:var(--ink); letter-spacing:.02em; }
+.model-stats{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.model-stats .s{ background:var(--paper); border:1px solid var(--line); padding:10px; border-radius:2px; }
+.model-stats .s .l{ font-family:var(--mono); font-size:9px; color:var(--ash); letter-spacing:.2em; text-transform:uppercase;}
+.model-stats .s .v{ font-family:var(--display); font-size:18px; color:var(--mint); margin-top:4px;}
+
+.layer-stack{ display:flex; flex-direction:column; gap:3px; padding:14px; background:var(--paper); border:1px solid var(--line); border-radius:2px; min-height:300px; overflow:auto; max-height:380px;}
+.layer-row{
+  display:grid; grid-template-columns: 90px 1fr 90px; gap:10px;
+  align-items:center; padding:6px 8px; border:1px solid transparent;
+  font-family:var(--mono); font-size:10px;
+}
+.layer-row:hover{ border-color:var(--violet); background:rgba(156,123,255,.06); }
+.layer-row .ix{ color:var(--mute); letter-spacing:.14em; }
+.layer-row .bar{ height:14px; background:var(--vellum); border:1px solid var(--line); border-radius:2px; position:relative; overflow:hidden; }
+.layer-row .fill{ position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg, var(--mint-dim), var(--mint)); }
+.layer-row .fill.coral{ background:linear-gradient(90deg, var(--coral), var(--amber));}
+.layer-row .fill.violet{ background:linear-gradient(90deg, var(--violet), var(--aqua));}
+.layer-row .rig{ background:transparent; border:none; padding:0; cursor:default; color:var(--ash); letter-spacing:.14em; text-align:right; }
+.layer-row .rig::before{ display:none; }
+.layer-row:hover .rig{ color:var(--mint); }
+
+/* ─── network graph ────────────────────────────────────────────── */
+.graph-wrap{ position:relative; background:var(--paper); border:1px solid var(--line); border-radius:2px; height:520px; overflow:hidden; }
+.graph-wrap svg{ width:100%; height:100%; display:block; }
+.legend{ position:absolute; right:12px; top:12px; display:flex; flex-direction:column; gap:6px; font-family:var(--mono); font-size:9px; color:var(--ash); letter-spacing:.16em; text-transform:uppercase; background:rgba(14,13,24,.78); padding:10px 12px; border:1px solid var(--line); border-radius:2px; }
+.legend .l{ display:flex; align-items:center; gap:8px; }
+.legend .sw{ width:18px; height:2px; }
+.legend .sw.direct{ background:var(--mint); }
+.legend .sw.relay{ background:linear-gradient(90deg, var(--coral) 33%, transparent 33% 66%, var(--coral) 66%); }
+.legend .sw.embed{ background:var(--aqua); }
+.legend .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+.legend .dot.you{ background:var(--mint); }
+.legend .dot.peer{ background:var(--violet); }
+.legend .dot.relay{ background:var(--amber); }
+
+.tooltip{ position:absolute; pointer-events:none; background:rgba(8,8,15,.96); border:1px solid var(--violet); border-radius:2px; padding:10px 12px; font-family:var(--mono); font-size:10px; color:var(--ink); letter-spacing:.06em; min-width:220px; display:none; z-index:6;}
+.tooltip h5{ font-family:var(--mono); font-size:11px; color:var(--mint); letter-spacing:.16em; text-transform:uppercase; margin-bottom:6px;}
+.tooltip .r{ display:flex; justify-content:space-between; gap:14px; padding:2px 0; color:var(--ash); }
+.tooltip .r .v{ color:var(--ink); }
+
+/* ─── nat matrix ───────────────────────────────────────────────── */
+.nat-table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:10px; }
+.nat-table th{ text-align:left; padding:8px 10px; color:var(--ash); letter-spacing:.18em; text-transform:uppercase; border-bottom:1px solid var(--line); font-weight:400; font-size:9px;}
+.nat-table td{ padding:9px 10px; border-bottom:1px solid var(--line); color:var(--ink); }
+.tag{ display:inline-block; padding:2px 7px; font-size:9px; letter-spacing:.18em; text-transform:uppercase; border:1px solid var(--line); border-radius:2px; color:var(--ash); }
+.tag.ok{ color:var(--mint); border-color:var(--mint-dim); }
+.tag.warn{ color:var(--amber); border-color:var(--amber); }
+.tag.bad{ color:var(--coral); border-color:var(--coral); }
+.tag.relay{ color:var(--violet); border-color:var(--violet); }
+
+/* ─── bottleneck chart ─────────────────────────────────────────── */
+.bottleneck{ display:grid; grid-template-columns:120px 1fr 80px; gap:14px; padding:10px 0; align-items:center; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11px;}
+.bottleneck .n{ color:var(--ink); letter-spacing:.04em;}
+.bottleneck .bar{ height:18px; background:var(--paper); border:1px solid var(--line); border-radius:2px; position:relative; overflow:hidden;}
+.bottleneck .fill{ position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg, var(--mint-dim), var(--mint));}
+.bottleneck .fill.warn{ background:linear-gradient(90deg, var(--amber), var(--coral));}
+.bottleneck .fill.bad{ background:linear-gradient(90deg, var(--coral), var(--coral));}
+.bottleneck .v{ text-align:right; color:var(--ash); }
+
+/* ─── routes panel ─────────────────────────────────────────────── */
+.routes{ display:flex; flex-direction:column; gap:8px; max-height:380px; overflow:auto;}
+.route{ display:grid; grid-template-columns: auto 1fr auto; gap:14px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:2px; background:var(--paper); font-family:var(--mono); font-size:11px;}
+.route .req{ color:var(--mint); letter-spacing:.04em; }
+.route .path{ color:var(--ink); display:flex; align-items:center; gap:6px; font-size:10px; flex-wrap:wrap; }
+.route .hop{ padding:2px 6px; border:1px solid var(--line); border-radius:2px; color:var(--ash); }
+.route .hop.host{ color:var(--mint); border-color:var(--mint-dim); }
+.route .hop.relay{ color:var(--amber); border-color:var(--amber); }
+.route .arrow{ color:var(--mute);}
+.route .meta{ color:var(--ash); font-size:9px; letter-spacing:.18em; text-transform:uppercase;}
+
+/* ─── model loader ─────────────────────────────────────────────── */
+.loader-wrap{ display:grid; grid-template-columns: 1.2fr 1fr; gap:24px; }
+.loader-form{ display:flex; flex-direction:column; gap:12px;}
+.loader-form input, .loader-form select{
+  font:inherit; font-family:var(--mono); font-size:11px; color:var(--ink);
+  background:var(--paper); border:1px solid var(--line); padding:11px 12px; border-radius:2px;
+  letter-spacing:.04em;
+}
+.loader-form input:focus, .loader-form select:focus{ outline:none; border-color:var(--mint-dim); background:rgba(159,255,215,.04); }
+.loader-form label{ font-family:var(--mono); font-size:9px; color:var(--ash); letter-spacing:.22em; text-transform:uppercase; }
+.loader-jobs{ display:flex; flex-direction:column; gap:8px; max-height:340px; overflow:auto;}
+.job{ border:1px solid var(--line); border-radius:2px; padding:12px; background:var(--paper); font-family:var(--mono); font-size:10px;}
+.job .h{ display:flex; justify-content:space-between; color:var(--ash); letter-spacing:.16em; text-transform:uppercase; margin-bottom:8px; }
+.job .h .n{ color:var(--mint); }
+.job .progress{ height:6px; background:var(--vellum); border-radius:2px; overflow:hidden; position:relative;}
+.job .progress .f{ height:100%; background:linear-gradient(90deg, var(--violet), var(--mint)); width:0;}
+.job.done .progress .f{ background:var(--mint); }
+.job.err .progress .f{ background:var(--coral); }
+
+.muted{ color:var(--ash); }
+.flex-row{ display:flex; gap:10px; align-items:center;}
+
+.empty{ font-family:var(--mono); font-size:11px; color:var(--mute); padding:32px; text-align:center; border:1px dashed var(--line); border-radius:2px; letter-spacing:.14em; text-transform:uppercase;}
+.console-line{ font-family:var(--mono); font-size:11px; color:var(--ash); padding:4px 0; }
+.console-line .ts{ color:var(--mute); margin-right:10px; }
+.console-line .ev.ok{ color:var(--mint);}
+.console-line .ev.err{ color:var(--coral);}
+.console-line .ev.warn{ color:var(--amber);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand">nexus<span class="sub">/// distributed inference</span></div>
+    <nav class="nav">
+      <a href="#overview" class="active" data-tab="overview"><span class="dot"></span>overview</a>
+      <a href="#models" data-tab="models"><span class="dot"></span>models</a>
+      <a href="#fleet" data-tab="fleet"><span class="dot"></span>fleet</a>
+      <a href="#topology" data-tab="topology"><span class="dot"></span>topology</a>
+      <a href="#network" data-tab="network"><span class="dot"></span>network</a>
+      <a href="#nat" data-tab="nat"><span class="dot"></span>nat / firewall</a>
+      <a href="#bottleneck" data-tab="bottleneck"><span class="dot"></span>bottleneck</a>
+      <a href="#routes" data-tab="routes"><span class="dot"></span>active routes</a>
+    </nav>
+    <div class="footer">
+      <div>session // <span id="sess-user">…</span></div>
+      <div>uptime // <span id="sess-uptime">…</span></div>
+      <div>v0.x // nexus</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <h1>nexus <em>//</em> control</h1>
+      <div class="meta">
+        <span class="pulse"><span class="o"></span><span id="hb-state">streaming</span></span>
+        <span id="now-clock">--:--:--</span>
+      </div>
+    </header>
+
+    <!-- ─── overview ───────────────────────────────────────────── -->
+    <section id="overview" class="section">
+      <div class="head">
+        <span class="ix">01</span>
+        <h2>overview</h2>
+        <p class="blurb">Live aggregate state of your inference fleet. KPIs refresh every 2 seconds via SSE; falls back to polling on disconnect.</p>
+        <div class="ctl"><button id="btn-refresh" class="btn">force refresh</button></div>
+      </div>
+      <div class="kpi-strip" id="kpi-strip"></div>
+    </section>
+
+    <!-- ─── models ─────────────────────────────────────────────── -->
+    <section id="models" class="section">
+      <div class="head">
+        <span class="ix">02</span>
+        <h2>model // loader</h2>
+        <p class="blurb">Bind a model to a pool. Layer-by-layer visualizer shows stage assignments and which rig hosts each shard.</p>
+        <div class="ctl">
+          <select id="pool-pick" class="btn"></select>
+          <button id="btn-plan" class="btn">replan topology</button>
+        </div>
+      </div>
+
+      <div class="split two">
+        <div class="pane">
+          <h3>load <em>// active model</em></h3>
+          <div class="loader-wrap">
+            <form class="loader-form" id="loader-form" autocomplete="off">
+              <label for="ld-repo">huggingface repo</label>
+              <input id="ld-repo" placeholder="meta-llama/Llama-3.2-1B-Instruct">
+              <label for="ld-file">weight file</label>
+              <input id="ld-file" placeholder="model.safetensors  ·  stage-0.gguf">
+              <label for="ld-revision">revision / branch</label>
+              <input id="ld-revision" placeholder="main">
+              <label class="flex-row" style="gap:6px; align-items:center;"><input type="checkbox" id="ld-quant" style="width:auto"> quantize on load (q4_k_m)</label>
+              <div class="flex-row">
+                <button class="btn primary" type="submit">queue load</button>
+                <span class="muted" style="font-family:var(--mono); font-size:10px; letter-spacing:.18em;">→ broadcasts to bound rigs</span>
+              </div>
+            </form>
+            <div>
+              <h3>queue <em>// jobs</em></h3>
+              <div class="loader-jobs" id="loader-jobs"><div class="empty">no load jobs in window</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="pane">
+          <h3>visualizer <em>// layers × stages</em></h3>
+          <div class="model-card">
+            <div class="model-meta">
+              <div class="model-name" id="mv-name">— no model bound —</div>
+              <div class="model-stats">
+                <div class="s"><div class="l">params</div><div class="v" id="mv-params">—</div></div>
+                <div class="s"><div class="l">layers</div><div class="v" id="mv-layers">—</div></div>
+                <div class="s"><div class="l">stages</div><div class="v" id="mv-stages">—</div></div>
+                <div class="s"><div class="l">ctx</div><div class="v" id="mv-ctx">—</div></div>
+              </div>
+            </div>
+            <div class="layer-stack" id="layer-stack"><div class="empty">awaiting topology</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── fleet ─────────────────────────────────────────────── -->
+    <section id="fleet" class="section">
+      <div class="head">
+        <span class="ix">03</span>
+        <h2>rig // fleet</h2>
+        <p class="blurb">Click any rig for deep stats: VRAM, NAT class, public IP, relay capability, inflight, tokens / sec, bottleneck signal.</p>
+        <div class="ctl">
+          <span class="muted" style="font-family:var(--mono); font-size:10px; letter-spacing:.18em;" id="fleet-count">0 rigs</span>
+          <button id="btn-fleet-sort" class="btn">sort // throughput</button>
+        </div>
+      </div>
+      <div id="rig-grid" class="rig-grid"><div class="empty">awaiting fleet snapshot</div></div>
+    </section>
+
+    <!-- ─── topology ─────────────────────────────────────────── -->
+    <section id="topology" class="section">
+      <div class="head">
+        <span class="ix">04</span>
+        <h2>topology // compute path</h2>
+        <p class="blurb">Where each pipeline stage runs. Use the pool selector above to scope. Bars are utilization; coral indicates the slowest stage (bottleneck).</p>
+        <div class="ctl"><button id="btn-topo-refresh" class="btn">replan</button></div>
+      </div>
+      <div class="pane" style="border:1px solid var(--line); border-radius:2px; background:var(--vellum);">
+        <h3>stage // layer map <em>// runtime stage runners</em></h3>
+        <div id="topology" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px;">
+          <div class="empty">select a pool above to render compute path</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── network graph ─────────────────────────────────────── -->
+    <section id="network" class="section">
+      <div class="head">
+        <span class="ix">05</span>
+        <h2>network // graph</h2>
+        <p class="blurb">Force-directed view of all visible rigs and the pools that wire them together. Direct edges are mint, TURN-relayed edges are coral-dashed. Hover any node for stats.</p>
+        <div class="ctl">
+          <button id="btn-graph-refresh" class="btn">resnap</button>
+          <button id="btn-graph-relax" class="btn">relax</button>
+        </div>
+      </div>
+      <div class="graph-wrap" id="graph-wrap">
+        <svg id="graph" viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="legend">
+          <div class="l"><span class="dot you"></span>your rig</div>
+          <div class="l"><span class="dot peer"></span>peer rig</div>
+          <div class="l"><span class="dot relay"></span>relay-capable</div>
+          <div class="l"><span class="sw direct"></span>direct</div>
+          <div class="l"><span class="sw relay"></span>turn-relayed</div>
+        </div>
+        <div class="tooltip" id="tt"></div>
+      </div>
+    </section>
+
+    <!-- ─── nat matrix ──────────────────────────────────────── -->
+    <section id="nat" class="section">
+      <div class="head">
+        <span class="ix">06</span>
+        <h2>nat // firewall matrix</h2>
+        <p class="blurb">Per-rig connectivity posture from coturn discovery. Symmetric NAT routes traffic through a relay; full-cone and restricted NATs can hole-punch directly.</p>
+        <div class="ctl"><button id="btn-recheck" class="btn">recheck reachability</button></div>
+      </div>
+      <div class="pane" style="border:1px solid var(--line); border-radius:2px; background:var(--vellum);">
+        <table class="nat-table">
+          <thead>
+            <tr><th>rig</th><th>nat class</th><th>public ip</th><th>coturn port</th><th>relay capable</th><th>posture</th></tr>
+          </thead>
+          <tbody id="nat-body"><tr><td colspan="6"><div class="empty">awaiting nat snapshot</div></td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ─── bottleneck ────────────────────────────────────── -->
+    <section id="bottleneck" class="section">
+      <div class="head">
+        <span class="ix">07</span>
+        <h2>bottleneck // inspector</h2>
+        <p class="blurb">Throughput per rig, normalized against the fleet ceiling. Anything in the bottom 20% (or above queue threshold) is flagged coral.</p>
+        <div class="ctl"><button id="btn-bn-mode" class="btn">view // tokens/s</button></div>
+      </div>
+      <div class="split two">
+        <div class="pane">
+          <h3>per rig <em>// throughput</em></h3>
+          <div id="bottleneck-list"><div class="empty">awaiting metrics</div></div>
+        </div>
+        <div class="pane">
+          <h3>event tape <em>// recent</em></h3>
+          <div id="event-tape" style="max-height:340px; overflow:auto;"><div class="empty">no events yet</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── routes ───────────────────────────────────────── -->
+    <section id="routes" class="section">
+      <div class="head">
+        <span class="ix">08</span>
+        <h2>routes // inflight</h2>
+        <p class="blurb">Where each open request is running, including pipeline stages and relays. Updated on the same SSE tick as the fleet view.</p>
+        <div class="ctl"><button id="btn-routes-refresh" class="btn">refresh</button></div>
+      </div>
+      <div id="routes" class="routes"><div class="empty">no active routes</div></div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal">
+    <button class="x" id="modal-close">esc</button>
+    <h3 id="m-name">—</h3>
+    <div class="sub" id="m-sub">—</div>
+    <section>
+      <h4>core</h4>
+      <div id="m-core"></div>
+    </section>
+    <section>
+      <h4>network</h4>
+      <div id="m-net"></div>
+    </section>
+    <section>
+      <h4>compute</h4>
+      <div id="m-compute"></div>
+    </section>
+    <section>
+      <h4>models // shards</h4>
+      <div id="m-models"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* ───── tiny helpers ───── */
+const $ = (s,r=document) => r.querySelector(s);
+const $$ = (s,r=document) => Array.from(r.querySelectorAll(s));
+const fmtBytes = (b) => {
+  if(!b || isNaN(b)) return '—';
+  const u=['B','KiB','MiB','GiB','TiB']; let i=0; while(b>=1024 && i<u.length-1){ b/=1024; i++; }
+  return b.toFixed(b>=10?0:1)+' '+u[i];
+};
+const fmtNum = n => n==null? '—' : Math.abs(n)>=1000 ? n.toLocaleString() : (Math.round(n*10)/10).toString();
+const fmt = (v, suffix='') => v==null? '—' : v+suffix;
+const ts = () => { const d=new Date(); return d.toTimeString().slice(0,8); };
+const escape = (s) => String(s||'').replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const post = (url, body) => fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), credentials:'same-origin'});
+const get = (url) => fetch(url, {credentials:'same-origin'}).then(r => r.ok ? r.json() : Promise.reject(r.status));
+
+/* ───── state ───── */
+const state = {
+  me: null,
+  rigs: [],
+  network: { nodes:[], edges:[] },
+  pools: [],
+  topo: null,
+  events: [],
+  loadJobs: [],
+  bnMode: 'tokens',
+};
+
+/* ───── boot ───── */
+async function boot(){
+  // identity
+  try{
+    const me = await get('/api/me');
+    state.me = me;
+    $('#sess-user').textContent = me.display_name || ('uid:'+me.id);
+  }catch(_){ $('#sess-user').textContent = 'unauth'; }
+
+  // pool list (for selector + topology)
+  try{
+    const pools = await get('/api/pools') ;
+    state.pools = (pools && pools.pools) || [];
+    populatePoolPicker();
+  }catch(_){ /* /api/pools may not exist on this build */ }
+
+  // initial fleet snapshot
+  await refreshFleet();
+  // network graph
+  await refreshNetwork();
+
+  // start SSE stream
+  connectStream();
+
+  // clock
+  setInterval(()=>{ $('#now-clock').textContent = ts(); }, 1000);
+
+  // uptime since page load
+  const bootAt = Date.now();
+  setInterval(()=>{
+    const s = Math.floor((Date.now()-bootAt)/1000);
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec=s%60;
+    $('#sess-uptime').textContent = `${h}h${m}m${sec}s`;
+  }, 1000);
+
+  // wire buttons
+  $('#btn-refresh').addEventListener('click', () => { refreshFleet(); refreshNetwork(); pushEvent('manual refresh','ok'); });
+  $('#btn-graph-refresh').addEventListener('click', refreshNetwork);
+  $('#btn-graph-relax').addEventListener('click', () => simulateGraph(120));
+  $('#btn-recheck').addEventListener('click', recheckNAT);
+  $('#btn-topo-refresh').addEventListener('click', refreshTopology);
+  $('#btn-plan').addEventListener('click', refreshTopology);
+  $('#btn-routes-refresh').addEventListener('click', refreshFleet);
+  $('#btn-bn-mode').addEventListener('click', toggleBottleneckMode);
+  $('#btn-fleet-sort').addEventListener('click', renderRigs);
+  $('#pool-pick').addEventListener('change', refreshTopology);
+  $('#loader-form').addEventListener('submit', queueLoad);
+  $('#modal-close').addEventListener('click', closeModal);
+  $('#modal-bg').addEventListener('click', (e)=>{ if(e.target.id==='modal-bg') closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeModal(); });
+
+  // sidebar scroll-spy
+  document.querySelectorAll('.section').forEach(sec => {
+    new IntersectionObserver(es => {
+      es.forEach(e => {
+        if(e.isIntersecting){
+          $$('.nav a').forEach(a => a.classList.toggle('active', a.dataset.tab===sec.id));
+        }
+      });
+    }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 }).observe(sec);
+  });
+}
+
+/* ───── streaming ───── */
+let es=null;
+function connectStream(){
+  try{ if(es) es.close(); }catch(_){}
+  es = new EventSource('/api/me/rigs/stream');
+  es.addEventListener('rigs', ev => {
+    try{
+      const data = JSON.parse(ev.data);
+      state.rigs = data.rigs || [];
+      renderAll();
+      $('#hb-state').textContent = 'streaming';
+    }catch(_){}
+  });
+  es.onerror = ()=>{
+    $('#hb-state').textContent = 'reconnecting';
+    pushEvent('stream interrupted, retrying', 'warn');
+  };
+  es.onopen = ()=>{ $('#hb-state').textContent = 'streaming'; };
+}
+
+/* ───── fetchers ───── */
+async function refreshFleet(){
+  try{
+    const data = await get('/api/me/rigs');
+    state.rigs = data.rigs || [];
+    renderAll();
+    pushEvent(`fleet snapshot · ${state.rigs.length} rigs`, 'ok');
+  }catch(err){ pushEvent('fleet snapshot failed: '+err, 'err'); }
+}
+async function refreshNetwork(){
+  try{
+    const data = await get('/api/console/network');
+    state.network = { nodes: data.nodes||[], edges: data.edges||[] };
+    renderGraph();
+    renderNAT();
+  }catch(err){ pushEvent('network snapshot failed: '+err, 'err'); }
+}
+async function refreshTopology(){
+  const pid = parseInt($('#pool-pick').value || '0', 10);
+  if(!pid){ $('#topology').innerHTML = '<div class="empty">select a pool above to render compute path</div>'; return; }
+  try{
+    const t = await get(`/api/pools/${pid}/topology`);
+    state.topo = t;
+    renderTopology();
+    renderLayerStack();
+    pushEvent(`topology planned · pool=${pid} stages=${(t.stages||[]).length}`, 'ok');
+  }catch(err){
+    $('#topology').innerHTML = `<div class="empty">topology unavailable · ${escape(err+'')}</div>`;
+  }
+}
+async function recheckNAT(){
+  pushEvent('nat recheck requested', 'warn');
+  try{ await post('/api/lan/recheck', {}); }catch(_){}
+  setTimeout(refreshNetwork, 1500);
+}
+async function queueLoad(ev){
+  ev.preventDefault();
+  const repo = $('#ld-repo').value.trim();
+  const file = $('#ld-file').value.trim();
+  const rev  = $('#ld-revision').value.trim() || 'main';
+  if(!repo){ pushEvent('load: repo required', 'err'); return; }
+  const id = 'load-'+Math.random().toString(36).slice(2,8);
+  state.loadJobs.unshift({ id, repo, file, rev, progress:0, status:'queued', started:Date.now() });
+  renderLoadJobs();
+  // best-effort backend trigger; UI is decoupled if endpoint isn't wired
+  try{
+    const r = await post('/api/models/load', { repo, file, revision: rev, quantize: $('#ld-quant').checked });
+    if(r.ok){
+      const job = state.loadJobs.find(j => j.id===id);
+      job.status = 'dispatched';
+      const json = await r.json().catch(()=>({}));
+      if(json.job_id) job.id = json.job_id;
+      renderLoadJobs();
+      pushEvent(`load dispatched · ${repo}/${file||rev}`, 'ok');
+      pollLoadJob(job);
+    }else{
+      const job = state.loadJobs.find(j => j.id===id);
+      job.status = 'err'; renderLoadJobs();
+      pushEvent(`load endpoint replied ${r.status}`, 'err');
+    }
+  }catch(err){
+    const job = state.loadJobs.find(j => j.id===id);
+    job.status = 'err'; renderLoadJobs();
+    pushEvent(`load failed: ${err}`, 'err');
+  }
+}
+async function pollLoadJob(job){
+  // Optimistic UI: tick progress until a backend status endpoint reports done.
+  // The endpoint may not exist on every build — degrade gracefully.
+  const start = Date.now();
+  const tick = setInterval(async () => {
+    if(!state.loadJobs.includes(job)) { clearInterval(tick); return; }
+    try{
+      const r = await get(`/api/models/jobs/${encodeURIComponent(job.id)}`);
+      job.progress = r.progress ?? job.progress;
+      job.status = r.status || job.status;
+      if(['done','err','cancelled'].includes(job.status)){ clearInterval(tick); }
+    }catch(_){
+      // synthetic progress
+      const el = Math.min(0.95, (Date.now()-start)/45000);
+      job.progress = Math.max(job.progress, el);
+    }
+    renderLoadJobs();
+  }, 1500);
+}
+
+/* ───── render: kpis ───── */
+function renderAll(){
+  renderKPIs();
+  renderRigs();
+  renderBottleneck();
+  renderRoutes();
+  renderNAT();
+}
+function renderKPIs(){
+  const rigs = state.rigs;
+  const online = rigs.filter(r => r.online).length;
+  const totVram = rigs.reduce((a,r) => a + (r.vram_total||0), 0);
+  const tps = rigs.reduce((a,r) => a + (r.tokens_ps||0), 0);
+  const inflight = rigs.reduce((a,r) => a + (r.inflight||0), 0);
+  const relay = state.network.edges.filter(e => e.relayed).length;
+  const symm = state.network.nodes.filter(n => (n.nat_type||'').toLowerCase()==='symmetric').length;
+  const c = (cl, label, val, sub='') => `<div class="kpi ${cl}"><div class="label">${label}</div><div class="val">${val}<span>${sub}</span></div></div>`;
+  $('#kpi-strip').innerHTML = [
+    c(online===rigs.length && rigs.length>0?'ok':(online===0?'alert':'warn'), 'rigs online', `${online}<span>/ ${rigs.length}</span>`, ''),
+    c('','vram total', fmtBytes(totVram*1024*1024), ''),
+    c(tps>0?'ok':'', 'tokens / sec', fmtNum(tps), 'agg'),
+    c(inflight>0?'warn':'', 'inflight', inflight, 'reqs'),
+    c(relay>0?'warn':'', 'relayed edges', relay, 'turn'),
+    c(symm>0?'warn':'', 'symmetric nat', symm, 'rigs'),
+  ].join('');
+  $('#fleet-count').textContent = `${online}/${rigs.length} rigs online`;
+}
+
+/* ───── render: rigs ───── */
+function rigBottleneckClass(r){
+  if(!r.online) return 'offline';
+  const fleetMax = Math.max(...state.rigs.filter(x=>x.online).map(x=>x.tokens_ps||0), 1);
+  if(fleetMax>0 && (r.tokens_ps||0) < fleetMax * 0.2 && state.rigs.filter(x=>x.online).length>1) return 'warn';
+  return '';
+}
+let fleetSortKey = 'tokens_ps';
+function toggleFleetSort(){
+  fleetSortKey = fleetSortKey==='tokens_ps' ? 'inflight' : fleetSortKey==='inflight' ? 'vram_total' : 'tokens_ps';
+  $('#btn-fleet-sort').textContent = `sort // ${fleetSortKey.replace('_',' ')}`;
+  renderRigs();
+}
+function renderRigs(){
+  const grid = $('#rig-grid');
+  const list = [...state.rigs].sort((a,b) => (b[fleetSortKey]||0) - (a[fleetSortKey]||0));
+  if(!list.length){ grid.innerHTML = '<div class="empty">no rigs registered to this user</div>'; return; }
+  grid.innerHTML = list.map(r => {
+    const cls = rigBottleneckClass(r);
+    const roles = (r.roles_held||[]).map(role => `<span class="role ${role==='host'?'host':role==='embed'?'embed':''}">${escape(role)}</span>`).join('');
+    return `
+      <div class="rig ${cls}" data-rig="${escape(r.agent_id||'')}">
+        <div class="name"><span class="s"></span>${escape(r.hostname||r.agent_id||'rig')}</div>
+        <div class="id">${escape((r.public_id || r.agent_id || '').slice(0,28))}</div>
+        <div class="stats">
+          <div class="stat"><span>tokens/s</span><span class="v">${fmtNum(r.tokens_ps||0)}</span></div>
+          <div class="stat"><span>inflight</span><span class="v">${fmt(r.inflight,'')}</span></div>
+          <div class="stat"><span>vram free</span><span class="v">${fmtBytes((r.vram_free||0)*1024*1024)}</span></div>
+          <div class="stat ${cls==='warn'?'bottleneck':''}"><span>slot util</span><span class="v">${fmtNum((r.inflight||0)*100/Math.max(r.slots||1,1))}%</span></div>
+        </div>
+        <div class="roles">
+          <span class="role">${escape(r.nat_type||'unknown nat')}</span>
+          ${r.relay_capable?'<span class="role" style="border-color:var(--violet); color:var(--violet)">relay</span>':''}
+          ${roles}
+        </div>
+      </div>
+    `;
+  }).join('');
+  $$('#rig-grid .rig').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.rig;
+      const rig = state.rigs.find(r => r.agent_id===id);
+      if(rig) openRig(rig);
+    });
+  });
+}
+$('#btn-fleet-sort')?.addEventListener('click', toggleFleetSort);
+
+/* ───── render: bottleneck ───── */
+function toggleBottleneckMode(){
+  state.bnMode = state.bnMode==='tokens'?'inflight':state.bnMode==='inflight'?'vram':'tokens';
+  $('#btn-bn-mode').textContent = `view // ${state.bnMode==='tokens'?'tokens/s':state.bnMode==='inflight'?'inflight':'vram'}`;
+  renderBottleneck();
+}
+function renderBottleneck(){
+  const wrap = $('#bottleneck-list');
+  const list = state.rigs.filter(r => r.online);
+  if(!list.length){ wrap.innerHTML = '<div class="empty">no online rigs</div>'; return; }
+  const get = r => state.bnMode==='tokens' ? (r.tokens_ps||0) :
+                 state.bnMode==='inflight' ? (r.inflight||0) :
+                                            (r.vram_total||0);
+  const max = Math.max(...list.map(get), 1);
+  wrap.innerHTML = list.sort((a,b)=>get(b)-get(a)).map(r => {
+    const v = get(r); const pct = max>0? (v*100/max) : 0;
+    const cls = pct < 20 ? 'bad' : pct < 50 ? 'warn' : '';
+    const display = state.bnMode==='vram' ? fmtBytes(v*1024*1024) : fmtNum(v);
+    return `
+      <div class="bottleneck">
+        <span class="n">${escape(r.hostname || r.agent_id || 'rig')}</span>
+        <div class="bar"><div class="fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        <span class="v">${display}</span>
+      </div>`;
+  }).join('');
+}
+
+/* ───── render: routes ───── */
+function renderRoutes(){
+  const wrap = $('#routes');
+  const inflight = state.rigs.filter(r => (r.inflight||0)>0);
+  if(!inflight.length){ wrap.innerHTML = '<div class="empty">no inflight requests</div>'; return; }
+  wrap.innerHTML = inflight.flatMap(r => {
+    const n = r.inflight||0;
+    const hops = [];
+    hops.push(`<span class="hop host">${escape(r.hostname||'rig')}</span>`);
+    if((r.nat_type||'').toLowerCase()==='symmetric'){
+      hops.push(`<span class="arrow">→</span><span class="hop relay">turn</span>`);
+    }
+    hops.push(`<span class="arrow">→</span><span class="hop">client</span>`);
+    return Array.from({length:n}).map((_,i) => `
+      <div class="route">
+        <span class="req">${escape(r.agent_id||'').slice(0,8)}#${i+1}</span>
+        <div class="path">${hops.join('')}</div>
+        <span class="meta">${fmtNum(r.tokens_ps||0)} t/s</span>
+      </div>
+    `);
+  }).join('');
+}
+
+/* ───── render: nat ───── */
+function renderNAT(){
+  const tbody = $('#nat-body');
+  // Prefer network.nodes for nat info, augment with state.rigs hostnames.
+  const list = (state.network.nodes||[]).map(n => {
+    const local = state.rigs.find(r => (n.id||'').endsWith((r.agent_id||'')) ) || {};
+    return Object.assign({}, n, local);
+  });
+  if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty">no rigs visible</div></td></tr>'; return; }
+  tbody.innerHTML = list.map(n => {
+    const nat = (n.nat_type||'').toLowerCase();
+    const tag = nat==='symmetric' ? 'bad' : nat==='cone'||nat==='full-cone' ? 'ok' : nat==='restricted'||nat==='port-restricted' ? 'warn' : '';
+    const posture = nat==='symmetric' ? 'requires turn relay' : nat==='unknown'||!nat ? 'unprobed' : 'direct p2p ok';
+    return `
+      <tr>
+        <td>${escape(n.hostname||(n.id||'').slice(0,12))}</td>
+        <td><span class="tag ${tag}">${escape(nat||'unknown')}</span></td>
+        <td>${escape(n.public_ip||'—')}</td>
+        <td>${n.coturn_port||'—'}</td>
+        <td>${n.relay_capable?'<span class="tag relay">yes</span>':'<span class="tag">no</span>'}</td>
+        <td>${escape(posture)}</td>
+      </tr>`;
+  }).join('');
+}
+
+/* ───── render: network graph ───── */
+const graphSim = { nodes:[], edges:[], width:1200, height:520 };
+function renderGraph(){
+  const svg = $('#graph');
+  const { nodes, edges } = state.network;
+  if(!nodes.length){ svg.innerHTML = ''; return; }
+
+  // Initial random layout if new
+  graphSim.width = 1200; graphSim.height = 520;
+  const positions = new Map(graphSim.nodes.map(n => [n.id, {x:n.x, y:n.y}]));
+  graphSim.nodes = nodes.map((n,i) => {
+    const seed = (i*97+11)%360;
+    const r = Math.min(graphSim.width, graphSim.height)*0.36;
+    const pre = positions.get(n.id);
+    return {
+      ...n,
+      x: pre?.x ?? (graphSim.width/2 + r*Math.cos(seed*Math.PI/180)),
+      y: pre?.y ?? (graphSim.height/2 + r*Math.sin(seed*Math.PI/180)),
+      vx: 0, vy:0,
+    };
+  });
+  graphSim.edges = edges;
+
+  simulateGraph(140);
+}
+function simulateGraph(iter=80){
+  const { nodes, edges, width, height } = graphSim;
+  if(!nodes.length) return;
+  const repulse = 9000;
+  const spring = 0.06;
+  const targetLen = 160;
+  for(let k=0; k<iter; k++){
+    // repulsion between all pairs
+    for(let i=0; i<nodes.length; i++){
+      const a = nodes[i];
+      for(let j=i+1; j<nodes.length; j++){
+        const b = nodes[j];
+        const dx = a.x-b.x, dy = a.y-b.y;
+        const d2 = Math.max(dx*dx+dy*dy, 40);
+        const f = repulse/d2;
+        const d = Math.sqrt(d2);
+        const fx = (dx/d)*f, fy=(dy/d)*f;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+    }
+    // springs
+    for(const e of edges){
+      const a = nodes.find(n=>n.id===e.A); const b = nodes.find(n=>n.id===e.B);
+      if(!a||!b) continue;
+      const dx = b.x-a.x, dy = b.y-a.y;
+      const d = Math.sqrt(dx*dx+dy*dy) || 1;
+      const diff = d - targetLen;
+      const fx = (dx/d)*diff*spring, fy = (dy/d)*diff*spring;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+    // integrate + damping + bounds
+    for(const n of nodes){
+      n.vx *= 0.6; n.vy *= 0.6;
+      n.x += n.vx; n.y += n.vy;
+      n.x = Math.max(40, Math.min(width-40, n.x));
+      n.y = Math.max(40, Math.min(height-40, n.y));
+    }
+  }
+  paintGraph();
+}
+function paintGraph(){
+  const svg = $('#graph');
+  const { nodes, edges } = graphSim;
+  const me = state.me?.id;
+  const lines = edges.map(e => {
+    const a = nodes.find(n=>n.id===e.A); const b = nodes.find(n=>n.id===e.B);
+    if(!a||!b) return '';
+    const stroke = e.relayed ? '#ff5e74' : '#9fffd7';
+    const dash = e.relayed ? '6 4' : 'none';
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${stroke}" stroke-width="1.2" stroke-dasharray="${dash}" opacity=".75"/>`;
+  }).join('');
+  const dots = nodes.map(n => {
+    const fill = n.owner ? '#9fffd7' : (n.relay_capable ? '#ffb86b' : '#9c7bff');
+    const ring = n.online ? '#16142a' : '#ff5e74';
+    const r = 9 + Math.min(8, Math.log2((n.tokens_ps||0)+1)*2);
+    return `
+      <g data-nid="${escape(n.id||'')}" transform="translate(${n.x},${n.y})" style="cursor:pointer;">
+        <circle r="${r+4}" fill="${fill}" opacity=".10"/>
+        <circle r="${r}" fill="${fill}" stroke="${ring}" stroke-width="2"/>
+        <text y="${r+14}" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#d8d2ff" letter-spacing="1">${escape((n.hostname||n.id||'').slice(0,14))}</text>
+      </g>
+    `;
+  }).join('');
+  svg.innerHTML = `<g>${lines}</g><g>${dots}</g>`;
+  $$('#graph g[data-nid]').forEach(g => {
+    g.addEventListener('mouseenter', (e) => showTooltip(g.dataset.nid, e));
+    g.addEventListener('mousemove', (e) => positionTooltip(e));
+    g.addEventListener('mouseleave', hideTooltip);
+    g.addEventListener('click', () => {
+      const id = g.dataset.nid;
+      const n = state.network.nodes.find(nn => nn.id===id);
+      const rig = state.rigs.find(r => (n?.id||'').endsWith(r.agent_id));
+      openRig(rig || n || {});
+    });
+  });
+}
+function showTooltip(nid, e){
+  const tt = $('#tt');
+  const n = state.network.nodes.find(nn => nn.id===nid);
+  if(!n) return;
+  tt.innerHTML = `
+    <h5>${escape(n.hostname||n.id||'node')}</h5>
+    <div class="r"><span>owner</span><span class="v">${n.owner?'you':'peer'}</span></div>
+    <div class="r"><span>nat</span><span class="v">${escape(n.nat_type||'unknown')}</span></div>
+    <div class="r"><span>public ip</span><span class="v">${escape(n.public_ip||'—')}</span></div>
+    <div class="r"><span>relay</span><span class="v">${n.relay_capable?'yes':'no'}</span></div>
+    <div class="r"><span>tokens/s</span><span class="v">${fmtNum(n.tokens_ps||0)}</span></div>
+    <div class="r"><span>inflight</span><span class="v">${fmt(n.inflight,'')}</span></div>
+  `;
+  tt.style.display='block';
+  positionTooltip(e);
+}
+function positionTooltip(e){
+  const tt = $('#tt');
+  const wrap = $('#graph-wrap').getBoundingClientRect();
+  tt.style.left = (e.clientX - wrap.left + 14)+'px';
+  tt.style.top  = (e.clientY - wrap.top + 14)+'px';
+}
+function hideTooltip(){ $('#tt').style.display='none'; }
+
+/* ───── topology / model viz ───── */
+function populatePoolPicker(){
+  const sel = $('#pool-pick');
+  sel.innerHTML = '<option value="">— select pool —</option>' +
+    state.pools.map(p => `<option value="${p.id}">${escape(p.name||p.slug||('pool '+p.id))}</option>`).join('');
+}
+function renderTopology(){
+  const t = state.topo;
+  const wrap = $('#topology');
+  if(!t || !t.stages || !t.stages.length){
+    wrap.innerHTML = '<div class="empty">no plan available · ensure a model is bound</div>';
+    return;
+  }
+  wrap.innerHTML = t.stages.map((s,i) => {
+    const rig = (s.candidates||[s.assigned||{}])[0] || {};
+    return `
+      <div style="border:1px solid var(--line); border-radius:2px; padding:14px; background:var(--paper); display:flex; flex-direction:column; gap:6px;">
+        <div style="font-family:var(--mono); font-size:9px; color:var(--ash); letter-spacing:.2em; text-transform:uppercase;">stage ${i}</div>
+        <div style="font-family:var(--display); font-size:18px; color:var(--mint);">layers ${s.layer_start ?? '—'}–${s.layer_end ?? '—'}</div>
+        <div style="font-family:var(--mono); font-size:10px; color:var(--ink);">${escape(rig.hostname || rig.agent_id || 'unassigned')}</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <span class="tag">${escape(rig.role || 'host')}</span>
+          ${rig.relay_capable?'<span class="tag relay">relay</span>':''}
+          ${rig.nat_type?`<span class="tag ${(rig.nat_type||'').toLowerCase()==='symmetric'?'bad':''}">${escape(rig.nat_type)}</span>`:''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+function renderLayerStack(){
+  const t = state.topo;
+  const stack = $('#layer-stack');
+  if(!t || !t.stages){ stack.innerHTML = '<div class="empty">awaiting topology</div>'; return; }
+  const totalLayers = t.layers || t.stages.reduce((a,s) => Math.max(a, s.layer_end||0), 0)+1;
+  $('#mv-name').textContent  = t.model_name || t.model || '— unnamed —';
+  $('#mv-params').textContent= t.params ? fmtBytes(t.params).replace(/\s+\w+/,m=>m.toUpperCase()) : (t.params_str || '—');
+  $('#mv-layers').textContent= totalLayers || '—';
+  $('#mv-stages').textContent= t.stages.length;
+  $('#mv-ctx').textContent   = t.ctx || t.context || '—';
+  if(!totalLayers){ stack.innerHTML = '<div class="empty">no layer count</div>'; return; }
+  const colors = ['','coral','violet'];
+  let html = '';
+  for(let i=0;i<totalLayers;i++){
+    const stage = t.stages.findIndex(s => i>=s.layer_start && i<=s.layer_end);
+    const rig = stage>=0 ? (t.stages[stage].assigned || (t.stages[stage].candidates||[])[0] || {}) : {};
+    const cls = stage>=0 ? colors[stage%colors.length] : '';
+    const w = stage>=0 ? 80 + (i%5)*4 : 24;
+    html += `
+      <div class="layer-row">
+        <span class="ix">L${String(i).padStart(2,'0')}</span>
+        <div class="bar"><div class="fill ${cls}" style="width:${w}%"></div></div>
+        <span class="rig">${escape((rig.hostname||rig.agent_id||'').slice(0,12) || '—')}</span>
+      </div>
+    `;
+  }
+  stack.innerHTML = html;
+}
+
+/* ───── modal ───── */
+function openRig(r){
+  $('#m-name').textContent = r.hostname || r.agent_id || r.id || 'rig';
+  $('#m-sub').textContent  = `id // ${(r.public_id || r.id || r.agent_id || '').slice(0,40)}`;
+  $('#m-core').innerHTML = [
+    rowKV('online', r.online===false ? '<span class="tag bad">offline</span>' : '<span class="tag ok">online</span>'),
+    rowKV('roles', (r.roles_held||[]).join(', ') || '—'),
+    rowKV('models', (r.models_held||[]).slice(0,8).join(', ') || '—'),
+    rowKV('last seen', r.last_seen ? new Date(r.last_seen*1000).toLocaleString() : '—'),
+    rowKV('slots', `${r.inflight||0} / ${r.slots||1}`),
+  ].join('');
+  $('#m-net').innerHTML = [
+    rowKV('nat class', escape(r.nat_type||'unknown')),
+    rowKV('public ip', escape(r.public_ip||'—')),
+    rowKV('coturn port', r.coturn_port||'—'),
+    rowKV('relay capable', r.relay_capable?'yes':'no'),
+    rowKV('relay role', r.relay_bytes_forwarded ? `${fmtBytes(r.relay_bytes_forwarded)} forwarded` : 'inactive'),
+  ].join('');
+  $('#m-compute').innerHTML = [
+    rowKV('tokens / sec', fmtNum(r.tokens_ps||0)),
+    rowKV('vram total', fmtBytes((r.vram_total||0)*1024*1024)),
+    rowKV('vram free', fmtBytes((r.vram_free||0)*1024*1024)),
+    rowKV('inflight', r.inflight||0),
+    rowKV('queue depth', r.queue_depth??'—'),
+  ].join('');
+  $('#m-models').innerHTML = (r.models_held && r.models_held.length)
+    ? r.models_held.map(m => `<div class="row"><span class="k">shard</span><span class="v">${escape(m)}</span></div>`).join('')
+    : `<div class="row"><span class="k">—</span><span class="v mute">no shards reported</span></div>`;
+  $('#modal-bg').classList.add('open');
+}
+function rowKV(k,v){
+  return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+}
+function closeModal(){ $('#modal-bg').classList.remove('open'); }
+
+/* ───── load jobs ───── */
+function renderLoadJobs(){
+  const wrap = $('#loader-jobs');
+  if(!state.loadJobs.length){ wrap.innerHTML = '<div class="empty">no load jobs in window</div>'; return; }
+  wrap.innerHTML = state.loadJobs.map(j => `
+    <div class="job ${j.status==='done'?'done':j.status==='err'?'err':''}">
+      <div class="h"><span class="n">${escape(j.repo)}</span><span>${escape(j.status)}</span></div>
+      <div class="progress"><div class="f" style="width:${Math.round((j.progress||0)*100)}%"></div></div>
+      <div style="display:flex; justify-content:space-between; margin-top:8px; color:var(--mute);">
+        <span>${escape(j.file||'-')}</span><span>${escape(j.rev||'')}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ───── event tape ───── */
+function pushEvent(msg, level='ok'){
+  state.events.unshift({ t: ts(), msg, level });
+  state.events = state.events.slice(0,80);
+  const tape = $('#event-tape');
+  if(!state.events.length){ tape.innerHTML = '<div class="empty">no events yet</div>'; return; }
+  tape.innerHTML = state.events.map(e => `
+    <div class="console-line"><span class="ts">${escape(e.t)}</span><span class="ev ${e.level}">${escape(e.msg)}</span></div>
+  `).join('');
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -187,6 +187,13 @@ func (s *server) handleInferPP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 429, map[string]any{"error": "rate limit", "policy": policy, "usage": snap})
 		return
 	}
+	// Unconditional slot-refund guard — see inference.go for rationale.
+	slotBilled := false
+	defer func() {
+		if !slotBilled {
+			s.refundRequestSlot(u.ID)
+		}
+	}()
 
 	reqID16 := nextReqID()
 	plan, err := s.planPipeline(body.PoolID, uint32(reqID16), body.Model, body.NLayersOverride)
@@ -456,18 +463,28 @@ func (s *server) handleInferPP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var inTok, outTok uint32
+	var bytesStreamed int
+	// Attribute drift to the terminal stage since that's where the
+	// tokens originate.  In the multi-stage case a malicious middle
+	// node could only forge the count by colluding with the terminal —
+	// detecting that requires per-stage attribution which we defer.
+	termAgentID := plan.Stages[len(plan.Stages)-1].AgentID
+	promptChars := len(body.Prompt)
 	for {
 		select {
 		case f, ok := <-termPeer.tokens:
 			if !ok {
 				writeSSEEvent(w, flusher, map[string]any{"done": true})
-				s.finishInference(logID, int(inTok), int(outTok), "ok")
-				s.recordTokens(u.ID, int(inTok), int(outTok))
+				inSafe, outSafe := s.settleTokens(termAgentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "ok")
+				s.recordTokens(u.ID, inSafe, outSafe)
+				slotBilled = true
 				return
 			}
 			switch f.Type {
 			case actvTypeToken:
 				outTok = f.TokSeq
+				bytesStreamed += len(f.Payload)
 				writeSSEEvent(w, flusher, map[string]any{"token": string(f.Payload)})
 				// Loopback: re-kick stage 0 with this token as a kv_append
 				// activation so it can extend its KV cache.  The node runs one
@@ -490,17 +507,21 @@ func (s *server) handleInferPP(w http.ResponseWriter, r *http.Request) {
 				}
 			case actvTypeDone:
 				writeSSEEvent(w, flusher, map[string]any{"done": true})
-				s.finishInference(logID, int(inTok), int(outTok), "ok")
-				s.recordTokens(u.ID, int(inTok), int(outTok))
+				inSafe, outSafe := s.settleTokens(termAgentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "ok")
+				s.recordTokens(u.ID, inSafe, outSafe)
+				slotBilled = true
 				return
 			case actvTypeError:
 				writeSSEEvent(w, flusher, map[string]any{"error": string(f.Payload)})
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				inSafe, outSafe := s.settleTokens(termAgentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
 				return
 			}
 		case <-ctx.Done():
 			writeSSEErr(w, flusher, "timeout")
-			s.finishInference(logID, int(inTok), int(outTok), "failed")
+			inSafe, outSafe := s.settleTokens(termAgentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+			s.finishInference(logID, inSafe, outSafe, "failed")
 			return
 		}
 	}

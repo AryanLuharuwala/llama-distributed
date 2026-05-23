@@ -243,11 +243,22 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Unconditional slot-refund guard: any termination path that doesn't
+	// flip slotBilled — panic, ctx-cancel, early return, agent
+	// disconnect, mid-stream timeout — refunds the slot so a flaky
+	// network can't burn a user's monthly quota.  slotBilled is only
+	// set when the request actually streamed all the way to a finished
+	// (or terminally-errored) state where recordTokens fired.
+	slotBilled := false
+	defer func() {
+		if !slotBilled {
+			s.refundRequestSlot(u.ID)
+		}
+	}()
 
 	// Pick an online rig in the pool.
 	ac, ok := s.pickOnlineRigInPool(body.PoolID)
 	if !ok {
-		s.refundRequestSlot(u.ID)
 		s.logInference(u.ID, body.PoolID, 0, "", 0, 0, "no_rig")
 		writeErr(w, 503, "no online rigs in pool")
 		return
@@ -268,7 +279,6 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		closed:   make(chan struct{}),
 	}
 	if !ac.acquireInferSlot(ip, ac.snapshotStatus().MaxConcurrent) {
-		s.refundRequestSlot(u.ID)
 		s.logInference(u.ID, body.PoolID, ac.userID, ac.agentID, 0, 0, "failed")
 		writeErr(w, 503, "agent busy")
 		return
@@ -335,7 +345,6 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	payloadJSON, _ := json.Marshal(pl)
 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(body.Prompt)), payloadJSON)
 	if !ac.sendBin(reqFrame) {
-		s.refundRequestSlot(u.ID)
 		s.finishInference(logID, 0, 0, "failed")
 		writeSSEErr(w, flusher, "agent buffer full")
 		return
@@ -346,6 +355,8 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var inTok, outTok uint32
+	var bytesStreamed int
+	promptChars := len(body.Prompt)
 	for {
 		select {
 		case c, ok := <-ip.incoming:
@@ -355,27 +366,33 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 				// from the agent's read loop on EOF).  Report failure
 				// to the caller rather than fabricating a "done" event.
 				writeSSEErr(w, flusher, "agent disconnected")
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
-				s.recordTokens(u.ID, int(inTok), int(outTok))
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
+				s.recordTokens(u.ID, inSafe, outSafe)
 				return
 			}
 			inTok, outTok = c.tokIn, c.tokOut
 			switch c.kind {
 			case chunkKindToken:
+				bytesStreamed += len(c.payload)
 				writeSSEEvent(w, flusher, map[string]any{"token": string(c.payload)})
 			case chunkKindDone:
 				writeSSEEvent(w, flusher, map[string]any{"done": true})
-				s.finishInference(logID, int(inTok), int(outTok), "ok")
-				s.recordTokens(u.ID, int(inTok), int(outTok))
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "ok")
+				s.recordTokens(u.ID, inSafe, outSafe)
+				slotBilled = true
 				return
 			case chunkKindError:
 				writeSSEEvent(w, flusher, map[string]any{"error": string(c.payload)})
-				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+				s.finishInference(logID, inSafe, outSafe, "failed")
 				return
 			}
 		case <-ctx.Done():
 			writeSSEErr(w, flusher, "timeout")
-			s.finishInference(logID, int(inTok), int(outTok), "failed")
+			inSafe, outSafe := s.settleTokens(ac.agentID, int(inTok), int(outTok), promptChars, bytesStreamed)
+			s.finishInference(logID, inSafe, outSafe, "failed")
 			return
 		}
 	}

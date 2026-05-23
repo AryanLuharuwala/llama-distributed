@@ -27,7 +27,9 @@ package main
 import (
 	"database/sql"
 	"math"
+	mrand "math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -170,11 +172,27 @@ func (s *server) loadReputation(agentID string) rigReputation {
 	return r
 }
 
+// maxAggregateRelayBytes caps a single rig's lifetime relay-byte counter.
+// 1 PiB is hilariously beyond any honest rig — at 10 Gbps line rate it
+// would take ~9.7 days of continuous saturation to reach.  The cap is
+// purely defense-in-depth on top of A4's per-session clamp: it prevents
+// a malicious rig from overflowing INTEGER (or crowding out an honest
+// rig in reputation-sorted views) by repeatedly closing sessions just
+// under the per-session cap.
+const maxAggregateRelayBytes int64 = 1 << 50
+
 // recordRelaySuccess credits a successful relay session.  bytesForwarded is
 // summed across both directions (l→r + r→l) as reported by the rig.
+// The persisted aggregate is hard-capped at maxAggregateRelayBytes.
 func (s *server) recordRelaySuccess(agentID string, bytesForwarded int64) {
 	if s == nil || s.db == nil || agentID == "" {
 		return
+	}
+	if bytesForwarded < 0 {
+		bytesForwarded = 0
+	}
+	if bytesForwarded > maxAggregateRelayBytes {
+		bytesForwarded = maxAggregateRelayBytes
 	}
 	now := nowUnix()
 	if _, err := s.db.Exec(`
@@ -185,12 +203,11 @@ func (s *server) recordRelaySuccess(agentID string, bytesForwarded int64) {
 		ON CONFLICT(agent_id) DO UPDATE SET
 		    relay_sessions_total    = relay_sessions_total + 1,
 		    relay_sessions_success  = relay_sessions_success + 1,
-		    relay_bytes_forwarded   = relay_bytes_forwarded + excluded.relay_bytes_forwarded,
+		    relay_bytes_forwarded   = MIN(?, relay_bytes_forwarded + excluded.relay_bytes_forwarded),
 		    last_success_at         = excluded.last_success_at,
 		    updated_at              = excluded.updated_at
-	`, agentID, bytesForwarded, now, now); err != nil {
+	`, agentID, bytesForwarded, now, now, maxAggregateRelayBytes); err != nil {
 		// Reputation is best-effort — log but don't propagate.
-		// (logging via the standard logger keeps it out of the hot path)
 	}
 }
 
@@ -251,6 +268,121 @@ func (s *server) recordComputeSuccess(agentID string) {
 		    last_success_at        = excluded.last_success_at,
 		    updated_at             = excluded.updated_at
 	`, agentID, now, now)
+}
+
+// relayRngCounter feeds an atomic counter into each rng seed, so two
+// findRelayAgent calls happening in the same nanosecond still get
+// distinct seeds (and therefore independent draws).
+var relayRngCounter atomic.Int64
+
+// mathRandFresh returns a thread-private *math/rand.Rand seeded from
+// the wall clock combined with a process-monotonic counter.  Avoids
+// the global math/rand mutex that all callers of rand.Float64()
+// share — critical when many requests run findRelayAgent in parallel.
+func mathRandFresh() *mrand.Rand {
+	seed := time.Now().UnixNano() ^ relayRngCounter.Add(1)
+	return mrand.New(mrand.NewSource(seed))
+}
+
+// relayScoreSampled is the Thompson-sampled variant of relayScore.
+//
+// Theory: relay-rig selection is a multi-armed bandit. Each rig is an
+// arm; "success rate" is the unknown Bernoulli parameter we want to
+// learn. Maintaining a Beta(alpha=successes+1, beta=failures+1)
+// posterior over that parameter is exact under a uniform prior.
+// Thompson sampling — draw one number from each arm's posterior, pick
+// the arm with the highest draw — is provably regret-optimal for
+// Bernoulli bandits (Russo, van Roy, Kazerouni, Osband, Wen 2018,
+// "A Tutorial on Thompson Sampling").
+//
+// The recency penalty is preserved as a *multiplicative weight* on the
+// sample, so a freshly-failed rig still gets demoted regardless of how
+// optimistic the posterior is.  This trades a tiny amount of explore
+// for a hard guardrail against immediately re-picking a sick rig.
+//
+// rng is the caller-supplied source so the choice is reproducible in
+// tests.  In production, callers pass a per-request rand.New from a
+// crypto-seeded global; this keeps each relay pick independent and
+// avoids the global math/rand lock.
+func relayScoreSampled(r rigReputation, nowUnixSec int64, rng *mrand.Rand) float64 {
+	total := r.RelaySessionsTotal
+	success := r.RelaySessionsSuccess
+	failure := total - success
+	if failure < 0 {
+		failure = 0
+	}
+
+	// Beta(α, β) with α = successes+1, β = failures+1.  +1 priors
+	// give Beta(1,1) ≡ Uniform[0,1] for unseen rigs — they get a
+	// random draw on the unit interval, ensuring they're tried.
+	alpha := float64(success + 1)
+	beta := float64(failure + 1)
+	draw := betaSample(rng, alpha, beta)
+
+	// Recency penalty — same multiplicative shape as relayScore so the
+	// "just-failed rig gets demoted hard" property is preserved.
+	recency := relayRecencyPenalty(r, nowUnixSec)
+
+	return draw * recency
+}
+
+// relayRecencyPenalty returns the [0,1] recency multiplier shared
+// between relayScore and relayScoreSampled.  Extracted so a change to
+// the recency model only needs one edit.
+func relayRecencyPenalty(r rigReputation, nowUnixSec int64) float64 {
+	if r.LastFailureAt <= 0 {
+		return 1.0
+	}
+	age := nowUnixSec - r.LastFailureAt
+	if age < 0 {
+		age = 0
+	}
+	if age < 60 {
+		return 0.1
+	}
+	if age < 300 {
+		return 0.3 + 0.7*(float64(age-60)/240.0)
+	}
+	return 1.0
+}
+
+// betaSample draws from Beta(alpha, beta) via the ratio of two Gamma
+// samples.  Both shape parameters must be ≥ 1 (callers guarantee this
+// via the +1 prior).
+func betaSample(rng *mrand.Rand, alpha, beta float64) float64 {
+	x := gammaSample(rng, alpha)
+	y := gammaSample(rng, beta)
+	if x+y == 0 {
+		return 0.5
+	}
+	return x / (x + y)
+}
+
+// gammaSample draws from Gamma(shape=k, scale=1) using the Marsaglia-Tsang
+// (2000) acceptance-rejection method.  Requires k ≥ 1.  O(1) expected
+// draws per sample (rejection rate < 5%).
+func gammaSample(rng *mrand.Rand, k float64) float64 {
+	if k < 1.0 {
+		k = 1.0
+	}
+	d := k - 1.0/3.0
+	c := 1.0 / math.Sqrt(9.0*d)
+	for {
+		x := rng.NormFloat64()
+		v := 1.0 + c*x
+		if v <= 0 {
+			continue
+		}
+		v = v * v * v
+		u := rng.Float64()
+		x2 := x * x
+		if u < 1.0-0.0331*x2*x2 {
+			return d * v
+		}
+		if math.Log(u) < 0.5*x2+d*(1.0-v+math.Log(v)) {
+			return d * v
+		}
+	}
 }
 
 // relayScore returns a [0,1] score for a rig's relay reliability.

@@ -310,6 +310,36 @@ func (s *server) getMCPServer(uid, id int64) (*mcpServer, error) {
 	return &m, nil
 }
 
+// getMCPServerByName looks up an MCP server row by its (user, name)
+// composite key.  Used by callers that reference servers by name in
+// API payloads (e.g. the chat-completion tool-call path) rather than
+// by numeric ID.
+func (s *server) getMCPServerByName(uid int64, name string) (*mcpServer, error) {
+	q := s.dialect.RewriteQuery(`
+		SELECT id, user_id, name, transport, endpoint, scopes_json,
+		       secret_ref, enabled, last_health_at, last_health_ok,
+		       created_at, updated_at
+		FROM mcp_servers
+		WHERE user_id = ? AND name = ?
+	`)
+	row := s.db.QueryRow(q, uid, name)
+	var m mcpServer
+	var scopes, transport string
+	var enabled, healthOK int
+	if err := row.Scan(&m.ID, &m.UserID, &m.Name, &transport, &m.Endpoint,
+		&scopes, &m.SecretRef, &enabled, &m.LastHealthAt, &healthOK,
+		&m.CreatedAt, &m.UpdatedAt); err != nil {
+		return nil, err
+	}
+	m.Transport = mcpTransport(transport)
+	m.Enabled = enabled != 0
+	m.LastHealthOK = healthOK != 0
+	if scopes != "" {
+		_ = json.Unmarshal([]byte(scopes), &m.Scopes)
+	}
+	return &m, nil
+}
+
 // updateMCPServer replaces the mutable fields (transport, endpoint,
 // scopes, secret_ref, enabled).  Name is immutable — callers delete +
 // re-add to rename, which keeps the audit log keyed cleanly.
