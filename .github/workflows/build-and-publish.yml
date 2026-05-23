@@ -36,11 +36,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # OCI repository paths must be lowercase; github.repository preserves
+      # casing, so derive a normalized form once and reuse it.
+      - name: lowercase repo
+        id: repo
+        run: echo "lc=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: derive image tags
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/distpool-server
+          images: ghcr.io/${{ steps.repo.outputs.lc }}/distpool-server
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -50,7 +56,7 @@ jobs:
       # Single immutable tag for downstream jobs — branch/latest are ambiguous
       # during a rolling deploy.
       - id: primary
-        run: echo "tag=ghcr.io/${{ github.repository }}/distpool-server:sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: echo "tag=ghcr.io/${{ steps.repo.outputs.lc }}/distpool-server:sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - uses: docker/build-push-action@v6
         with:
