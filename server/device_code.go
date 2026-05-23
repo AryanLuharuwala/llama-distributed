@@ -274,12 +274,24 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /device  (HTML page; resolves via the dashboard's UI)
-// Falls through to the main UI which detects ?code=… and shows the
-// "Approve this rig?" confirmation card.
+// GET /device  (HTML page; resolves via the device-pair approval UI)
+//
+// The page handles the ?code=XXXX-XXXX deeplink the CLI shows: it
+// fetches the pair preview, asks the operator to confirm, and POSTs
+// the approval.  We keep the legacy ui.html bundle for this flow
+// because it already carries the JS that drives the approval card —
+// /nexus is the live ops console and / is now the editorial sign-in
+// page, so neither is the right surface for an "approve this rig?"
+// dialog.
 func (s *server) handleDevicePage(w http.ResponseWriter, r *http.Request) {
-	// Reuse the same HTML — the UI checks location.pathname/search.
-	s.handleIndex(w, r)
+	b, err := uiFS.ReadFile("ui.html")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
 }
 
 func strFallback(s, d string) string {

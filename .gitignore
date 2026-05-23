@@ -29,6 +29,8 @@ server/models-store/
 .env
 .env.*
 !.env.example
+azure_creds
+azure_creds.json
 
 # Editor / OS
 .DS_Store

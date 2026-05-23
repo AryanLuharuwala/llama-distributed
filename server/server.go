@@ -155,6 +155,8 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("GET /auth/github", s.handleGithubStart)
 	mux.HandleFunc("GET /auth/github/callback", s.handleGithubCallback)
+	mux.HandleFunc("GET /auth/google", s.handleGoogleStart)
+	mux.HandleFunc("GET /auth/google/callback", s.handleGoogleCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	if s.cfg.devMode {
 		mux.HandleFunc("POST /auth/dev", s.handleDevLogin)
@@ -583,14 +585,17 @@ func (s *server) clearSessionCookie(w http.ResponseWriter) {
 
 // ─── Handlers: misc ─────────────────────────────────────────────────────────
 
-func (s *server) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	b, err := uiFS.ReadFile("ui.html")
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	// Authed users land on the live operations console. Unauthed users
+	// see the editorial sign-in page (which then bounces them to /nexus
+	// once a session is minted).
+	if _, ok := s.userFromRequest(r); ok {
+		http.Redirect(w, r, "/nexus", http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(b)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(authPageHTML)
 }
 
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {

@@ -51,6 +51,8 @@ type config struct {
 	devMode       bool   // enables a "dev login" endpoint (no GitHub needed)
 	githubClient  string
 	githubSecret  string
+	googleClient  string
+	googleSecret  string
 	sessionSecret string
 	modelsDir     string // root dir where model shards live
 	splitterBin   string // path to llama-split-gguf binary
@@ -95,6 +97,8 @@ func loadConfig() config {
 		apexHost:      envOr("DIST_APEX_HOST", "surds.co.in"),
 		githubClient:  os.Getenv("DIST_GITHUB_CLIENT"),
 		githubSecret:  os.Getenv("DIST_GITHUB_SECRET"),
+		googleClient:  os.Getenv("DIST_GOOGLE_CLIENT"),
+		googleSecret:  os.Getenv("DIST_GOOGLE_SECRET"),
 		sessionSecret: envOr("DIST_SESSION_SECRET", "dev-secret-change-me"),
 		modelsDir:     envOr("DIST_MODELS_DIR", "./models-store"),
 		splitterBin:   envOr("DIST_SPLITTER", "/home/boom/startup/Project/llama.cpp/build/bin/llama-split-gguf"),

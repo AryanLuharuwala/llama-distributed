@@ -196,6 +196,14 @@ func migrate(db *sql.DB, d sqlDialect) error {
 		// alone is not enough to impersonate the rig — the attacker would
 		// also need the private key (which never leaves the device).
 		`ALTER TABLE rigs ADD COLUMN pubkey BLOB`,
+		// Google OAuth.  Subject id from the userinfo endpoint, plus the
+		// email we got back so we can display it on the dashboard if the
+		// account never set a display_name.  github_id and google_id are
+		// independent unique surfaces — a user signs in through one,
+		// upserts on its sub id, and we never merge across providers.
+		`ALTER TABLE users ADD COLUMN google_id    TEXT`,
+		`ALTER TABLE users ADD COLUMN google_email TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)`,
 	}
 	for _, s := range alters {
 		if err := addColumnIfMissing(db, d, s); err != nil {

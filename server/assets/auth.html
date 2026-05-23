@@ -1,148 +1,517 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>sign in · surd</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distpool — Sign in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=JetBrains+Mono:wght@400;600&family=Sora:wght@300;400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--void:#04060a;--hull:#0c1422;--line:#1a2740;--cyan:#5af0ff;--violet:#9b6bff;
-  --ink:#dfe7f5;--dim:#7b8ba8}
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--void);color:var(--ink);font-family:"Sora",sans-serif;
-  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-body{
-  background:
-    radial-gradient(700px 500px at 50% 30%, rgba(155,107,255,.18), transparent 60%),
-    radial-gradient(600px 400px at 50% 100%, rgba(90,240,255,.12), transparent 70%),
-    repeating-linear-gradient(0deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
-    repeating-linear-gradient(90deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
-    var(--void);
-}
-.card{
-  max-width:460px;width:100%;
-  background:linear-gradient(180deg, rgba(12,20,34,.92), rgba(7,11,20,.85));
-  border:1px solid var(--line);border-radius:18px;padding:42px 38px;
-  box-shadow:0 30px 80px -20px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
-}
-.brand{font-family:"Major Mono Display",monospace;font-size:12px;letter-spacing:.18em;color:var(--cyan);
-  display:flex;align-items:center;gap:10px}
-.brand::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cyan);
-  box-shadow:0 0 14px var(--cyan);animation:beat 1.7s ease-in-out infinite}
-@keyframes beat{50%{transform:scale(.6);opacity:.55}}
-h1{font-family:"Major Mono Display",monospace;font-weight:400;font-size:32px;
-  line-height:1.05;margin:18px 0 8px;letter-spacing:-.01em}
-.sub{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 26px}
+:root {
+  --paper:        #fbfaf6;
+  --paper-2:      #f4f2ec;
+  --surface:      #ffffff;
+  --ink:          #1a1a14;
+  --ink-2:        #54544a;
+  --ink-3:        #8c8c82;
+  --ink-4:        #b8b8ac;
+  --rule:         rgba(26,26,20,0.08);
+  --rule-strong:  rgba(26,26,20,0.18);
+  --accent:       #7a2c2c;
+  --accent-soft:  #f1e2e2;
+  --ok:           #2f5a3a;
 
-.btn{
-  display:flex;align-items:center;justify-content:center;gap:12px;width:100%;
-  background:linear-gradient(135deg, var(--cyan), var(--violet));color:var(--void);
-  font-family:"JetBrains Mono",monospace;font-weight:600;font-size:14px;letter-spacing:.04em;
-  border:none;border-radius:12px;padding:14px;cursor:pointer;text-decoration:none;
-  transition:transform .12s, box-shadow .12s;
+  --display: 'Instrument Serif', 'Iowan Old Style', Cambria, serif;
+  --body:    'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --mono:    'IBM Plex Mono', Menlo, monospace;
 }
-.btn:hover{transform:translateY(-1px);box-shadow:0 12px 30px -10px rgba(90,240,255,.45)}
-.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
-.btn.alt:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:none}
-
-.note{
-  display:flex;align-items:flex-start;gap:10px;margin-top:22px;
-  background:rgba(90,240,255,.06);border:1px solid rgba(90,240,255,.22);border-radius:10px;
-  padding:12px 14px;font-size:12.5px;color:var(--dim);line-height:1.55;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--paper); color: var(--ink); min-height: 100vh; }
+body {
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-.note b{color:var(--cyan);font-weight:600}
-
-.sep{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--dim);font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em}
-.sep::before,.sep::after{content:"";flex:1;height:1px;background:var(--line)}
-
-.dev{display:none}
-.dev.on{display:block}
-.dev label{display:block;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--dim);margin-bottom:6px}
-.dev input{
-  width:100%;background:rgba(7,11,20,.6);color:var(--ink);border:1px solid var(--line);
-  border-radius:10px;padding:11px 12px;font-family:"JetBrains Mono",monospace;font-size:13px;
-  outline:none;margin-bottom:10px;
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background-image: radial-gradient(rgba(26,26,20,0.025) 1px, transparent 1px);
+  background-size: 3px 3px;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
 }
-.dev input:focus{border-color:var(--cyan)}
 
-.foot{margin-top:28px;color:var(--dim);font-size:12px;line-height:1.55}
-.foot a{color:var(--cyan);text-decoration:none}
+a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); transition: border-color 0.15s ease; }
+a:hover { border-bottom-color: var(--ink); }
+button { font-family: inherit; cursor: pointer; }
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  position: relative;
+  z-index: 2;
+}
+@media (max-width: 880px) { .shell { grid-template-columns: 1fr; } }
+
+.panel-left {
+  padding: 56px 64px 48px;
+  border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.panel-left::after {
+  content: '';
+  position: absolute;
+  right: -180px; bottom: -180px;
+  width: 520px; height: 520px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.panel-left::before {
+  content: '';
+  position: absolute;
+  right: -80px; bottom: -80px;
+  width: 320px; height: 320px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.masthead {
+  font-family: var(--display);
+  font-size: 38px;
+  letter-spacing: 0.005em;
+  line-height: 1;
+  margin-bottom: 4px;
+  position: relative;
+  z-index: 1;
+}
+.masthead em { font-style: italic; color: var(--accent); font-weight: 400; }
+.tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  position: relative; z-index: 1;
+}
+.hero {
+  margin-top: 96px;
+  max-width: 480px;
+  position: relative;
+  z-index: 1;
+}
+.hero h1 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 64px;
+  line-height: 1.0;
+  letter-spacing: -0.005em;
+  margin-bottom: 22px;
+}
+.hero h1 em { font-style: italic; color: var(--accent); }
+.hero p {
+  font-size: 17.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 440px;
+}
+.hero p + p { margin-top: 14px; }
+.foot-left {
+  margin-top: auto;
+  display: flex;
+  gap: 28px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  position: relative;
+  z-index: 1;
+}
+.foot-left a { border: none; color: var(--ink-3); }
+.foot-left a:hover { color: var(--ink); }
+
+.panel-right {
+  padding: 56px 64px 48px;
+  display: flex; flex-direction: column;
+  align-items: stretch;
+  background: var(--surface);
+}
+.right-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 36px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.right-head .seg b { color: var(--ink); margin-left: 8px; }
+.right-head .seg .num { color: var(--accent); margin-right: 10px; }
+
+.signin-wrap { max-width: 460px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; flex: 1; }
+.signin-wrap h2 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 36px;
+  line-height: 1.05;
+  margin-bottom: 8px;
+}
+.signin-wrap h2 em { font-style: italic; color: var(--accent); }
+.signin-wrap .lede {
+  font-size: 15.5px;
+  color: var(--ink-2);
+  margin-bottom: 36px;
+  max-width: 380px;
+}
+
+.auth-block { display: flex; flex-direction: column; gap: 12px; }
+.btn {
+  display: flex; align-items: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  padding: 16px 22px;
+  font-family: var(--body);
+  font-size: 16px;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  text-decoration: none;
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.btn .glyph {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  margin-right: 16px;
+}
+.btn .arrow {
+  margin-left: auto;
+  font-family: var(--mono);
+  color: var(--ink-3);
+  transition: transform 0.18s ease, color 0.15s ease;
+}
+.btn:hover { background: var(--ink); color: var(--paper); transform: translateY(-1px); }
+.btn:hover .arrow { color: var(--paper); transform: translateX(4px); }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.btn.primary { border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent); color: var(--paper); }
+.btn .glyph svg { width: 22px; height: 22px; }
+
+.divider {
+  display: flex; align-items: center; gap: 18px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 28px 0 16px;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.cli-card {
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 18px 22px 20px;
+}
+.cli-card .lbl {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+  display: flex; justify-content: space-between;
+}
+.cli-card .lbl a { border: none; color: var(--accent); }
+.cli-card .cmd {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  padding: 12px 14px;
+}
+.cli-card .cmd code {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--ink);
+  letter-spacing: 0.005em;
+  word-break: break-all;
+}
+.cli-card .copy {
+  background: none;
+  border: 1px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 11px;
+  color: var(--ink);
+  transition: background 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.cli-card .copy:hover { background: var(--ink); color: var(--paper); }
+.cli-card .copy.ok { background: var(--ok); border-color: var(--ok); color: var(--paper); }
+.cli-card .hint {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.dev-section {
+  margin-top: 30px;
+  display: none;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+}
+.dev-section.on { display: block; }
+.dev-section .lbl {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.dev-section form { display: flex; gap: 10px; }
+.dev-section input[type="text"] {
+  flex: 1;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  padding: 12px 14px;
+  font-family: var(--body);
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.dev-section input[type="text"]:focus { border-color: var(--ink); }
+.dev-section button {
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  padding: 12px 18px;
+  font-family: var(--body);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+.dev-section button:hover { background: var(--accent); border-color: var(--accent); }
+
+.err {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: 12px;
+  letter-spacing: 0.02em;
+  display: none;
+}
+.err.on { display: block; }
+
+.fine {
+  margin-top: auto;
+  padding-top: 36px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  line-height: 1.7;
+}
+.fine a { border: none; color: var(--ink-3); }
+.fine a:hover { color: var(--ink); }
+
+.masthead, .hero, .signin-wrap, .right-head, .foot-left {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: rise 0.7s cubic-bezier(0.22, 0.8, 0.32, 1) forwards;
+}
+.masthead   { animation-delay: 0.00s; }
+.hero       { animation-delay: 0.10s; }
+.right-head { animation-delay: 0.15s; }
+.signin-wrap{ animation-delay: 0.22s; }
+.foot-left  { animation-delay: 0.30s; }
+@keyframes rise { to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="brand">SURD // ACCESS</div>
-  <h1>sign in</h1>
-  <p class="sub">No separate signup. The first time you sign in we create your account
-  automatically — same button, either way.</p>
 
-  <a class="btn" href="/auth/github" id="ghBtn">
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.69-.01-1.35-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.16-.89-1.16-.73-.5.06-.49.06-.49.8.06 1.22.83 1.22.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82A7.6 7.6 0 0 1 8 4.36c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.74.54 1.5 0 1.08-.01 1.96-.01 2.22 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-    sign in with github
-  </a>
+<div class="shell">
 
-  <div id="devBlock" class="dev">
-    <div class="sep">dev mode</div>
-    <label>display name</label>
-    <input id="devName" placeholder="e.g. ada-lovelace" autocomplete="off"/>
-    <button class="btn alt" id="devGo">create dev account</button>
-    <p id="devErr" style="color:#ff6b9c;font-family:JetBrains Mono,monospace;font-size:12px;margin:8px 0 0;display:none"></p>
-  </div>
+  <section class="panel-left">
+    <div class="masthead">Dist<em>p</em>ool</div>
+    <div class="tag">Operations · Console</div>
 
-  <div class="note" id="ghMissing" style="display:none">
-    GitHub OAuth isn't configured on this server. Operator: set
-    <b>DIST_GITHUB_CLIENT</b> + <b>DIST_GITHUB_SECRET</b>, or enable dev mode.
-  </div>
+    <div class="hero">
+      <h1>Distributed inference, <em>operated</em> deliberately.</h1>
+      <p>Sign in to manage your pool — rigs, models, routes, and the live operations console.</p>
+      <p>Or set up a node on this machine in one line. No browser dance required.</p>
+    </div>
 
-  <div class="foot">
-    Already running a rig? <a href="/install">install the surd CLI →</a><br/>
-    Authorising a device-code? Make sure it's shown on your terminal, then sign in.
-  </div>
+    <div class="foot-left">
+      <a href="https://github.com/AryanLuharuwala/llama-distributed" target="_blank" rel="noopener">source</a>
+      <a href="/install">install</a>
+      <a href="/healthz">status</a>
+    </div>
+  </section>
+
+  <section class="panel-right">
+    <div class="right-head">
+      <div class="seg"><span class="num">§ 01</span> Authenticate <b id="hostname">—</b></div>
+      <div class="seg" id="env-badge">local</div>
+    </div>
+
+    <div class="signin-wrap">
+      <h2>Sign <em>in</em></h2>
+      <p class="lede">Use the identity you already have. Sessions are bound to your IP so links can't be lifted.</p>
+
+      <div class="auth-block">
+        <a href="/auth/github" class="btn primary" id="btn-github">
+          <span class="glyph">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-1-.02-1.97-3.2.7-3.87-1.54-3.87-1.54-.52-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.74.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.71 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.49.11-3.1 0 0 .98-.31 3.2 1.18a11.06 11.06 0 0 1 5.83 0c2.22-1.49 3.2-1.18 3.2-1.18.63 1.61.23 2.8.12 3.1.75.81 1.2 1.84 1.2 3.1 0 4.44-2.7 5.42-5.27 5.7.41.36.78 1.06.78 2.14 0 1.54-.01 2.79-.01 3.17 0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"/>
+            </svg>
+          </span>
+          Continue with GitHub
+          <span class="arrow">→</span>
+        </a>
+
+        <a href="#" class="btn" id="btn-google">
+          <span class="glyph">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M21.6 12.227c0-.709-.064-1.39-.182-2.045H12v3.868h5.385a4.605 4.605 0 0 1-1.997 3.022v2.51h3.232c1.892-1.743 2.98-4.31 2.98-7.355z"/>
+              <path fill="currentColor" opacity=".85" d="M12 22c2.7 0 4.964-.895 6.62-2.418l-3.232-2.51c-.895.6-2.04.955-3.388.955-2.605 0-4.81-1.76-5.598-4.123H3.064v2.59A9.998 9.998 0 0 0 12 22z"/>
+              <path fill="currentColor" opacity=".65" d="M6.402 13.904a5.997 5.997 0 0 1 0-3.808V7.506H3.064a10 10 0 0 0 0 8.987l3.338-2.589z"/>
+              <path fill="currentColor" opacity=".45" d="M12 5.977c1.47 0 2.787.505 3.825 1.498l2.866-2.866C16.96 2.99 14.695 2 12 2 8.09 2 4.71 4.243 3.064 7.506l3.338 2.59C7.19 7.736 9.394 5.977 12 5.977z"/>
+            </svg>
+          </span>
+          Continue with Google
+          <span class="arrow">→</span>
+        </a>
+      </div>
+
+      <div class="err" id="err"></div>
+
+      <div class="dev-section" id="dev-section">
+        <div class="lbl">Local · dev shortcut</div>
+        <form id="dev-form">
+          <input type="text" name="display_name" placeholder="your handle (e.g. operator)" required autocomplete="off" />
+          <button type="submit">Enter</button>
+        </form>
+      </div>
+
+      <div class="divider">or · set up a node in one line</div>
+
+      <div class="cli-card">
+        <div class="lbl">
+          <span>Run on the machine that will host the model</span>
+          <a href="/install" id="more-install">more options →</a>
+        </div>
+        <div class="cmd">
+          <code id="install-cmd">curl -fsSL http://localhost:8080/install.sh | sh</code>
+          <button class="copy" id="copy-cmd" type="button">copy</button>
+        </div>
+        <div class="hint">
+          The script auto-detects OS &amp; arch, fetches the agent binary, and starts a pairing dance against this server. You'll be prompted to approve the agent on your dashboard once it connects.
+        </div>
+      </div>
+
+      <div class="fine">
+        We bind sessions to your client IP and rotate state HMACs — <a href="/healthz">infrastructure status</a>.
+      </div>
+    </div>
+  </section>
+
 </div>
 
 <script>
-const params = new URLSearchParams(location.search);
-const next = params.get("next") || "/console";
-// Forward `next` to the OAuth callback so post-login lands where the user
-// intended (e.g. the device-code approval page).
-const gh = document.getElementById("ghBtn");
-gh.href = "/auth/github?next=" + encodeURIComponent(next);
+const $ = sel => document.querySelector(sel);
+document.getElementById('hostname').textContent = location.host;
+document.getElementById('env-badge').textContent = (location.hostname === 'localhost' || location.hostname.startsWith('127.') || location.hostname.startsWith('10.') || location.hostname.startsWith('192.168.')) ? 'local' : 'cloud';
 
-(async () => {
-  try{
-    const r = await fetch("/api/auth/status");
-    if (!r.ok) return;
-    const j = await r.json();
-    if (j.dev_mode){
-      document.getElementById("devBlock").classList.add("on");
-    }
-    if (!j.github_configured){
-      document.getElementById("ghMissing").style.display = "flex";
-      gh.style.display = "none";
-    }
-    if (j.user_id){
-      // already signed in — go straight to next
-      location.href = next;
-    }
-  }catch(_){}
-})();
+const installCmd = `curl -fsSL ${location.origin}/install.sh | sh`;
+document.getElementById('install-cmd').textContent = installCmd;
 
-document.getElementById("devGo")?.addEventListener("click", async () => {
-  const name = document.getElementById("devName").value.trim();
-  const err  = document.getElementById("devErr");
-  err.style.display = "none";
-  if (!name){ err.textContent = "display name required"; err.style.display="block"; return; }
-  const r = await fetch("/auth/dev", {
-    method: "POST", headers: {"content-type":"application/json"},
-    body: JSON.stringify({ display_name: name }),
+document.getElementById('copy-cmd').addEventListener('click', async (e) => {
+  try {
+    await navigator.clipboard.writeText(installCmd);
+    e.target.classList.add('ok');
+    const old = e.target.textContent;
+    e.target.textContent = 'copied ✓';
+    setTimeout(() => { e.target.classList.remove('ok'); e.target.textContent = old; }, 1800);
+  } catch {
+    const r = document.createRange();
+    r.selectNode(document.getElementById('install-cmd'));
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  }
+});
+
+fetch('/api/auth/status', { credentials: 'include' })
+  .then(r => r.ok ? r.json() : null)
+  .then(j => {
+    if (!j) return;
+    if (j.user_id) {
+      const next = new URLSearchParams(location.search).get('next') || '/nexus';
+      location.replace(next);
+      return;
+    }
+    if (!j.github_configured) {
+      const gh = document.getElementById('btn-github');
+      gh.setAttribute('disabled', '');
+      gh.classList.remove('primary');
+      gh.title = 'Set DIST_GITHUB_CLIENT and DIST_GITHUB_SECRET on the server';
+    }
+    if (!j.google_configured) {
+      const gg = document.getElementById('btn-google');
+      gg.setAttribute('disabled', '');
+      gg.title = 'Set DIST_GOOGLE_CLIENT and DIST_GOOGLE_SECRET on the server';
+    }
+    if (j.dev_mode) document.getElementById('dev-section').classList.add('on');
+  })
+  .catch(() => {});
+
+document.getElementById('dev-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const r = await fetch('/auth/dev', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: fd.get('display_name') || '' }),
+    credentials: 'include',
   });
-  if (r.ok){ location.href = next; return; }
-  const txt = await r.text();
-  err.textContent = txt || ("HTTP " + r.status);
-  err.style.display = "block";
+  if (r.ok) {
+    const next = new URLSearchParams(location.search).get('next') || '/nexus';
+    location.replace(next);
+  } else {
+    const err = document.getElementById('err');
+    const t = await r.text().catch(() => '');
+    err.textContent = 'Dev login failed: ' + (t || r.status);
+    err.classList.add('on');
+  }
+});
+
+document.getElementById('btn-google').addEventListener('click', (e) => {
+  if (document.getElementById('btn-google').hasAttribute('disabled')) {
+    e.preventDefault();
+    return;
+  }
+  location.href = '/auth/google';
 });
 </script>
 </body>
