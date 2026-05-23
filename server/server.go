@@ -153,6 +153,7 @@ func (s *server) router() http.Handler {
 	// Auth
 	mux.HandleFunc("GET /auth", s.handleAuthPage)
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("GET /api/meta", s.handleMeta)
 	mux.HandleFunc("GET /auth/github", s.handleGithubStart)
 	mux.HandleFunc("GET /auth/github/callback", s.handleGithubCallback)
 	mux.HandleFunc("GET /auth/google", s.handleGoogleStart)
@@ -210,6 +211,7 @@ func (s *server) router() http.Handler {
 	// Sessions / me
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/rigs", s.handleListRigs)
+	mux.HandleFunc("DELETE /api/rigs/{agentID}", s.handleForgetRig)
 
 	// Inference + usage
 	mux.HandleFunc("POST /api/infer", s.handleInfer)
@@ -284,8 +286,8 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/me/rigs/stream", s.handleMeRigsStream)
 	mux.HandleFunc("GET /api/me/earnings", s.handleMeEarnings)
 	mux.HandleFunc("GET /api/pools/{id}/topology", s.handlePoolTopology)
-	mux.HandleFunc("GET /api/pools/{id}/plan",    s.handlePoolPlanGet)
-	mux.HandleFunc("PUT /api/pools/{id}/plan",    s.handlePoolPlanPut)
+	mux.HandleFunc("GET /api/pools/{id}/plan", s.handlePoolPlanGet)
+	mux.HandleFunc("PUT /api/pools/{id}/plan", s.handlePoolPlanPut)
 	mux.HandleFunc("DELETE /api/pools/{id}/plan", s.handlePoolPlanDelete)
 	mux.HandleFunc("GET /api/pools/{id}/sessions", s.handlePoolSessions)
 	mux.HandleFunc("GET /api/console/network", s.handleConsoleNetwork)
@@ -344,14 +346,14 @@ func (s *server) router() http.Handler {
 // response.  Cheap, well-understood, and missing them is a frequent
 // audit finding even on otherwise-clean services.
 //
-//   X-Content-Type-Options:  stops MIME sniffing on user-uploaded blobs
-//                            (model shards, comfy outputs).
-//   X-Frame-Options:         the dashboard isn't an embeddable widget;
-//                            clickjacking defence.
-//   Referrer-Policy:         keep referer leaks to a minimum.
-//   Strict-Transport-Security: only set when the request came in over
-//                              HTTPS (TLS-terminating proxy or built-in
-//                              TLS); harmless on dev HTTP.
+//	X-Content-Type-Options:  stops MIME sniffing on user-uploaded blobs
+//	                         (model shards, comfy outputs).
+//	X-Frame-Options:         the dashboard isn't an embeddable widget;
+//	                         clickjacking defence.
+//	Referrer-Policy:         keep referer leaks to a minimum.
+//	Strict-Transport-Security: only set when the request came in over
+//	                           HTTPS (TLS-terminating proxy or built-in
+//	                           TLS); harmless on dev HTTP.
 //
 // We deliberately skip Content-Security-Policy here — the dashboard
 // uses some inline scripts and locking it down without an audit risks
@@ -436,15 +438,15 @@ func withLogging(h http.Handler) http.Handler {
 		rid := requestIDFromContext(r.Context())
 		if logJSON {
 			entry := map[string]any{
-				"ts":         t0.UTC().Format(time.RFC3339Nano),
-				"level":      "info",
-				"event":      "http_request",
-				"request_id": rid,
-				"method":     r.Method,
-				"path":       r.URL.Path,
-				"status":     sr.status,
+				"ts":          t0.UTC().Format(time.RFC3339Nano),
+				"level":       "info",
+				"event":       "http_request",
+				"request_id":  rid,
+				"method":      r.Method,
+				"path":        r.URL.Path,
+				"status":      sr.status,
 				"duration_ms": dur.Milliseconds(),
-				"remote":     r.RemoteAddr,
+				"remote":      r.RemoteAddr,
 			}
 			b, _ := json.Marshal(entry)
 			fmt.Fprintln(os.Stdout, string(b))
@@ -542,8 +544,8 @@ func (s *server) userFromRequest(r *http.Request) (*user, bool) {
 		return nil, false
 	}
 	var (
-		uid   int64
-		exp   int64
+		uid int64
+		exp int64
 	)
 	err = s.db.QueryRow(
 		`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
@@ -660,6 +662,61 @@ func (s *server) handleListRigs(w http.ResponseWriter, r *http.Request) {
 		rigs = append(rigs, r)
 	}
 	writeJSON(w, 200, map[string]any{"rigs": rigs})
+}
+
+// DELETE /api/rigs/{agentID} — forget a rig owned by the current user.
+//
+// Idempotent: returns 200 with deleted=true/false.  We refuse to drop a rig
+// that's currently online (the live WS connection would just re-register it
+// on the next heartbeat) — caller should `dist-node logout` on the rig first
+// or wait for it to disconnect.  Removes the rig row, its pool memberships,
+// shard-cache entries, and any API keys minted via /api/agent/api_key by
+// this rig identity.
+func (s *server) handleForgetRig(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.userFromRequest(r)
+	if !ok {
+		writeErr(w, 401, "not logged in")
+		return
+	}
+	agentID := r.PathValue("agentID")
+	if agentID == "" {
+		writeErr(w, 400, "agent_id required")
+		return
+	}
+	if s.hub.agentOnline(u.ID, agentID) {
+		writeErr(w, 409, "rig is currently online — disconnect it first")
+		return
+	}
+	var rigID int64
+	err := s.db.QueryRow(
+		`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
+		u.ID, agentID,
+	).Scan(&rigID)
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"deleted": false, "reason": "not_found"})
+		return
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	// Pool membership rows + shard cache index reference rig_id; drop first
+	// so the foreign-key-less SQLite schema doesn't leave dangling rows.
+	_, _ = tx.Exec(`DELETE FROM pool_rigs WHERE rig_id = ?`, rigID)
+	_, _ = tx.Exec(`DELETE FROM rig_shards WHERE rig_id = ?`, rigID)
+	if _, err := tx.Exec(
+		`DELETE FROM rigs WHERE id = ? AND user_id = ?`, rigID, u.ID,
+	); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": true, "agent_id": agentID})
 }
 
 // Dev login — POST {display_name}.  Opt-in only via DIST_DEV_MODE=1 / --dev.
@@ -846,8 +903,8 @@ func (s *server) reapLoop(ctx context.Context) {
 
 type hub struct {
 	mu       sync.RWMutex
-	agents   map[agentKey]*agentConn    // (userID, agentID) -> conn
-	browsers map[int64][]*browserConn   // userID -> connections
+	agents   map[agentKey]*agentConn  // (userID, agentID) -> conn
+	browsers map[int64][]*browserConn // userID -> connections
 }
 
 type agentKey struct {
@@ -1021,7 +1078,7 @@ func (s *server) pickOnlineRigInPool(poolID int64) (*agentConn, bool) {
 	}
 	defer rows.Close()
 	var best *agentConn
-	var bestLoad int32 = 1<<30
+	var bestLoad int32 = 1 << 30
 	for rows.Next() {
 		var uid int64
 		var aid string

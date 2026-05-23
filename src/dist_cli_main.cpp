@@ -517,7 +517,7 @@ int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
 int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
     if (args.empty()) {
-        std::cerr << "usage: dist-cli rigs <list|watch>\n";
+        std::cerr << "usage: dist-cli rigs <list|watch|forget AGENT_ID>\n";
         return 1;
     }
     const std::string bearer = "Authorization: Bearer " + ctx.api_key;
@@ -530,19 +530,47 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
     auto print_table = [](const std::string& body) {
         std::string arr;
         if (!find_top_array(body, "rigs", arr)) arr = body;
-        std::printf("  %-22s  %-12s  %-10s  %-9s  %-6s  %s\n",
-                    "AGENT_ID", "STATUS", "NAT", "SLOTS", "RTT", "NICK");
+        auto human_bytes = [](long long n) -> std::string {
+            if (n <= 0) return "—";
+            const char* units[] = {"B","KB","MB","GB","TB"};
+            double v = static_cast<double>(n);
+            int u = 0;
+            while (v >= 1024.0 && u < 4) { v /= 1024.0; ++u; }
+            char buf[32];
+            if (u == 0) std::snprintf(buf, sizeof(buf), "%lld%s", n, units[u]);
+            else        std::snprintf(buf, sizeof(buf), "%.1f%s", v, units[u]);
+            return buf;
+        };
+        std::printf("  %-22s  %-9s  %-12s  %-7s  %-7s  %s\n",
+                    "AGENT_ID", "STATUS", "GPU", "VRAM", "SLOTS", "HOSTNAME");
+        int n_rows = 0;
         for (const auto& obj : json_array_objects(arr)) {
-            std::string slots_used = dc::json_peek_int(obj, "slots_used");
-            std::string slots_max  = dc::json_peek_int(obj, "slots_max");
-            std::string slots = slots_used + "/" + slots_max;
-            std::printf("  %-22s  %-12s  %-10s  %-9s  %-6s  %s\n",
+            ++n_rows;
+            // health is the server-classified bucket; falls back to online flag.
+            std::string st = dc::json_peek_string(obj, "health");
+            if (st.empty()) {
+                st = dc::json_peek_string(obj, "online") == "true" ? "online" : "offline";
+            }
+            std::string inflight = dc::json_peek_int(obj, "inflight");
+            std::string maxconc  = dc::json_peek_int(obj, "max_concurrent");
+            if (inflight.empty()) inflight = "0";
+            if (maxconc.empty() || maxconc == "0") maxconc = "—";
+            std::string slots = inflight + "/" + maxconc;
+            long long vram = 0;
+            try { vram = std::stoll(dc::json_peek_int(obj, "vram_total")); } catch (...) {}
+            std::string gpu = dc::json_peek_string(obj, "gpu_model");
+            if (gpu.empty()) gpu = "—";
+            if (gpu.size() > 12) gpu = gpu.substr(0, 11) + "…";
+            std::printf("  %-22s  %-9s  %-12s  %-7s  %-7s  %s\n",
                         dc::json_peek_string(obj, "agent_id").c_str(),
-                        dc::json_peek_string(obj, "status").c_str(),
-                        dc::json_peek_string(obj, "nat_type").c_str(),
+                        st.c_str(),
+                        gpu.c_str(),
+                        human_bytes(vram).c_str(),
                         slots.c_str(),
-                        dc::json_peek_int(obj, "rtt_ms").c_str(),
-                        dc::json_peek_string(obj, "nick").c_str());
+                        dc::json_peek_string(obj, "hostname").c_str());
+        }
+        if (n_rows == 0) {
+            std::printf("  (no rigs paired — run `dist-node login` on a GPU box)\n");
         }
     };
 
@@ -572,6 +600,37 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
             }
             for (int i = 0; i < 20 && !g_quit.load(); ++i)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return 0;
+    }
+
+    if (args[0] == "forget") {
+        if (args.size() < 2) {
+            std::cerr << "usage: dist-cli rigs forget <AGENT_ID>\n"
+                         "  (use `dist-cli rigs list` to find the agent_id)\n";
+            return 1;
+        }
+        const std::string agent_id = args[1];
+        const std::string path = "/api/rigs/" + agent_id;
+        dc::HttpResp r; std::string err;
+        if (!dc::http_request(ctx.server_url, path, "DELETE", "",
+                              {bearer}, r, err)) {
+            std::cerr << "[forget] request failed: " << err << "\n";
+            return 1;
+        }
+        if (r.status == 409) {
+            std::cerr << "[forget] rig is online — run `dist-node logout` on it first, "
+                         "or wait for the heartbeat to lapse.\n";
+            return 1;
+        }
+        if (r.status != 200) {
+            std::cerr << "[forget] failed (" << r.status << "): " << r.body << "\n";
+            return 1;
+        }
+        if (dc::json_peek_string(r.body, "deleted") == "true") {
+            std::cout << "  ✓ forgot rig " << agent_id << "\n";
+        } else {
+            std::cout << "  (rig " << agent_id << " not found — nothing to do)\n";
         }
         return 0;
     }
@@ -656,10 +715,14 @@ int cmd_login(std::vector<std::string> args) {
     std::strncpy(hostname, "windows-host", sizeof(hostname) - 1);
 #endif
 
-    // n_gpus=0, vram_bytes=0 — this is a management seat, not a compute rig.
+    // n_gpus=-1, vram_bytes=-1 — sentinel telling the server this is a
+    // management seat, not a compute rig.  The server's upsert in
+    // device_code.go preserves any existing rig capabilities instead of
+    // overwriting them, so an operator login on a box that's already running
+    // dist-node won't zero out the rig's advertised GPU count.
     std::ostringstream body;
     body << "{\"hostname\":\"" << json_escape(hostname) << "\","
-         << "\"n_gpus\":0,\"vram_bytes\":0}";
+         << "\"n_gpus\":-1,\"vram_bytes\":-1}";
 
     dc::HttpResp rsp; std::string err;
     if (!dc::http_request(api_url, "/api/device/code", "POST", body.str(),
@@ -772,7 +835,7 @@ void usage(const char* prog) {
         "  %s status                          Pairing + auth info.\n"
         "  %s pools list|create|join|members|invite|kick ...\n"
         "  %s models list|import|search|discover ...\n"
-        "  %s rigs list|watch\n"
+        "  %s rigs list|watch|forget <AGENT_ID>\n"
         "  %s logs [--follow] [--tail N]\n"
         "  %s top                             Live TUI dashboard.\n"
         "  %s split <pool-id>                 Visual layer/VRAM splitter.\n"

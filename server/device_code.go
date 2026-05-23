@@ -93,12 +93,12 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 	verification := strings.TrimRight(s.cfg.publicURL, "/") + "/device"
 
 	writeJSON(w, 200, map[string]any{
-		"device_code":              deviceCode,
-		"user_code":                userCode,
-		"verification_url":         verification,
+		"device_code":               deviceCode,
+		"user_code":                 userCode,
+		"verification_url":          verification,
 		"verification_url_complete": verification + "?code=" + userCode,
-		"expires_in":               int(deviceCodeTTL.Seconds()),
-		"interval":                 deviceCodePollMin,
+		"expires_in":                int(deviceCodeTTL.Seconds()),
+		"interval":                  deviceCodePollMin,
 	})
 }
 
@@ -176,14 +176,20 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	// before the rig connects via WS.  We store only the hash here; the
 	// plaintext lives in device_codes.agent_key for exactly one polled
 	// fetch (see handleDeviceToken below, which nulls it out on read).
+	//
+	// dist-cli (operator seat) posts n_gpus=-1 to mean "I'm not a compute
+	// rig, don't touch capabilities".  COALESCE(NULLIF(...,-1), existing)
+	// keeps the row's prior n_gpus/vram_bytes when the sentinel is set, so
+	// an operator login on the same host as a compute node can't erase its
+	// advertised GPU count.
 	akHash := hashAgentKey(agentKey)
 	if _, err := tx.Exec(`INSERT INTO rigs
 		(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, agent_key_hash)
-		VALUES (?, ?, ?, ?, ?, ?, '', ?)
+		VALUES (?, ?, ?, COALESCE(NULLIF(?, -1), 0), COALESCE(NULLIF(?, -1), 0), ?, '', ?)
 		ON CONFLICT (user_id, agent_id) DO UPDATE SET
 		   hostname       = excluded.hostname,
-		   n_gpus         = excluded.n_gpus,
-		   vram_bytes     = excluded.vram_bytes,
+		   n_gpus         = COALESCE(NULLIF(excluded.n_gpus, 0),     rigs.n_gpus),
+		   vram_bytes     = COALESCE(NULLIF(excluded.vram_bytes, 0), rigs.vram_bytes),
 		   agent_key      = '',
 		   agent_key_hash = excluded.agent_key_hash`,
 		u.ID, agentID, hostname, nGPUs, vramBytes, nowUnix(), akHash,
@@ -232,11 +238,17 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		   FROM device_codes WHERE device_code = ?`, body.DeviceCode,
 	).Scan(&approved, &expiresAt, &agentID, &agentKey)
 	if err != nil {
-		writeErr(w, 404, "unknown device_code")
+		// Unify the "unknown code" and "expired code" responses: both are
+		// terminal for the client and disclosing the difference lets an
+		// attacker enumerate valid (but unapproved/unconsumed) device_codes
+		// from a leaked log or a 410 vs 404 timing side-channel.  device_code
+		// is 24 bytes of randomness so the enumeration window is small, but
+		// the unified response is free defence-in-depth.
+		writeErr(w, 410, "device_code invalid or expired")
 		return
 	}
 	if nowUnix() > expiresAt {
-		writeErr(w, 410, "code expired")
+		writeErr(w, 410, "device_code invalid or expired")
 		return
 	}
 	if approved == 0 {
@@ -261,9 +273,11 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		// Someone else already consumed it (or it was never set).  Treat
-		// as expired so the second poller doesn't keep retrying forever.
-		writeErr(w, 410, "device_code already consumed")
+		// Someone else already consumed it (or it was never set).  Use the
+		// same "invalid or expired" wording as the lookup-miss path so the
+		// client can't distinguish a stolen-by-a-race code from one that
+		// never existed.
+		writeErr(w, 410, "device_code invalid or expired")
 		return
 	}
 

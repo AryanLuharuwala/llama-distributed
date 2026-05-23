@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -146,7 +147,11 @@ func (s *server) decryptHFToken(nonce, ct []byte) (string, error) {
 }
 
 // userHFToken returns the user's stored HF token, or "" if none / decrypt
-// failed (e.g. session secret rotated).
+// failed.  When decryption fails — usually because DIST_SESSION_SECRET was
+// rotated since the token was saved — we log a warning AND delete the row
+// so the user gets a clean "no token" state on next call (and the dashboard
+// can prompt them to paste a fresh one) instead of silently 401-ing every
+// HF download forever.
 func (s *server) userHFToken(uid int64) string {
 	var nonce, ct []byte
 	err := s.db.QueryRow(
@@ -157,6 +162,9 @@ func (s *server) userHFToken(uid int64) string {
 	}
 	tok, err := s.decryptHFToken(nonce, ct)
 	if err != nil {
+		log.Printf("[hf] decrypt token for user %d failed (%v) — clearing row; "+
+			"user must re-paste their HF token", uid, err)
+		_, _ = s.db.Exec(`DELETE FROM hf_tokens WHERE user_id = ?`, uid)
 		return ""
 	}
 	return tok
@@ -183,10 +191,10 @@ type hfFileInfo struct {
 // and have no oid, so Lfs stays nil; we fall through to an unverified
 // download for those (the size check is the only guard).
 type hfTreeEntry struct {
-	Type string  `json:"type"` // "file" | "directory"
-	Path string  `json:"path"`
-	Size int64   `json:"size"`
-	Lfs  *hfLFS  `json:"lfs,omitempty"`
+	Type string `json:"type"` // "file" | "directory"
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	Lfs  *hfLFS `json:"lfs,omitempty"`
 }
 
 type hfLFS struct {
@@ -1037,6 +1045,17 @@ func (s *server) runHFImport(
 		return
 	}
 
+	// On any error path past this point, drop the partial staging tree so a
+	// failed import doesn't leak GB of partial bytes.  Success path zeroes
+	// the flag after the explicit RemoveAll lower down (we wipe immediately
+	// after splitter so disk pressure is released before model registration).
+	cleanupStaging := true
+	defer func() {
+		if cleanupStaging {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
+
 	s.hfSetStatus(jobID, uid, "downloading", "")
 
 	// Aggregate progress across files.  totalDone is summed across all
@@ -1132,6 +1151,7 @@ func (s *server) runHFImport(
 
 	// Clean up staging (the source GGUF has been split — we don't need both copies).
 	_ = os.RemoveAll(stagingDir)
+	cleanupStaging = false
 
 	now := nowUnix()
 	_, _ = s.db.Exec(

@@ -274,6 +274,40 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Per-pool roll-up.  Tells the operator which pools their rigs earned
+	// from in the last 30d — useful when you contribute the same rig to
+	// multiple pools and want to see which is generating real traffic.
+	// Joined against pools so the UI can render the pool's display name
+	// without a second round trip.
+	type poolEarn struct {
+		PoolID       int64  `json:"pool_id"`
+		PoolName     string `json:"pool_name"`
+		Requests     int64  `json:"requests"`
+		InputTokens  int64  `json:"input_tokens"`
+		OutputTokens int64  `json:"output_tokens"`
+	}
+	qrows, err := s.db.Query(`
+		SELECT il.pool_id, COALESCE(p.name, ''),
+		       COUNT(*), COALESCE(SUM(il.input_tokens),0), COALESCE(SUM(il.output_tokens),0)
+		FROM inference_log il
+		LEFT JOIN pools p ON p.id = il.pool_id
+		WHERE il.agent_user_id = ? AND il.user_id != il.agent_user_id AND il.started_at >= ?
+		GROUP BY il.pool_id
+		ORDER BY (COALESCE(SUM(il.input_tokens),0)+COALESCE(SUM(il.output_tokens),0)) DESC`,
+		u.ID, since)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer qrows.Close()
+	var perPool []poolEarn
+	for qrows.Next() {
+		var e poolEarn
+		if err := qrows.Scan(&e.PoolID, &e.PoolName, &e.Requests, &e.InputTokens, &e.OutputTokens); err == nil {
+			perPool = append(perPool, e)
+		}
+	}
+
 	writeJSON(w, 200, map[string]any{
 		"window_days": 30,
 		"totals": map[string]int64{
@@ -281,8 +315,9 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 			"input_tokens":  totalIn,
 			"output_tokens": totalOut,
 		},
-		"daily":   daily,
-		"per_rig": perRig,
+		"daily":    daily,
+		"per_rig":  perRig,
+		"per_pool": perPool,
 	})
 }
 
@@ -391,27 +426,28 @@ func (s *server) handlePoolTopology(w http.ResponseWriter, r *http.Request) {
 // rigs, edge thickness from BW.
 
 type poolSession struct {
-	AgentID    string  `json:"agent_id"`
-	Hostname   string  `json:"hostname"`
-	Online     bool    `json:"online"`
-	NGPUs      int     `json:"n_gpus"`
-	VRAMTotal  int64   `json:"vram_total"`
-	VRAMFree   int64   `json:"vram_free"`
-	Inflight   int     `json:"inflight"`
-	MaxConc    int     `json:"max_concurrent"`
-	TokensPS   float64 `json:"tokens_sec"`
-	NATType    string  `json:"nat_type"`
-	CoturnPort int     `json:"coturn_port"`
-	BWUpKbps   int64   `json:"bw_up_kbps"`
-	BWDnKbps   int64   `json:"bw_dn_kbps"`
+	AgentID    string   `json:"agent_id"`
+	Hostname   string   `json:"hostname"`
+	Online     bool     `json:"online"`
+	NGPUs      int      `json:"n_gpus"`
+	VRAMTotal  int64    `json:"vram_total"`
+	VRAMFree   int64    `json:"vram_free"`
+	Inflight   int      `json:"inflight"`
+	MaxConc    int      `json:"max_concurrent"`
+	TokensPS   float64  `json:"tokens_sec"`
+	NATType    string   `json:"nat_type"`
+	CoturnPort int      `json:"coturn_port"`
+	BWUpKbps   int64    `json:"bw_up_kbps"`
+	BWDnKbps   int64    `json:"bw_dn_kbps"`
 	Roles      []string `json:"roles,omitempty"`
 	Bottleneck string   `json:"bottleneck"`
 }
 
 // bottleneck classifies what's pinning a rig:
-//   "vram" / "compute" / "network" / "none".  Frontend uses this to mark
-//  the rig tile with a red badge so users can see "ah this rig is slow
-//   because it's saturated on VRAM" at a glance.
+//
+//	 "vram" / "compute" / "network" / "none".  Frontend uses this to mark
+//	the rig tile with a red badge so users can see "ah this rig is slow
+//	 because it's saturated on VRAM" at a glance.
 func bottleneckFor(p poolSession) string {
 	if !p.Online {
 		return ""
@@ -785,7 +821,7 @@ func (s *server) handleWidgetState(w http.ResponseWriter, r *http.Request) {
 // shellQuote returns "" for empty input, otherwise a single-quoted POSIX
 // shell literal safe to interpolate into a command line.  Conservative —
 // we strip any chars we don't want in pool/invite anyway, so the only
-// quoting we need is `'` → `'\''`.  This double-duties for PowerShell
+// quoting we need is `'` → `'\”`.  This double-duties for PowerShell
 // since we wrap it in `'…'` (PowerShell single-quotes are literal).
 func shellQuote(s string) string {
 	if s == "" {

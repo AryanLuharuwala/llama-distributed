@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -98,6 +97,28 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/meta — small unauthenticated endpoint that the dashboard footer
+// hits to show build/host/env.  Returns the build SHA (DIST_BUILD_SHA env)
+// or "dev" if unset, the configured public host, and "local"/"cloud" derived
+// from the public URL scheme.
+func (s *server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	build := envOr("DIST_BUILD_SHA", "dev")
+	host := s.cfg.publicURL
+	if idx := strings.Index(host, "://"); idx != -1 {
+		host = host[idx+3:]
+	}
+	env := "cloud"
+	if strings.HasPrefix(s.cfg.publicURL, "http://localhost") ||
+		strings.HasPrefix(s.cfg.publicURL, "http://127.") {
+		env = "local"
+	}
+	writeJSON(w, 200, map[string]any{
+		"build": build,
+		"host":  host,
+		"env":   env,
+	})
+}
+
 // Minimal GitHub OAuth.
 //
 //   /auth/github            → redirect to github.com/login/oauth/authorize
@@ -107,8 +128,8 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 // endpoints return 501 so the dev-login endpoint can be used instead.
 
 const githubAuthorizeURL = "https://github.com/login/oauth/authorize"
-const githubTokenURL     = "https://github.com/login/oauth/access_token"
-const githubUserURL      = "https://api.github.com/user"
+const githubTokenURL = "https://github.com/login/oauth/access_token"
+const githubUserURL = "https://api.github.com/user"
 
 func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.githubClient == "" {

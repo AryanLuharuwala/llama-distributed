@@ -25,7 +25,10 @@ namespace dist::cli {
 
 // ── State store ──────────────────────────────────────────────────────────
 
-std::string state_dir() {
+// Shared base — same path dist-node uses, so on a brand-new install we can
+// migrate the legacy files into the /cli subdir below.  Never write directly
+// to this path from dist-cli.
+static std::string state_base() {
     if (const char* s = std::getenv("DIST_STATE_DIR"); s && *s) return s;
 #ifdef _WIN32
     if (const char* s = std::getenv("LOCALAPPDATA"); s && *s)
@@ -41,6 +44,36 @@ std::string state_dir() {
 #endif
     }
     return "./llama-distributed-state";
+}
+
+// dist-cli has its own subdir so an operator login can't clobber a compute
+// rig's agent.id/agent.key.  On first access we copy any pre-existing files
+// from the base dir into /cli so prior `dist-cli login` state isn't lost.
+std::string state_dir() {
+#ifdef _WIN32
+    const std::string cli = state_base() + "\\cli";
+#else
+    const std::string cli = state_base() + "/cli";
+#endif
+    static std::once_flag migrate_once;
+    std::call_once(migrate_once, [&]{
+        std::error_code ec;
+        std::filesystem::create_directories(cli, ec);
+        // One-shot migration: pull legacy files into /cli when /cli is empty.
+        // Leave the originals in place so dist-node keeps working.
+        const auto base = state_base();
+        const char* keys[] = {"agent.id", "agent.key", "agent.api_key",
+                              "agent.server", "agent.api_url"};
+        for (const char* k : keys) {
+            const std::string src = base + "/" + k;
+            const std::string dst = cli  + "/" + k;
+            if (std::filesystem::exists(dst, ec)) continue;
+            if (!std::filesystem::exists(src, ec)) continue;
+            std::filesystem::copy_file(src, dst,
+                std::filesystem::copy_options::skip_existing, ec);
+        }
+    });
+    return cli;
 }
 
 std::string state_path(const std::string& name) {

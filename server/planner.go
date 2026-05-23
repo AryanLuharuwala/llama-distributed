@@ -19,19 +19,19 @@ import (
 
 // StageAssignment is one node in the pipeline chain.
 type StageAssignment struct {
-	StageIdx   int    `json:"stage_idx"`
-	LayerLo    int    `json:"layer_lo"`     // inclusive
-	LayerHi    int    `json:"layer_hi"`     // exclusive
-	UserID     int64  `json:"user_id"`
-	AgentID    string `json:"agent_id"`
-	Hostname   string `json:"hostname"`
-	TPSize     int    `json:"tp_size"`      // intra-node GPUs (intra mode) OR group cardinality (inter)
+	StageIdx      int    `json:"stage_idx"`
+	LayerLo       int    `json:"layer_lo"` // inclusive
+	LayerHi       int    `json:"layer_hi"` // exclusive
+	UserID        int64  `json:"user_id"`
+	AgentID       string `json:"agent_id"`
+	Hostname      string `json:"hostname"`
+	TPSize        int    `json:"tp_size"`   // intra-node GPUs (intra mode) OR group cardinality (inter)
 	TransportHint string `json:"transport"` // "ws" for now; "rtc" later
 
 	// Model-shard download pointer.  Populated by the coordinator after the
 	// planner picks stages so the node can fetch just its slab.
-	ShardURL   string `json:"shard_url,omitempty"`
-	ShardFile  string `json:"shard_file,omitempty"`
+	ShardURL  string `json:"shard_url,omitempty"`
+	ShardFile string `json:"shard_file,omitempty"`
 
 	// Inter-rig TP group fields.  In tp_mode=intra these are zero/empty
 	// (TPGroupID stays -1) and the rig handles its own NCCL.  In
@@ -207,6 +207,12 @@ func (s *server) planPipeline(poolID int64, reqID uint32, modelOverride string, 
 	if len(costs) == 0 {
 		return nil, fmt.Errorf("no online rigs in pool")
 	}
+
+	// Cached-model affinity: rigs that already report this model in their
+	// ModelsHeld set get a bonus in the scorer, so the planner prefers them
+	// over equally-capable but cold rigs.  Saves the multi-hundred-MB shard
+	// download on the first request to a fresh pool.
+	applyModelAffinity(costs, modelName)
 
 	stages := cfg.PPStages
 

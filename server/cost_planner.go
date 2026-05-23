@@ -31,15 +31,21 @@ import (
 // rigCost is the scoring view of an online rig.  Built from the live
 // telemetry snapshot, plus the static info we already have.
 type rigCost struct {
-	info  onlineRigInfo
-	live  liveStatus
+	info onlineRigInfo
+	live liveStatus
 
 	throughput float64 // tok/s; 0 if unknown
 	vramTotal  int64
 	vramFree   int64
-	bwKbps     int64   // min(up, down); 0 if unknown
+	bwKbps     int64 // min(up, down); 0 if unknown
 	inflight   int
 	stale      bool
+
+	// hasModel is true when the rig has reported the target model in its
+	// ModelsHeld set — meaning the slab is already on disk, no download
+	// required to start serving.  Set per-request by the caller; pickers
+	// that don't know the model leave it false.
+	hasModel bool
 }
 
 // score returns a single number that ranks this rig for general-purpose
@@ -88,11 +94,38 @@ func (r *rigCost) score() float64 {
 		staleMul = 0.5
 	}
 
-	s := (tpt*1.0 + vramGiB*4.0 + bwMbps*0.05 - penalty) * staleMul
+	// Cached-model bonus: a rig that already has the slab on disk saves
+	// a several-hundred-MB download on the first request.  Weight chosen
+	// so the bonus dominates a small VRAM/throughput differential but a
+	// truly faster rig (e.g. 4× tokens/sec) can still win.
+	cacheBonus := 0.0
+	if r.hasModel {
+		cacheBonus = 40.0
+	}
+
+	s := (tpt*1.0 + vramGiB*4.0 + bwMbps*0.05 + cacheBonus - penalty) * staleMul
 	if s < 1 {
 		s = 1
 	}
 	return s
+}
+
+// applyModelAffinity flips hasModel on each rig whose ModelsHeld contains
+// modelName.  Called by planner.go right before pickStagesByScore so the
+// scorer can give cached rigs a leg up.  Cheap: O(N rigs × M models held)
+// with N ≪ 50 and M ≪ 10 in practice.
+func applyModelAffinity(rigs []rigCost, modelName string) {
+	if modelName == "" {
+		return
+	}
+	for i := range rigs {
+		for _, m := range rigs[i].live.ModelsHeld {
+			if m == modelName {
+				rigs[i].hasModel = true
+				break
+			}
+		}
+	}
 }
 
 // rigCostsForPool is the cached entry point used by the planner hot path.

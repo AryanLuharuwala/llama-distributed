@@ -546,6 +546,8 @@ table.t .center { text-align: center; }
 .canvas section:nth-of-type(5) { animation-delay: 0.26s; }
 .canvas section:nth-of-type(6) { animation-delay: 0.30s; }
 .canvas section:nth-of-type(7) { animation-delay: 0.34s; }
+.canvas section:nth-of-type(8) { animation-delay: 0.38s; }
+.canvas section:nth-of-type(9) { animation-delay: 0.42s; }
 @keyframes rise { to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
@@ -565,6 +567,7 @@ table.t .center { text-align: center; }
         <a href="#models"    data-jump="models"><span class="n">06</span> Models</a>
         <a href="#mcp"       data-jump="mcp"><span class="n">07</span> MCP servers</a>
         <a href="#rag"       data-jump="rag"><span class="n">08</span> RAG corpora</a>
+        <a href="#earnings"  data-jump="earnings"><span class="n">09</span> Earnings</a>
         <a href="/nexus"     style="margin-top:18px;color:var(--ink-3)"><span class="n">→</span> Operations</a>
         <a href="/observatory" style="color:var(--ink-3)"><span class="n">→</span> Observatory</a>
       </nav>
@@ -691,12 +694,11 @@ table.t .center { text-align: center; }
                 <th>Prefix</th>
                 <th>Created</th>
                 <th>Last used</th>
-                <th class="right">Calls</th>
                 <th class="right"></th>
               </tr>
             </thead>
             <tbody id="keys-rows">
-              <tr><td colspan="6" class="empty">loading…</td></tr>
+              <tr><td colspan="5" class="empty">loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -779,6 +781,31 @@ table.t .center { text-align: center; }
             <tbody id="rag-rows">
               <tr><td colspan="6" class="empty">loading…</td></tr>
             </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 09 EARNINGS ─────────────────────────────────────────── -->
+      <section class="block" id="earnings">
+        <div class="section-head">
+          <div class="sn"><b>§ 09</b> Earnings</div>
+          <h2>What your rigs <em>served</em></h2>
+          <span class="act" id="earn-window" style="cursor:default;background:transparent;color:var(--ink-3);">last 30 days</span>
+        </div>
+        <div class="card">
+          <table class="t">
+            <thead>
+              <tr>
+                <th>Pool</th>
+                <th class="right">Requests</th>
+                <th class="right">Input tokens</th>
+                <th class="right">Output tokens</th>
+              </tr>
+            </thead>
+            <tbody id="earn-rows">
+              <tr><td colspan="4" class="empty">loading…</td></tr>
+            </tbody>
+            <tfoot id="earn-foot"></tfoot>
           </table>
         </div>
       </section>
@@ -1135,6 +1162,10 @@ async function loadRigs() {
       st === 'ok' || st === 'online'           ? 'ok'   :
       st === 'stale' || st === 'saturated'     ? 'warn' :
       st === 'offline'                         ? 'err'  : '';
+    const offline = st === 'offline';
+    const actions = offline
+      ? `<button class="btn danger" data-forget="${esc(r.agent_id || '')}">Forget</button>`
+      : `<a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || '')}">Open</a>`;
     tr.innerHTML = `
       <td>${esc(r.hostname || r.agent_id || '—')}</td>
       <td><span class="mono">${esc(r.pool_name || (r.pool_id ? '#'+r.pool_id : '—'))}</span></td>
@@ -1142,9 +1173,19 @@ async function loadRigs() {
       <td class="right mono">${fmtBytes(r.vram_total || 0)}</td>
       <td><span class="chip ${cls}"><span class="dot"></span>${esc(st)}</span></td>
       <td><span class="mono">${fmtAge(r.last_seen)}</span></td>
-      <td class="right"><a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || '')}">Open</a></td>`;
+      <td class="right">${actions}</td>`;
     tb.appendChild(tr);
   }
+  $$('button[data-forget]', tb).forEach(b => b.addEventListener('click', async () => {
+    const aid = b.dataset.forget;
+    if (!aid) return;
+    if (!confirm('Forget this rig? It will be removed from your account; if the agent ever comes back online it will re-register fresh.')) return;
+    try {
+      await api('DELETE', '/api/rigs/' + encodeURIComponent(aid));
+      flash('Rig forgotten');
+      loadRigs();
+    } catch (e) { flash('Forget failed: ' + e.message, 'err'); }
+  }));
 }
 
 // ─── 05 API KEYS ─────────────────────────────────────────────────
@@ -1154,7 +1195,7 @@ async function loadKeys() {
   const keys = d.keys || d || [];
   $('#strip-keys').textContent = keys.length;
   const tb = $('#keys-rows');
-  if (!keys.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">No keys yet — mint one for the CLI or your server.</td></tr>'; return; }
+  if (!keys.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No keys yet — mint one for the CLI or your server.</td></tr>'; return; }
   tb.innerHTML = '';
   for (const k of keys) {
     const tr = document.createElement('tr');
@@ -1163,7 +1204,6 @@ async function loadKeys() {
       <td class="mono">${esc(k.prefix || (k.key ? k.key.slice(0,12) : '—'))}…</td>
       <td><span class="mono">${fmtDate(k.created_at)}</span></td>
       <td><span class="mono">${fmtAge(k.last_used_at)}</span></td>
-      <td class="right mono">${k.usage_count ?? 0}</td>
       <td class="right"><button class="btn danger" data-revoke="${k.id}">Revoke</button></td>`;
     tb.appendChild(tr);
   }
@@ -1403,6 +1443,48 @@ $('#m-rag-submit').addEventListener('click', async () => {
   } catch (e) { $('#m-rag-err').textContent = e.message; $('#m-rag-err').classList.add('on'); }
 });
 
+// ─── 09 EARNINGS ─────────────────────────────────────────────────
+async function loadEarnings() {
+  const tb = $('#earn-rows');
+  const ft = $('#earn-foot');
+  let d;
+  try { d = await api('GET', '/api/me/earnings'); }
+  catch (e) { tb.innerHTML = `<tr><td colspan="4" class="empty">Couldn't load earnings: ${esc(e.message || e)}</td></tr>`; return; }
+  const win = d.window_days || 30;
+  $('#earn-window').textContent = `last ${win} days`;
+  const pools = Array.isArray(d.per_pool) ? d.per_pool : [];
+  if (!pools.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty">No served traffic yet — your rigs haven’t served requests for other users in this window.</td></tr>';
+    ft.innerHTML = '';
+    return;
+  }
+  tb.innerHTML = '';
+  for (const p of pools) {
+    const name = p.pool_name && p.pool_name.length ? p.pool_name : (p.pool_id ? '#'+p.pool_id : '—');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(name)}</td>
+      <td class="right mono">${fmtInt(p.requests)}</td>
+      <td class="right mono">${fmtInt(p.input_tokens)}</td>
+      <td class="right mono">${fmtInt(p.output_tokens)}</td>`;
+    tb.appendChild(tr);
+  }
+  const t = d.totals || {};
+  ft.innerHTML = `
+    <tr>
+      <th>Total</th>
+      <th class="right mono">${fmtInt(t.requests || 0)}</th>
+      <th class="right mono">${fmtInt(t.input_tokens || 0)}</th>
+      <th class="right mono">${fmtInt(t.output_tokens || 0)}</th>
+    </tr>`;
+}
+
+function fmtInt(n) {
+  n = Number(n || 0);
+  if (!isFinite(n)) return '0';
+  return n.toLocaleString('en-US');
+}
+
 // ─── boot ────────────────────────────────────────────────────────
 async function boot() {
   let st;
@@ -1417,9 +1499,11 @@ async function boot() {
   loadModels();
   loadMCP();
   loadRAG();
+  loadEarnings();
 
   // refresh rigs periodically — they're the most volatile
   setInterval(loadRigs, 8_000);
+  setInterval(loadEarnings, 60_000);
 }
 boot();
 </script>

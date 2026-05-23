@@ -1425,28 +1425,46 @@ function renderModel() {
 }
 
 /* ─── render: bottlenecks ─────────────────────────────────────── */
+// We only render the breakdown when real per-stage timings are reported by
+// the rig.  Anything else would be a fabricated dashboard — preferable to
+// show an empty pane until the server starts emitting per-request stage
+// timings via /api/usage or a future /api/me/latency endpoint.
 function renderBottlenecks() {
   const card = $('#bottleneck-rows');
-  // synthesize from rig stats if no explicit endpoint
   const rigs = state.rigs || [];
-  const totalLat = rigs.reduce((a,r)=>a+(r.latency_ms_p50||0),0) / Math.max(1, rigs.length);
   const stages = [
-    { stage: 'Queue · waiting',         hint: 'request sat before pickup',         ms: avgField(rigs, 'queue_wait_ms') || (totalLat * 0.15) || 12 },
-    { stage: 'TTFT · prefill',          hint: 'tokens until first response token', ms: avgField(rigs, 'ttft_ms')       || (totalLat * 0.30) || 48 },
-    { stage: 'Decode · per-token',      hint: 'sustained generation tick',         ms: avgField(rigs, 'decode_ms')     || (totalLat * 0.25) || 22 },
-    { stage: 'Network · DTLS RTT',      hint: 'relay leg + peer leg round trip',   ms: avgField(rigs, 'rtt_ms')        || (totalLat * 0.18) || 18 },
-    { stage: 'Wire · ACTV serialize',   hint: 'serialize activations + checksum',  ms: avgField(rigs, 'serialize_ms')  || (totalLat * 0.07) || 5 },
-    { stage: 'Tokenize · server-side',  hint: 'BPE tokenize on entry',             ms: avgField(rigs, 'tokenize_ms')   || (totalLat * 0.05) || 3 },
-  ];
-  const max = Math.max(...stages.map(s => s.ms));
+    { stage: 'Queue · waiting',         hint: 'request sat before pickup',         field: 'queue_wait_ms' },
+    { stage: 'TTFT · prefill',          hint: 'tokens until first response token', field: 'ttft_ms' },
+    { stage: 'Decode · per-token',      hint: 'sustained generation tick',         field: 'decode_ms' },
+    { stage: 'Network · DTLS RTT',      hint: 'relay leg + peer leg round trip',   field: 'rtt_ms' },
+    { stage: 'Wire · ACTV serialize',   hint: 'serialize activations + checksum',  field: 'serialize_ms' },
+    { stage: 'Tokenize · server-side',  hint: 'BPE tokenize on entry',             field: 'tokenize_ms' },
+  ].map(s => ({ ...s, ms: avgField(rigs, s.field) }));
+  const populated = stages.filter(s => s.ms != null);
+  if (!populated.length) {
+    card.innerHTML = `
+      <div class="empty-pane">
+        No stage timings yet
+        <div class="sub">per-request breakdowns appear once traffic flows through this pool</div>
+      </div>`;
+    return;
+  }
+  const max = Math.max(...populated.map(s => s.ms));
   const hotIdx = stages.findIndex(s => s.ms === max);
-  card.innerHTML = stages.map((s, i) => `
-    <div class="bottleneck-row">
-      <div class="stage">${escapeHTML(s.stage)}<span class="note">${escapeHTML(s.hint)}</span></div>
-      <div class="bar ${i === hotIdx ? 'is-hot' : ''}"><div class="fill" style="width: ${Math.min(100, (s.ms / max) * 100).toFixed(1)}%"></div></div>
-      <div class="num">${s.ms.toFixed(1)}<span class="unit">ms</span></div>
-    </div>
-  `).join('');
+  card.innerHTML = stages.map((s, i) => {
+    if (s.ms == null) return `
+      <div class="bottleneck-row">
+        <div class="stage">${escapeHTML(s.stage)}<span class="note">${escapeHTML(s.hint)}</span></div>
+        <div class="bar"><div class="fill" style="width:0"></div></div>
+        <div class="num muted">—</div>
+      </div>`;
+    return `
+      <div class="bottleneck-row">
+        <div class="stage">${escapeHTML(s.stage)}<span class="note">${escapeHTML(s.hint)}</span></div>
+        <div class="bar ${i === hotIdx ? 'is-hot' : ''}"><div class="fill" style="width: ${Math.min(100, (s.ms / max) * 100).toFixed(1)}%"></div></div>
+        <div class="num">${s.ms.toFixed(1)}<span class="unit">ms</span></div>
+      </div>`;
+  }).join('');
 }
 function avgField(rigs, field) {
   const xs = rigs.map(r => r[field]).filter(v => v != null && !isNaN(v));
@@ -1461,8 +1479,10 @@ function renderNAT() {
   const headers = ['Open', 'Cone', 'Symmetric', 'Strict', 'UPnP', 'Last probe'];
   let html = '<div class="v" style="border-bottom:1px solid var(--rule)">Rig</div>';
   for (const h of headers) html += `<div class="h">${h}</div>`;
-  if (!rigs.length) {
-    html += '<div class="v" style="grid-column: 1 / -1; padding: 28px; text-align: center; color: var(--ink-3); font-family: var(--display); font-style: italic; border:none;">No rigs to probe yet</div>';
+  const haveProbe = rigs.some(r => (r.nat || r.nat_type) && (r.nat || r.nat_type).toLowerCase() !== 'unknown');
+  if (!rigs.length || !haveProbe) {
+    const msg = !rigs.length ? 'No rigs to probe yet' : 'Waiting for NAT probes';
+    html += `<div class="v" style="grid-column: 1 / -1; padding: 28px; text-align: center; color: var(--ink-3); font-family: var(--display); font-style: italic; border:none;">${msg}</div>`;
   } else {
     rigs.slice(0, 8).forEach(r => {
       const nat = (r.nat || r.nat_type || 'unknown').toLowerCase();
@@ -1562,21 +1582,28 @@ async function refreshAll() {
     $('#f-op').textContent = me.display_name || me.email || ('user-' + me.id);
     $('#m-env').textContent = me.env || (location.hostname === 'localhost' ? 'local' : 'cloud');
   }
-  const meta = await getJSON('/api/meta') || await getJSON('/api/console/meta');
+  const meta = await getJSON('/api/meta');
   if (meta) {
-    $('#f-build').textContent = (meta.build || meta.sha || meta.rev || '—').slice(0, 7);
-    $('#footer-rev').textContent = (meta.build || meta.sha || meta.rev || '—').slice(0, 7);
+    const tag = (meta.build || '—').slice(0, 7);
+    $('#f-build').textContent = tag;
+    $('#footer-rev').textContent = tag;
     $('#f-host').textContent = meta.host || location.host;
+    if (meta.env) $('#m-env').textContent = meta.env;
   } else {
     $('#f-host').textContent = location.host;
   }
-  const rigs = await getJSON('/api/me/rigs') || await getJSON('/api/console/rigs') || [];
+  const rigs = await getJSON('/api/me/rigs') || [];
   state.rigs = Array.isArray(rigs) ? rigs : (rigs.rigs || []);
-  const model = await getJSON('/api/console/models') || await getJSON('/api/me/model');
-  state.model = (model && (model.current || model.model || model)) || null;
-  if (state.model && Array.isArray(model)) state.model = model[0] || null;
-  const routes = await getJSON('/api/console/routes') || await getJSON('/api/me/routes') || [];
-  state.routes = Array.isArray(routes) ? routes : (routes.routes || []);
+  // /api/models returns { models: [...] } — pick the most recently registered
+  // entry as the "current" model for the model card.  When the user binds a
+  // model to a pool via the console we surface that instead in a later pass.
+  const models = await getJSON('/api/models');
+  const list = (models && Array.isArray(models.models)) ? models.models : [];
+  state.model = list.length ? list[0] : null;
+  // Routes telemetry is not yet computed server-side.  Leave empty so the
+  // panel renders its "No routes yet" state honestly instead of fetching a
+  // 404.
+  state.routes = [];
 
   $('#asof-fleet').textContent = fmtTime(new Date());
   $('#asof-net').textContent = fmtTime(new Date());

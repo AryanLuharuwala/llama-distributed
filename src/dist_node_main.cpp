@@ -1287,6 +1287,45 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     std::string infer_engine_key;
     std::string infer_engine_path;
 
+    // Reported in the status frame as `models[]` / `cached_shards[]` so the
+    // planner can prefer rigs that already have a slab on disk.  Each entry
+    // names the model (or shard file) and the local layer slab covered.
+    // Mutated only on the heartbeat thread, no lock needed.
+    struct held_shard {
+        std::string model;       // shard_file basename or model name
+        std::string file;        // local path on disk
+        int64_t     size_bytes;  // best-effort, from stat()
+        int         layer_lo;
+        int         layer_hi;    // exclusive; 0/0 means "full model"
+    };
+    std::vector<held_shard> held_shards;
+    auto add_held_shard = [&](const std::string& model,
+                              const std::string& file,
+                              int lo, int hi) {
+        for (auto& h : held_shards) {
+            if (h.file == file) {
+                h.layer_lo = lo;
+                h.layer_hi = hi;
+                return;
+            }
+        }
+        int64_t sz = 0;
+        std::error_code ec;
+        auto st = std::filesystem::file_size(file, ec);
+        if (!ec) sz = static_cast<int64_t>(st);
+        held_shards.push_back({model, file, sz, lo, hi});
+    };
+
+    // Operator override for advertised concurrency.  llama.cpp parallel-mode
+    // (n_parallel > 1) lets us serve multiple decodes from one engine; until
+    // we wire that automatically, an operator can opt-in via env.  Clamped
+    // to a reasonable range; server treats 0 as 1.
+    int advertised_max_concurrent = 1;
+    if (const char* mc = std::getenv("DIST_MAX_CONCURRENT"); mc && *mc) {
+        int v = std::atoi(mc);
+        if (v > 0 && v <= 64) advertised_max_concurrent = v;
+    }
+
     // Cross-process lock over device 0.  Any two dist-node processes sharing
     // one CUDA device serialise their decodes through this flock; a single
     // ggml CUDA backend cannot host two independent llama_contexts doing
@@ -1783,12 +1822,33 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                 s << "]";
             }
             // MaxConcurrent — how many in-flight /v1/chat or /api/infer
-            // requests this rig will multiplex.  Today single-slot, since
-            // our infer engine is not yet llama.cpp parallel-mode aware;
-            // we still advertise it so the server's slot-aware dispatcher
-            // sees the value and future builds can bump it to N without
-            // a wire-protocol change.  Server treats missing/0 as 1.
-            s << ",\"max_concurrent\":1";
+            // requests this rig will multiplex.  Driven by DIST_MAX_CONCURRENT
+            // (default 1) so operators on parallel-mode-capable builds can
+            // bump it without a wire-protocol change.  Server treats
+            // missing/0 as 1.
+            s << ",\"max_concurrent\":" << advertised_max_concurrent;
+
+            // models[] / cached_shards[] — what this rig has on disk and
+            // ready to serve.  The planner uses both: cached_shards keys the
+            // peer-fetch index in rig_shards, models is the human-facing list
+            // the dashboard renders.  Recomputed each heartbeat from the
+            // engine-load callback above.
+            if (!held_shards.empty()) {
+                s << ",\"models\":[";
+                for (size_t i = 0; i < held_shards.size(); ++i) {
+                    if (i) s << ",";
+                    s << "\"" << json_escape(held_shards[i].model) << "\"";
+                }
+                s << "],\"cached_shards\":[";
+                for (size_t i = 0; i < held_shards.size(); ++i) {
+                    if (i) s << ",";
+                    const auto& h = held_shards[i];
+                    s << "{\"model\":\"" << json_escape(h.model) << "\","
+                      << "\"file\":\"" << json_escape(std::filesystem::path(h.file).filename().string()) << "\","
+                      << "\"size_bytes\":" << h.size_bytes << "}";
+                }
+                s << "]";
+            }
             s << "}";
             if (!ws.send_text(s.str())) break;
             // Decay the window — count only the last 5s.
@@ -1975,6 +2035,9 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                         infer_engine      = std::move(eng);
                         infer_engine_key  = key;
                         infer_engine_path = dest;
+                        add_held_shard(
+                            shard_file.empty() ? std::string("model.gguf") : shard_file,
+                            dest, 0, 0);
                     }
 
                     // Fresh KV for this request.
@@ -2608,6 +2671,11 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                                     engine = std::move(eng);
                                     engine_key  = key;
                                     engine_path = dest;
+                                    add_held_shard(
+                                        shard_file.empty()
+                                            ? ("shard-" + std::to_string(rid) + ".gguf")
+                                            : shard_file,
+                                        dest, r.layer_lo, r.layer_hi);
                                 }
                             }
                         }
