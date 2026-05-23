@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distpool — Approve rig</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper:        #fbfaf6;
+  --paper-2:      #f4f2ec;
+  --surface:      #ffffff;
+  --ink:          #1a1a14;
+  --ink-2:        #54544a;
+  --ink-3:        #8c8c82;
+  --ink-4:        #b8b8ac;
+  --rule:         rgba(26,26,20,0.08);
+  --rule-strong:  rgba(26,26,20,0.18);
+  --accent:       #7a2c2c;
+  --accent-soft:  #f1e2e2;
+  --ok:           #2f5a3a;
+
+  --display: 'Instrument Serif', 'Iowan Old Style', Cambria, serif;
+  --body:    'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --mono:    'IBM Plex Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--paper); color: var(--ink); min-height: 100vh; }
+body {
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background-image: radial-gradient(rgba(26,26,20,0.025) 1px, transparent 1px);
+  background-size: 3px 3px;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+}
+a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+a:hover { border-bottom-color: var(--ink); }
+button { font-family: inherit; cursor: pointer; }
+
+.shell { min-height: 100vh; display: flex; flex-direction: column; position: relative; z-index: 2; }
+.bar {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 22px 48px; border-bottom: 1px solid var(--rule);
+}
+.bar .masthead {
+  font-family: var(--display); font-size: 26px; line-height: 1;
+}
+.bar .masthead em { font-style: italic; color: var(--accent); font-weight: 400; }
+.bar .crumb {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.bar .crumb b { color: var(--ink); margin-left: 8px; }
+
+.frame {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  position: relative;
+}
+@media (max-width: 920px) { .frame { grid-template-columns: 1fr; } }
+
+.left {
+  padding: 64px 56px 48px;
+  border-right: 1px solid var(--rule);
+  display: flex; flex-direction: column;
+  position: relative; overflow: hidden;
+}
+.left::after {
+  content: ''; position: absolute;
+  right: -160px; bottom: -160px;
+  width: 480px; height: 480px;
+  border: 1px solid var(--rule); border-radius: 50%;
+  pointer-events: none;
+}
+.left::before {
+  content: ''; position: absolute;
+  right: -60px; bottom: -60px;
+  width: 280px; height: 280px;
+  border: 1px solid var(--rule); border-radius: 50%;
+  pointer-events: none;
+}
+.eyebrow {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 18px;
+  position: relative; z-index: 1;
+}
+.hed {
+  font-family: var(--display); font-weight: 400;
+  font-size: 60px; line-height: 1.02;
+  letter-spacing: -0.005em; margin-bottom: 22px;
+  max-width: 520px; position: relative; z-index: 1;
+}
+.hed em { font-style: italic; color: var(--accent); }
+.dek {
+  font-size: 17.5px; line-height: 1.6; color: var(--ink-2);
+  max-width: 460px; position: relative; z-index: 1;
+}
+.dek + .dek { margin-top: 14px; }
+.foot {
+  margin-top: auto;
+  display: flex; gap: 28px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); letter-spacing: 0.06em; text-transform: uppercase;
+  position: relative; z-index: 1;
+}
+.foot a { border: none; color: var(--ink-3); }
+.foot a:hover { color: var(--ink); }
+
+.right { padding: 64px 56px 48px; background: var(--surface); display: flex; flex-direction: column; }
+.right-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-bottom: 12px; border-bottom: 1px solid var(--rule); margin-bottom: 36px;
+  font-family: var(--mono); font-size: 11.5px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3);
+}
+.right-head .num { color: var(--accent); margin-right: 10px; }
+
+.card { max-width: 460px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; flex: 1; }
+.card h2 { font-family: var(--display); font-weight: 400; font-size: 36px; line-height: 1.05; margin-bottom: 8px; }
+.card h2 em { font-style: italic; color: var(--accent); }
+.card .lede { font-size: 15.5px; color: var(--ink-2); margin-bottom: 32px; max-width: 400px; }
+
+.code-block {
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-2);
+  padding: 26px 22px;
+  margin-bottom: 28px;
+  position: relative;
+}
+.code-block .lbl {
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 14px;
+}
+.code-block .val {
+  font-family: var(--mono);
+  font-size: 36px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  text-align: center;
+  font-weight: 500;
+}
+.code-block .val.input {
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  width: 100%;
+  padding: 14px 12px;
+  font-family: var(--mono);
+  font-size: 28px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: center;
+  outline: none;
+}
+.code-block .val.input:focus { border-color: var(--ink); }
+.code-block .hint {
+  margin-top: 14px;
+  font-size: 13px; color: var(--ink-2);
+  text-align: center;
+}
+
+.rig-meta {
+  display: none;
+  border-top: 1px dashed var(--rule);
+  margin-top: 18px; padding-top: 16px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--ink-2);
+}
+.rig-meta.on { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+.rig-meta .k { color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase; font-size: 10px; }
+.rig-meta .v { color: var(--ink); }
+
+.actions { display: flex; flex-direction: column; gap: 12px; }
+.btn {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--ink);
+  padding: 16px 22px;
+  font-family: var(--body); font-size: 16px; font-weight: 500;
+  width: 100%; cursor: pointer; text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.btn:hover { background: var(--ink); color: var(--paper); transform: translateY(-1px); }
+.btn.primary { border-color: var(--accent); color: var(--ink); }
+.btn.primary:hover { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.btn .arrow { margin-left: 10px; font-family: var(--mono); color: var(--ink-3); transition: transform 0.18s ease, color 0.15s ease; }
+.btn:hover .arrow { color: var(--paper); transform: translateX(4px); }
+.btn.ghost { border-color: var(--rule-strong); color: var(--ink-2); }
+.btn.ghost:hover { background: var(--paper-2); color: var(--ink); border-color: var(--ink); }
+
+.msg {
+  margin-top: 14px;
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  min-height: 18px;
+}
+.msg.err { color: var(--accent); }
+.msg.ok  { color: var(--ok); }
+
+.fine {
+  margin-top: auto;
+  padding-top: 36px;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.05em; color: var(--ink-3);
+  line-height: 1.7;
+}
+.fine a { border: none; color: var(--ink-3); }
+.fine a:hover { color: var(--ink); }
+
+.left .eyebrow, .hed, .dek, .right-head, .card, .foot {
+  opacity: 0; transform: translateY(10px);
+  animation: rise 0.7s cubic-bezier(0.22, 0.8, 0.32, 1) forwards;
+}
+.left .eyebrow { animation-delay: 0.00s; }
+.hed           { animation-delay: 0.08s; }
+.dek           { animation-delay: 0.16s; }
+.right-head    { animation-delay: 0.20s; }
+.card          { animation-delay: 0.28s; }
+.foot          { animation-delay: 0.36s; }
+@keyframes rise { to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="bar">
+    <div class="masthead">Dist<em>p</em>ool</div>
+    <div class="crumb">§ 02 Device pairing <b id="host">—</b></div>
+  </header>
+
+  <main class="frame">
+    <section class="left">
+      <div class="eyebrow">Authorisation · attach a rig</div>
+      <h1 class="hed">A rig is asking to <em>join</em> your account.</h1>
+      <p class="dek">Confirm that the code shown here matches the code in the terminal where you ran <code style="font-family:var(--mono);color:var(--ink)">dist-node login</code>.</p>
+      <p class="dek">Approving binds this rig to your pool — it can then advertise GPUs, accept inference jobs, and mint scoped API keys.</p>
+
+      <div class="foot">
+        <a href="/nexus">nexus</a>
+        <a href="/install">install</a>
+        <a href="/healthz">status</a>
+      </div>
+    </section>
+
+    <section class="right">
+      <div class="right-head">
+        <div><span class="num">§ 02</span> Approve rig</div>
+        <div id="who">—</div>
+      </div>
+
+      <div class="card">
+        <h2>Approve <em>rig</em></h2>
+        <p class="lede">If the code below matches the one in your terminal, approve. Anyone else who knows this code can claim the rig — only approve codes you initiated.</p>
+
+        <div class="code-block">
+          <div class="lbl">User code</div>
+          <div id="code-display" class="val">—</div>
+          <input id="code-input" class="val input" placeholder="ABCD-1234" maxlength="9" autocomplete="off" spellcheck="false" style="display:none">
+          <div class="hint" id="hint">Compare with the four-and-four code printed on your rig.</div>
+          <div class="rig-meta" id="meta"></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" id="approve-btn">Approve this rig <span class="arrow">→</span></button>
+          <a class="btn ghost" href="/nexus">Cancel — return to nexus</a>
+        </div>
+
+        <div class="msg" id="msg"></div>
+
+        <div class="fine">
+          Approving an unsolicited code can hand your pool's compute to a stranger. Only approve a code you triggered yourself.
+        </div>
+      </div>
+    </section>
+  </main>
+
+</div>
+
+<script>
+(function () {
+  const $ = sel => document.querySelector(sel);
+  document.getElementById('host').textContent = location.host;
+
+  const params = new URLSearchParams(location.search);
+  let code = (params.get('code') || '').trim().toUpperCase();
+
+  // No code in URL → show input so the operator can paste it.
+  if (!code) {
+    document.getElementById('code-display').style.display = 'none';
+    document.getElementById('code-input').style.display = 'block';
+    document.getElementById('code-input').focus();
+  } else {
+    document.getElementById('code-display').textContent = code;
+  }
+
+  // Surface the logged-in user in the right-head badge.
+  fetch('/api/me', { credentials: 'include' })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (j && !j.error) {
+        document.getElementById('who').textContent =
+          '@' + (j.github_login || j.display_name || ('uid:' + j.id));
+      }
+    })
+    .catch(() => {});
+
+  const msg = document.getElementById('msg');
+  function say(text, cls) {
+    msg.textContent = text || '';
+    msg.classList.remove('err', 'ok');
+    if (cls) msg.classList.add(cls);
+  }
+
+  document.getElementById('approve-btn').addEventListener('click', async () => {
+    let userCode = code;
+    if (!userCode) {
+      userCode = (document.getElementById('code-input').value || '').trim().toUpperCase();
+    }
+    if (!userCode) { say('Enter the code from your rig.', 'err'); return; }
+
+    const btn = document.getElementById('approve-btn');
+    btn.setAttribute('disabled', '');
+    say('Approving…');
+
+    try {
+      const r = await fetch('/api/device/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ user_code: userCode }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        say('Failed: ' + (body.error || r.status), 'err');
+        btn.removeAttribute('disabled');
+        return;
+      }
+      // Render the rig we just bound.
+      const meta = document.getElementById('meta');
+      const rows = [
+        ['Hostname', body.hostname || '—'],
+        ['Agent ID', (body.agent_id || '').slice(0, 14) || '—'],
+        ['GPUs',     body.n_gpus != null ? String(body.n_gpus) : '—'],
+        ['VRAM',     body.vram_bytes
+          ? (body.vram_bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GiB'
+          : '—'],
+      ];
+      meta.innerHTML = rows
+        .map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`)
+        .join('');
+      meta.classList.add('on');
+      say('✓ Approved. Redirecting to the operations console…', 'ok');
+      setTimeout(() => { location.replace('/nexus'); }, 1400);
+    } catch (e) {
+      say('Failed: ' + (e && e.message ? e.message : e), 'err');
+      btn.removeAttribute('disabled');
+    }
+  });
+
+  // Allow Enter from the manual-code input.
+  const inp = document.getElementById('code-input');
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('approve-btn').click(); }
+  });
+})();
+</script>
+</body>
+</html>

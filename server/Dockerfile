@@ -6,7 +6,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY *.go ui.html ./
+COPY *.go ./
 COPY assets ./assets
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o distpool-server .
 

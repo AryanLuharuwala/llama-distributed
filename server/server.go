@@ -238,6 +238,7 @@ func (s *server) router() http.Handler {
 	// HuggingFace import flow.
 	mux.HandleFunc("POST /api/hf/token", s.handleHFSetToken)
 	mux.HandleFunc("GET /api/hf/token", s.handleHFGetToken)
+	mux.HandleFunc("GET /api/hf/search", s.handleHFSearch)
 	mux.HandleFunc("POST /api/hf/resolve", s.handleHFResolve)
 	mux.HandleFunc("POST /api/hf/import", s.handleHFImport)
 	mux.HandleFunc("GET /api/hf/jobs", s.handleHFListJobs)
@@ -291,6 +292,7 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /console", s.handleConsolePage)
 	mux.HandleFunc("GET /observatory", s.handleObservatoryPage)
 	mux.HandleFunc("GET /nexus", s.handleNexusPage)
+	mux.HandleFunc("GET /playground", s.handlePlaygroundPage)
 
 	// RAG control plane.
 	mux.HandleFunc("POST /api/rag/collections", s.handleRAGCreateCollection)

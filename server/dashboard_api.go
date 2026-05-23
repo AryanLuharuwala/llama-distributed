@@ -659,6 +659,24 @@ func (s *server) handleObservatoryPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(observatoryHTML)
 }
 
+//go:embed assets/playground.html
+var playgroundHTML []byte
+
+// /playground — chat + image/video studio + HuggingFace discovery.
+// Three tabs: Chat (LLM testing via /api/infer), Studio (image/video gen
+// via /api/comfy/generate), Discover (HF model search w/ tag + category
+// filters via /api/hf/search).  Same paper-white editorial aesthetic as
+// /auth, /console, /observatory, /nexus.
+func (s *server) handlePlaygroundPage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.userFromRequest(r); !ok {
+		http.Redirect(w, r, "/auth?next=/playground", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(playgroundHTML)
+}
+
 //go:embed assets/nexus.html
 var nexusHTML []byte
 

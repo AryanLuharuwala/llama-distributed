@@ -1,11 +1,9 @@
 // llama-distributed control-plane server.
 //
 // Responsibilities (Milestone 1):
-//   - Serve the single-page UI (./ui.html, embedded).
-//   - GitHub OAuth login flow → session cookie.
-//   - Mint short-lived pairing tokens that the browser embeds in a
-//     distpool:// deep link.  The native agent, when launched with that
-//     link, connects back over WebSocket and presents the token.
+//   - Serve the editorial sign-in / nexus / console / device pages.
+//   - GitHub + Google OAuth login → session cookie.
+//   - Device-code pairing so `dist-node login` can self-bind to a user.
 //   - Two WebSocket endpoints:
 //       /ws/browser — the logged-in UI subscribes to its own rigs' events
 //       /ws/agent   — the native agent authenticates via pairing token,
@@ -16,7 +14,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,9 +29,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 )
-
-//go:embed ui.html
-var uiFS embed.FS
 
 type config struct {
 	addr          string

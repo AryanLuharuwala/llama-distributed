@@ -15,14 +15,19 @@ package main
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+//go:embed assets/device.html
+var devicePageHTML []byte
 
 const (
 	deviceCodeTTL      = 10 * time.Minute
@@ -278,20 +283,20 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 //
 // The page handles the ?code=XXXX-XXXX deeplink the CLI shows: it
 // fetches the pair preview, asks the operator to confirm, and POSTs
-// the approval.  We keep the legacy ui.html bundle for this flow
-// because it already carries the JS that drives the approval card —
-// /nexus is the live ops console and / is now the editorial sign-in
-// page, so neither is the right surface for an "approve this rig?"
-// dialog.
+// the approval.  Unauthed callers bounce through /auth with a `next`
+// pointer back to /device so the code survives the OAuth round-trip.
 func (s *server) handleDevicePage(w http.ResponseWriter, r *http.Request) {
-	b, err := uiFS.ReadFile("ui.html")
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	if _, ok := s.userFromRequest(r); !ok {
+		next := "/device"
+		if q := r.URL.RawQuery; q != "" {
+			next = "/device?" + q
+		}
+		http.Redirect(w, r, "/auth?next="+url.QueryEscape(next), http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(b)
+	_, _ = w.Write(devicePageHTML)
 }
 
 func strFallback(s, d string) string {
