@@ -15,7 +15,8 @@ param(
     [string]$Server     = $env:DIST_SERVER,
     [string]$Version    = "latest",
     [string]$GithubRepo = $(if ($env:GITHUB_REPO) { $env:GITHUB_REPO } else { "AryanLuharuwala/llama-distributed" }),
-    [int]   $GpuLayers  = 999
+    [int]   $GpuLayers  = 999,
+    [switch]$WithComfyUI
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,6 +87,7 @@ try {
 
     Write-Host "[install] running platform installer"
     $argsList = @("-Pair", $Pair, "-GpuLayers", $GpuLayers)
+    if ($WithComfyUI) { $argsList += "-WithComfyUI" }
     & powershell -ExecutionPolicy Bypass -File $inner @argsList
     if ($LASTEXITCODE -ne 0) {
         Write-Error "platform installer exited with code $LASTEXITCODE"

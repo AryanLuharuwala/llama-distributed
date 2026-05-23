@@ -20,20 +20,270 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// Default ICE servers advertised to both ends.  Public STUN; users can add
-// a TURN relay later via env/config.
-func defaultICEServers() []map[string]any {
+// rigTURNSecret derives a per-rig HMAC secret from the operator's master
+// secret.  Each rig only ever sees its own derived secret (via the welcome
+// frame), so a compromised rig cannot mint credentials valid against any
+// other rig's sidecar.  The server derives the same value on demand when
+// minting credentials targeted at a specific relay rig.
+//
+// Returned as lowercase hex of HMAC-SHA256(master, agent_id).  We hex-encode
+// rather than base64 so the secret can sit in a URL/CLI arg without quoting
+// concerns when operators copy it for debugging.
+func (s *server) rigTURNSecret(agentID string) string {
+	if s.cfg.turnSecret == "" || agentID == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(s.cfg.turnSecret))
+	mac.Write([]byte("dist-turn-rig|"))
+	mac.Write([]byte(agentID))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// Default STUN servers advertised to both ends.  TURN is appended by
+// iceServersFor when configured.
+func defaultSTUNServers() []map[string]any {
 	return []map[string]any{
 		{"urls": "stun:stun.l.google.com:19302"},
 		{"urls": "stun:stun1.l.google.com:19302"},
 	}
+}
+
+// iceServersFor builds the ICE candidate list to advertise to a given
+// pair-peer.  It always includes the public STUN servers and, if the
+// operator has configured one, appends a TURN entry with credentials
+// scoped to `audience` (an agent_id or session id used as part of the
+// ephemeral username).  When neither static nor ephemeral TURN is
+// configured we return STUN-only and the WS path remains the only
+// fallback for symmetric-NAT pairs.
+func (s *server) iceServersFor(audience string) []map[string]any {
+	ice := defaultSTUNServers()
+
+	// Operator-configured TURN.  Wins precedence over peer relays —
+	// dedicated coturn is always more reliable than borrowing a user's
+	// rig, when one is available.
+	if s.cfg.turnURL != "" {
+		if user, pass := s.mintTURNCreds(audience); user != "" {
+			ice = append(ice, map[string]any{
+				"urls":       s.cfg.turnURL,
+				"username":   user,
+				"credential": pass,
+			})
+		}
+	}
+
+	// Peer-relay candidates: well-connected rigs (cone NAT or open) that
+	// volunteered as forwarders.  The C++ adapter recognises the
+	// `peer:<agent_id>` URL scheme and opens a libdatachannel forwarding
+	// session through that rig instead of a real TURN allocation.  We
+	// cap the list so a single audience doesn't enumerate the whole swarm.
+	for _, e := range s.pickPeerRelays(audience, 3) {
+		ice = append(ice, e)
+	}
+	return ice
+}
+
+// findRelayAgent returns a live agentConn that has volunteered as a peer
+// relay (friendly NAT, relay_capable=true) and is not in the `exclude`
+// list.  Returns nil if no candidate is available.  Used by the pipeline
+// planner to insert a relay between two adjacent stages when either of
+// them is behind a symmetric NAT.
+//
+// Selection is reputation-aware: we bulk-load the rig_reputation rows for
+// all live candidates and pick the highest score (Bayesian-smoothed
+// success rate × confidence × recency).  Brand-new rigs sit at ~0.4 so
+// they get tried before known-bad ones but after established performers.
+// See reputation.go::relayScore for the formula.
+func (s *server) findRelayAgent(exclude map[string]struct{}) *agentConn {
+	if s == nil || s.hub == nil {
+		return nil
+	}
+	type candidate struct {
+		ac    *agentConn
+		score float64
+	}
+	var cands []candidate
+	var ids []string
+	for _, a := range s.hub.snapshotAgents() {
+		if _, skip := exclude[a.agentID]; skip {
+			continue
+		}
+		st := a.snapshotStatus()
+		if !st.RelayCapable {
+			continue
+		}
+		switch st.NATType {
+		case "open", "cone":
+			cands = append(cands, candidate{ac: a})
+			ids = append(ids, a.agentID)
+		}
+	}
+	if len(cands) == 0 {
+		return nil
+	}
+	reps := s.allReputations(ids)
+	now := nowUnix()
+	best := -1.0
+	var pick *agentConn
+	for i := range cands {
+		r := reps[cands[i].ac.agentID]
+		r.AgentID = cands[i].ac.agentID
+		cands[i].score = relayScore(r, now)
+		if cands[i].score > best {
+			best = cands[i].score
+			pick = cands[i].ac
+		}
+	}
+	return pick
+}
+
+// pickPeerRelays returns up to `limit` ICE entries pointing at relay-capable
+// peer rigs that have advertised a friendly NAT type in their last heartbeat.
+// Entries use the `peer:<agent_id>` URL scheme — the dist-node adapter knows
+// to route through that rig over an existing or fresh WebRTC channel.
+//
+// audience is opaque (typically the agent_id of the consumer); we don't
+// currently filter on it but the parameter is reserved for future per-pair
+// allowlisting.
+func (s *server) pickPeerRelays(audience string, limit int) []map[string]any {
+	if s == nil || s.hub == nil || limit <= 0 {
+		return nil
+	}
+	agents := s.hub.snapshotAgents()
+	out := make([]map[string]any, 0, limit)
+	for _, a := range agents {
+		st := a.snapshotStatus()
+		if !st.RelayCapable {
+			continue
+		}
+		// Skip the audience itself — a rig can't relay to itself.
+		if a.agentID == audience {
+			continue
+		}
+		// Only friendly NAT types make useful relays.  "unknown" is
+		// excluded so we don't burn handshake budget on dead-ends.
+		switch st.NATType {
+		case "open", "cone":
+			// good
+		default:
+			continue
+		}
+		// Prefer the rig's bundled TURN sidecar when it's running —
+		// that gives the consumer a real coturn-compatible relay that
+		// forwards UDP without terminating DTLS, so neither this server
+		// nor the relay rig sees plaintext ACTV bytes.  Falls back to
+		// the legacy `peer:` sentinel when no sidecar is up; that path
+		// works but lets the relay rig see plaintext.
+		if st.CoturnPort > 0 && s.cfg.turnSecret != "" {
+			// Prefer the STUN-discovered IP the rig reported (the actual
+			// UDP-reachable address) over the WS source IP.  Fall back to
+			// remoteIP when the rig couldn't gather an srflx candidate.
+			host := st.PublicIP
+			if host == "" {
+				host = a.remoteIP
+			}
+			if host == "" {
+				continue
+			}
+			url := "turn:" + host + ":" + strconv.Itoa(st.CoturnPort)
+			// Use the relay rig's *derived* secret so credentials only
+			// validate against that one rig's sidecar.  A compromised rig
+			// cannot impersonate any other rig's TURN.
+			user, pass := s.mintRigTURNCreds(a.agentID, audience)
+			if user != "" {
+				out = append(out, map[string]any{
+					"urls":       url,
+					"username":   user,
+					"credential": pass,
+				})
+				if len(out) >= limit {
+					break
+				}
+				continue
+			}
+		}
+		out = append(out, map[string]any{
+			"urls": "peer:" + a.agentID,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// mintRigTURNCreds returns credentials valid against a specific rig's
+// bundled dist-turn sidecar (per-rig secret), independent of whether the
+// operator has configured a global turnURL.  Returns empty strings when no
+// master secret is configured.
+func (s *server) mintRigTURNCreds(relayAgentID, audience string) (string, string) {
+	rigSecret := s.rigTURNSecret(relayAgentID)
+	if rigSecret == "" {
+		return "", ""
+	}
+	ttl := s.cfg.turnTTL
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	exp := time.Now().Add(ttl).Unix()
+	if audience == "" {
+		audience = "anon"
+	}
+	user := strconv.FormatInt(exp, 10) + ":" + audience
+	mac := hmac.New(sha1.New, []byte(rigSecret))
+	mac.Write([]byte(user))
+	cred := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return user, cred
+}
+
+// mintTURNCreds returns a (username, credential) pair appropriate for the
+// configured TURN server.  Ephemeral (coturn `use-auth-secret`) wins over
+// static creds when both are set.  Returns empty strings if TURN is
+// disabled.
+//
+// Ephemeral scheme (coturn-compatible REST credentials):
+//
+//	username = "<unix-expiry>:<audience>"
+//	credential = base64(HMAC-SHA1(<turnSecret>, username))
+//
+// coturn validates by recomputing the HMAC and checking the expiry has
+// not passed.  No static password ever leaves the server in this mode.
+func (s *server) mintTURNCreds(audience string) (string, string) {
+	if s.cfg.turnURL == "" {
+		return "", ""
+	}
+	if s.cfg.turnSecret != "" {
+		ttl := s.cfg.turnTTL
+		if ttl <= 0 {
+			ttl = time.Hour
+		}
+		exp := time.Now().Add(ttl).Unix()
+		if audience == "" {
+			audience = "anon"
+		}
+		user := strconv.FormatInt(exp, 10) + ":" + audience
+		mac := hmac.New(sha1.New, []byte(s.cfg.turnSecret))
+		mac.Write([]byte(user))
+		cred := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+		return user, cred
+	}
+	if s.cfg.turnStaticUser != "" || s.cfg.turnStaticPass != "" {
+		return s.cfg.turnStaticUser, s.cfg.turnStaticPass
+	}
+	return "", ""
 }
 
 // Outstanding signal requests keyed by req_id.
@@ -120,7 +370,7 @@ func (s *server) handleSignal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body signalReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}
@@ -133,7 +383,7 @@ func (s *server) handleSignal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ice := defaultICEServers()
+	ice := s.iceServersFor("user-" + strconv.FormatInt(u.ID, 10))
 
 	ac, ok := s.pickOnlineRigInPool(body.PoolID)
 	if !ok {

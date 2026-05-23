@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -251,7 +252,7 @@ func (s *server) handleMintAPIKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Label string `json:"label"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body)
 	plain, id, err := s.mintAPIKey(u.ID, body.Label)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -414,13 +415,13 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Model       string    `json:"model"`
-		Messages    []oaiMsg  `json:"messages"`
-		MaxTokens   int       `json:"max_tokens"`
-		Temperature float64   `json:"temperature"`
-		Stream      bool      `json:"stream"`
+		Model       string   `json:"model"`
+		Messages    []oaiMsg `json:"messages"`
+		MaxTokens   *int     `json:"max_tokens"`
+		Temperature *float64 `json:"temperature"`
+		Stream      bool     `json:"stream"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}
@@ -428,11 +429,15 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "messages required")
 		return
 	}
-	if body.MaxTokens == 0 {
-		body.MaxTokens = 256
+	maxTokens := 256
+	if body.MaxTokens != nil && *body.MaxTokens > 0 {
+		maxTokens = *body.MaxTokens
 	}
-	if body.Temperature == 0 {
-		body.Temperature = 0.7
+	// Pointer-default so the caller can ask for temperature=0 (greedy) without
+	// the server silently substituting 0.7.
+	temperature := 0.7
+	if body.Temperature != nil {
+		temperature = *body.Temperature
 	}
 	prompt := messagesToPrompt(body.Messages)
 
@@ -451,50 +456,58 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ac, ok := s.pickOnlineRigInPool(poolID)
-	if !ok {
-		s.logInference(u.ID, poolID, 0, "", 0, 0, "no_rig")
-		writeErr(w, 503, "no online rigs in pool")
-		return
-	}
-	// Mark this rig busy for the duration of the request so the next picker
-	// call sees current load.  Paired with the defer below — same lifetime as
-	// the inferPeer slot.
-	ac.incInflight()
-	defer ac.decInflight()
-
-	// Attach inference peer.
+	// Attach inference peer.  Pick a rig with a free slot AND reserve it
+	// in one atomic step so multi-slot rigs actually receive the batched
+	// concurrent traffic instead of bouncing the later requests.
 	ip := &inferPeer{
 		reqID:    nextReqID(),
 		incoming: make(chan *inferChunk, 32),
 		closed:   make(chan struct{}),
 	}
-	ac.peerMu.Lock()
-	if ac.peer != nil || ac.inferPeer != nil {
-		ac.peerMu.Unlock()
-		s.logInference(u.ID, poolID, ac.userID, ac.agentID, 0, 0, "failed")
-		writeErr(w, 503, "agent busy")
+	ac := s.pickAndReserveRig(poolID, ip)
+	if ac == nil {
+		s.refundRequestSlot(u.ID)
+		s.logInference(u.ID, poolID, 0, "", 0, 0, "no_rig")
+		writeErr(w, 503, "no online rigs with free slots")
 		return
 	}
-	ac.inferPeer = ip
-	ac.peerMu.Unlock()
-	defer func() {
-		ac.peerMu.Lock()
-		if ac.inferPeer == ip {
-			ac.inferPeer = nil
-		}
-		ac.peerMu.Unlock()
-	}()
+	// Mark this rig busy for the duration of the request so the next picker
+	// call sees current load.
+	ac.incInflight()
+	defer ac.decInflight()
+	defer ac.releaseInferSlot(ip)
 
 	logID := s.logInference(u.ID, poolID, ac.userID, ac.agentID, 0, 0, "running")
+
+	// Mint a signed shard URL for the pool's bound model so the rig can
+	// pull weights on demand.  Matches the handleInfer payload shape — the
+	// agent reports "pool has no model bound" if shard_url is missing.
+	//
+	// TODO(pp-chat): this is the single-rig fast path and hardcodes
+	// stage-0.gguf, so it only works for models registered with n_stages=1.
+	// Multi-stage models (e.g. tinyllama in models-store) need this handler
+	// to call s.planPipeline(poolID, ...) and fan the request out per stage,
+	// mirroring handleInferPP in pp_route.go.  Tracked as task #20.
+	var shardURL, shardFile string
+	{
+		var modelID *int64
+		_ = s.db.QueryRow(`SELECT model_id FROM pools WHERE id = ?`, poolID).Scan(&modelID)
+		if modelID != nil && *modelID > 0 {
+			shardFile = "stage-0.gguf"
+			shardURL = s.mintShardURL(*modelID, shardFile, 15*time.Minute)
+		}
+	}
 	payloadJSON, _ := json.Marshal(map[string]any{
 		"model":       body.Model,
 		"prompt":      prompt,
-		"max_tokens":  body.MaxTokens,
-		"temperature": body.Temperature,
+		"max_tokens":  maxTokens,
+		"temperature": temperature,
+		"shard_url":   shardURL,
+		"shard_file":  shardFile,
 	})
 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(prompt)), payloadJSON)
 	if !ac.sendBin(reqFrame) {
+		s.refundRequestSlot(u.ID)
 		s.finishInference(logID, 0, 0, "failed")
 		writeErr(w, 503, "agent buffer full")
 		return
@@ -524,8 +537,11 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 			select {
 			case c, ok := <-ip.incoming:
 				if !ok {
-					writeOAIDone(w, flusher, respID, created, modelName)
-					s.finishInference(logID, int(inTok), int(outTok), "ok")
+					// Disconnect mid-stream: peer was closed without a
+					// terminating chunk arriving first.  Don't fabricate
+					// a successful "done" delta — surface the failure.
+					writeOAIErr(w, flusher, "agent disconnected")
+					s.finishInference(logID, int(inTok), int(outTok), "failed")
 					s.recordTokens(u.ID, int(inTok), int(outTok))
 					return
 				}
@@ -558,7 +574,12 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 		select {
 		case c, ok := <-ip.incoming:
 			if !ok {
-				goto DONE
+				// Same disconnect-without-done semantics as the streaming
+				// path: report the failure instead of returning whatever
+				// partial bytes accumulated as if they were complete.
+				s.finishInference(logID, int(inTok), int(outTok), "failed")
+				writeErr(w, 502, "agent disconnected")
+				return
 			}
 			inTok, outTok = c.tokIn, c.tokOut
 			switch c.kind {
@@ -606,6 +627,10 @@ type oaiMsg struct {
 // messagesToPrompt flattens a chat thread into a single prompt string.
 // Very simple — a future step is to delegate to the target model's
 // tokenizer/chat template on the agent, but this works end-to-end today.
+//
+// User-controlled content is scrubbed of `[SYSTEM]`/`[USER]`/`[ASSISTANT]`
+// markers so a malicious message can't inject a fake role frame into the
+// prompt seen by the model.
 func messagesToPrompt(msgs []oaiMsg) string {
 	var b strings.Builder
 	for _, m := range msgs {
@@ -621,11 +646,20 @@ func messagesToPrompt(msgs []oaiMsg) string {
 			b.WriteString(strings.ToUpper(m.Role))
 			b.WriteString("]\n")
 		}
-		b.WriteString(m.Content)
+		b.WriteString(scrubRoleMarkers(m.Content))
 		b.WriteString("\n\n")
 	}
 	b.WriteString("[ASSISTANT]\n")
 	return b.String()
+}
+
+// scrubRoleMarkers removes literal role-frame strings from user-supplied
+// content so they can't inject fake roles into the flattened prompt.
+func scrubRoleMarkers(s string) string {
+	for _, m := range []string{"[SYSTEM]", "[USER]", "[ASSISTANT]"} {
+		s = strings.ReplaceAll(s, m, "")
+	}
+	return s
 }
 
 // ─── SSE helpers for the OpenAI stream format ──────────────────────────────

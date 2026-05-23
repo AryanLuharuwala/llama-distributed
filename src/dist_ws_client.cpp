@@ -362,7 +362,25 @@ bool WsClient::recv_all(void* buf, size_t n) {
             }
         } else {
             k = (int)::recv(fd_, p, n, 0);
-            if (k <= 0) return false;
+            if (k < 0) {
+#ifndef _WIN32
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                    // Socket is O_NONBLOCK once the heartbeat phase starts.
+                    // Wait up to recv_timeout_ms_ via poll() instead of
+                    // spinning the CPU at 100%.  ms == 0 means caller asked
+                    // for an immediate drain — just bail.
+                    if (recv_timeout_ms_ == 0) return false;
+                    struct pollfd pfd{};
+                    pfd.fd = fd_;
+                    pfd.events = POLLIN;
+                    int pr = ::poll(&pfd, 1, recv_timeout_ms_);
+                    if (pr <= 0) return false;
+                    continue;   // retry recv
+                }
+#endif
+                return false;
+            }
+            if (k == 0) return false;   // peer closed
         }
         p += k; n -= (size_t)k;
     }

@@ -17,10 +17,22 @@ import (
 	"time"
 )
 
-//go:generate sh -c "cp ../scripts/install/install.sh  assets/install.sh && cp ../scripts/install/install.ps1 assets/install.ps1 && cp ../scripts/install/build.sh assets/build.sh && cp ../scripts/install/build.ps1 assets/build.ps1"
+//go:generate sh -c "cp ../scripts/install/install.sh  assets/install.sh && cp ../scripts/install/install.ps1 assets/install.ps1 && cp ../scripts/install/build.sh assets/build.sh && cp ../scripts/install/build.ps1 assets/build.ps1 && cp ../scripts/install/setup.sh assets/setup.sh && cp ../scripts/install/setup.ps1 assets/setup.ps1 && cp ../scripts/install/setup.zsh assets/setup.zsh"
 
-//go:embed assets/install.sh assets/install.ps1 assets/build.sh assets/build.ps1
+//go:embed assets/install.sh assets/install.ps1 assets/build.sh assets/build.ps1 assets/setup.sh assets/setup.ps1 assets/setup.zsh
 var installFS embed.FS
+
+//go:embed assets/install.html
+var installPageHTML []byte
+
+// handleInstallPage renders the OS picker + one-liner generator UI.  This
+// is the page the dashboard links to from "add a rig"; it works without
+// being logged in (the API endpoint /api/install/oneliner is anonymous).
+func (s *server) handleInstallPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(installPageHTML)
+}
 
 // gitSHA can be injected at build time via:
 //   go build -ldflags "-X main.gitSHA=<sha>"
@@ -67,6 +79,65 @@ func (s *server) handleInstallPs1(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeScript(w, "text/plain; charset=utf-8", b)
+}
+
+// handleSetupSh serves the lightweight `surd`-only POSIX installer.  We
+// inject DIST_SERVER so the rig fetches the binary from us, not GitHub.
+func (s *server) handleSetupSh(w http.ResponseWriter, _ *http.Request) {
+	b, err := installFS.ReadFile("assets/setup.sh")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	b = injectShellDefault(b, "DIST_SERVER", strings.TrimRight(s.cfg.publicURL, "/"))
+	writeScript(w, "text/x-shellscript; charset=utf-8", b)
+}
+
+// handleSetupZsh is the zsh-flavoured variant.  Same DIST_SERVER injection.
+func (s *server) handleSetupZsh(w http.ResponseWriter, _ *http.Request) {
+	b, err := installFS.ReadFile("assets/setup.zsh")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	b = injectShellDefault(b, "DIST_SERVER", strings.TrimRight(s.cfg.publicURL, "/"))
+	writeScript(w, "text/x-shellscript; charset=utf-8", b)
+}
+
+// handleSetupPs1 serves the PowerShell installer.  The PS variant gates on
+// `${env:DIST_SERVER}`; we patch the fallback line so it works when piped
+// through `iex` (which loses the calling-shell environment).
+func (s *server) handleSetupPs1(w http.ResponseWriter, _ *http.Request) {
+	b, err := installFS.ReadFile("assets/setup.ps1")
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	b = injectPsDefault(b, "DistServer", strings.TrimRight(s.cfg.publicURL, "/"))
+	writeScript(w, "text/plain; charset=utf-8", b)
+}
+
+// injectPsDefault rewrites the FIRST line of the form
+//    $Name = "${env:NAME}"
+// to bake the server's public URL in as the post-env fallback.  The script
+// already prefers the env var when set, so this is safe under `iex` piping.
+func injectPsDefault(script []byte, varName, value string) []byte {
+	needle := []byte("$" + varName + " = \"${env:DIST_SERVER}\"")
+	idx := bytes.Index(script, needle)
+	if idx < 0 {
+		return script
+	}
+	end := bytes.IndexByte(script[idx:], '\n')
+	if end < 0 {
+		return script
+	}
+	replacement := []byte("$" + varName + " = if ($env:DIST_SERVER) { $env:DIST_SERVER } else { \"" + value + "\" }")
+	var out bytes.Buffer
+	out.Grow(len(script) + len(value))
+	out.Write(script[:idx])
+	out.Write(replacement)
+	out.Write(script[idx+end:])
+	return out.Bytes()
 }
 
 // handleBuildSh serves the source-build bootstrapper.  We inject the server's
@@ -591,6 +662,63 @@ func (s *server) ensureReleaseCached(assetName string) (string, error) {
 	return dest, nil
 }
 
+// validSurdBinName matches `surd-<os>-<arch>` and `surd-windows-<arch>.exe`.
+// Returns the cleaned filename (or "" if rejected).  Refuses anything with
+// a path separator or `..` to prevent traversal.
+func validSurdBinName(name string) string {
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return ""
+	}
+	if !strings.HasPrefix(name, "surd-") {
+		return ""
+	}
+	stem := strings.TrimSuffix(name, ".exe")
+	parts := strings.Split(stem, "-")
+	if len(parts) != 3 {
+		return ""
+	}
+	switch parts[1] {
+	case "linux", "darwin", "windows":
+	default:
+		return ""
+	}
+	switch parts[2] {
+	case "amd64", "arm64":
+	default:
+		return ""
+	}
+	if parts[1] == "windows" && !strings.HasSuffix(name, ".exe") {
+		// We canonicalise: windows builds always end .exe.
+		return name + ".exe"
+	}
+	return name
+}
+
+// handleSurdBinary serves built `surd` CLI binaries.
+//
+//   GET /releases/surd-linux-amd64
+//   GET /releases/surd-darwin-arm64
+//   GET /releases/surd-windows-amd64.exe
+//
+// Binaries are read from <releasesDir>/surd/<name>.  Operators drop builds
+// there during deploy (e.g. via `go build -o releases-cache/surd/...`).
+func (s *server) handleSurdBinary(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	cleaned := validSurdBinName(name)
+	if cleaned == "" {
+		writeErr(w, 400, "bad surd binary name; expected surd-<os>-<arch>[.exe]")
+		return
+	}
+	path := filepath.Join(s.cfg.releasesDir, "surd", cleaned)
+	if fi, err := os.Stat(path); err != nil || fi.IsDir() || fi.Size() == 0 {
+		writeErr(w, 404, "binary not published: "+cleaned)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	http.ServeFile(w, r, path)
+}
+
 func fileSize(p string) int64 {
 	if fi, err := os.Stat(p); err == nil {
 		return fi.Size()
@@ -602,6 +730,12 @@ func fileSize(p string) int64 {
 // GET /releases/{name}  e.g. /releases/linux-x86_64-cuda.tar.gz
 func (s *server) handleReleaseAsset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	// surd CLI binaries are served from a separate flat dir without going
+	// through the GitHub asset matrix.
+	if strings.HasPrefix(name, "surd-") {
+		s.handleSurdBinary(w, r)
+		return
+	}
 	os_, arch, accel, ext, ok := parseShortTarget(name)
 	if !ok {
 		writeErr(w, 400, "bad asset name; expected <os>-<arch>-<accel>.tar.gz|.zip")

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>sign in · surd</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=JetBrains+Mono:wght@400;600&family=Sora:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root{--void:#04060a;--hull:#0c1422;--line:#1a2740;--cyan:#5af0ff;--violet:#9b6bff;
+  --ink:#dfe7f5;--dim:#7b8ba8}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--void);color:var(--ink);font-family:"Sora",sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+body{
+  background:
+    radial-gradient(700px 500px at 50% 30%, rgba(155,107,255,.18), transparent 60%),
+    radial-gradient(600px 400px at 50% 100%, rgba(90,240,255,.12), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
+    var(--void);
+}
+.card{
+  max-width:460px;width:100%;
+  background:linear-gradient(180deg, rgba(12,20,34,.92), rgba(7,11,20,.85));
+  border:1px solid var(--line);border-radius:18px;padding:42px 38px;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.brand{font-family:"Major Mono Display",monospace;font-size:12px;letter-spacing:.18em;color:var(--cyan);
+  display:flex;align-items:center;gap:10px}
+.brand::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cyan);
+  box-shadow:0 0 14px var(--cyan);animation:beat 1.7s ease-in-out infinite}
+@keyframes beat{50%{transform:scale(.6);opacity:.55}}
+h1{font-family:"Major Mono Display",monospace;font-weight:400;font-size:32px;
+  line-height:1.05;margin:18px 0 8px;letter-spacing:-.01em}
+.sub{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 26px}
+
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:12px;width:100%;
+  background:linear-gradient(135deg, var(--cyan), var(--violet));color:var(--void);
+  font-family:"JetBrains Mono",monospace;font-weight:600;font-size:14px;letter-spacing:.04em;
+  border:none;border-radius:12px;padding:14px;cursor:pointer;text-decoration:none;
+  transition:transform .12s, box-shadow .12s;
+}
+.btn:hover{transform:translateY(-1px);box-shadow:0 12px 30px -10px rgba(90,240,255,.45)}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.alt:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:none}
+
+.note{
+  display:flex;align-items:flex-start;gap:10px;margin-top:22px;
+  background:rgba(90,240,255,.06);border:1px solid rgba(90,240,255,.22);border-radius:10px;
+  padding:12px 14px;font-size:12.5px;color:var(--dim);line-height:1.55;
+}
+.note b{color:var(--cyan);font-weight:600}
+
+.sep{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--dim);font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em}
+.sep::before,.sep::after{content:"";flex:1;height:1px;background:var(--line)}
+
+.dev{display:none}
+.dev.on{display:block}
+.dev label{display:block;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.dev input{
+  width:100%;background:rgba(7,11,20,.6);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:11px 12px;font-family:"JetBrains Mono",monospace;font-size:13px;
+  outline:none;margin-bottom:10px;
+}
+.dev input:focus{border-color:var(--cyan)}
+
+.foot{margin-top:28px;color:var(--dim);font-size:12px;line-height:1.55}
+.foot a{color:var(--cyan);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">SURD // ACCESS</div>
+  <h1>sign in</h1>
+  <p class="sub">No separate signup. The first time you sign in we create your account
+  automatically — same button, either way.</p>
+
+  <a class="btn" href="/auth/github" id="ghBtn">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.69-.01-1.35-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.16-.89-1.16-.73-.5.06-.49.06-.49.8.06 1.22.83 1.22.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82A7.6 7.6 0 0 1 8 4.36c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.74.54 1.5 0 1.08-.01 1.96-.01 2.22 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    sign in with github
+  </a>
+
+  <div id="devBlock" class="dev">
+    <div class="sep">dev mode</div>
+    <label>display name</label>
+    <input id="devName" placeholder="e.g. ada-lovelace" autocomplete="off"/>
+    <button class="btn alt" id="devGo">create dev account</button>
+    <p id="devErr" style="color:#ff6b9c;font-family:JetBrains Mono,monospace;font-size:12px;margin:8px 0 0;display:none"></p>
+  </div>
+
+  <div class="note" id="ghMissing" style="display:none">
+    GitHub OAuth isn't configured on this server. Operator: set
+    <b>DIST_GITHUB_CLIENT</b> + <b>DIST_GITHUB_SECRET</b>, or enable dev mode.
+  </div>
+
+  <div class="foot">
+    Already running a rig? <a href="/install">install the surd CLI →</a><br/>
+    Authorising a device-code? Make sure it's shown on your terminal, then sign in.
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const next = params.get("next") || "/console";
+// Forward `next` to the OAuth callback so post-login lands where the user
+// intended (e.g. the device-code approval page).
+const gh = document.getElementById("ghBtn");
+gh.href = "/auth/github?next=" + encodeURIComponent(next);
+
+(async () => {
+  try{
+    const r = await fetch("/api/auth/status");
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.dev_mode){
+      document.getElementById("devBlock").classList.add("on");
+    }
+    if (!j.github_configured){
+      document.getElementById("ghMissing").style.display = "flex";
+      gh.style.display = "none";
+    }
+    if (j.user_id){
+      // already signed in — go straight to next
+      location.href = next;
+    }
+  }catch(_){}
+})();
+
+document.getElementById("devGo")?.addEventListener("click", async () => {
+  const name = document.getElementById("devName").value.trim();
+  const err  = document.getElementById("devErr");
+  err.style.display = "none";
+  if (!name){ err.textContent = "display name required"; err.style.display="block"; return; }
+  const r = await fetch("/auth/dev", {
+    method: "POST", headers: {"content-type":"application/json"},
+    body: JSON.stringify({ display_name: name }),
+  });
+  if (r.ok){ location.href = next; return; }
+  const txt = await r.text();
+  err.textContent = txt || ("HTTP " + r.status);
+  err.style.display = "block";
+});
+</script>
+</body>
+</html>

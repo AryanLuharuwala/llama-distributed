@@ -11,8 +11,10 @@ package main
 // right to attach your rigs and (later) route inference through the pool.
 
 import (
+	_ "embed"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,7 +69,7 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body createPoolReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}
@@ -99,49 +101,67 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 		body.TPSize = 1
 	}
 
-	slug, err := s.pickPoolSlug(userHandle(u), body.Name, 0)
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	defer tx.Rollback()
-
-	res, err := tx.Exec(
-		`INSERT INTO pools (owner_id, name, visibility, created_at,
-		                    parallelism, pp_stages, tp_size, slug)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, body.Name, body.Visibility, nowUnix(),
-		body.Parallelism, body.PPStages, body.TPSize, slug,
+	// Slug picker + INSERT under a retry loop.  Under burst contention two
+	// callers can each pick a slug that's free at scan-time and then race on
+	// the UNIQUE-indexed INSERT.  Retry on UNIQUE violation so the racer
+	// re-picks (-2, -3, …) instead of returning 500.
+	var (
+		slug string
+		pid  int64
 	)
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	pid, _ := res.LastInsertId()
-	if _, err := tx.Exec(
-		`INSERT INTO pool_members (pool_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)`,
-		pid, u.ID, nowUnix(),
-	); err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	if body.ModelID > 0 {
-		if _, err := tx.Exec(
-			`UPDATE pools SET model_id = ? WHERE id = ?`, body.ModelID, pid,
-		); err != nil {
+	for attempt := 0; ; attempt++ {
+		var err error
+		slug, err = s.pickPoolSlug(userHandle(u), body.Name, 0)
+		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		writeErr(w, 500, err.Error())
-		return
+		tx, err := s.db.Begin()
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		res, err := tx.Exec(
+			`INSERT INTO pools (owner_id, name, visibility, created_at,
+			                    parallelism, pp_stages, tp_size, slug)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			u.ID, body.Name, body.Visibility, nowUnix(),
+			body.Parallelism, body.PPStages, body.TPSize, slug,
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			if attempt < 8 && strings.Contains(err.Error(), "UNIQUE") {
+				continue // someone else won the slug; re-pick
+			}
+			writeErr(w, 500, err.Error())
+			return
+		}
+		pid, _ = res.LastInsertId()
+		if _, err := tx.Exec(
+			`INSERT INTO pool_members (pool_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)`,
+			pid, u.ID, nowUnix(),
+		); err != nil {
+			_ = tx.Rollback()
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if body.ModelID > 0 {
+			if _, err := tx.Exec(
+				`UPDATE pools SET model_id = ? WHERE id = ?`, body.ModelID, pid,
+			); err != nil {
+				_ = tx.Rollback()
+				writeErr(w, 500, err.Error())
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			if attempt < 8 && strings.Contains(err.Error(), "UNIQUE") {
+				continue
+			}
+			writeErr(w, 500, err.Error())
+			return
+		}
+		break
 	}
 
 	writeJSON(w, 200, map[string]any{
@@ -320,6 +340,17 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+//go:embed assets/join.html
+var joinPageHTML []byte
+
+// handleJoinPage serves the /join/{token} landing — anonymous-callable so
+// a fresh visitor can see what they're joining before signing in.
+func (s *server) handleJoinPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(joinPageHTML)
+}
+
 // ─── POST /api/pools/{id}/invite — mint an invite token ────────────────────
 
 func (s *server) handlePoolInvite(w http.ResponseWriter, r *http.Request) {
@@ -350,11 +381,62 @@ func (s *server) handlePoolInvite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	inviteURL := strings.TrimRight(s.cfg.publicURL, "/") + "/?invite=" + token
+	base := strings.TrimRight(s.cfg.publicURL, "/")
+	inviteURL := base + "/join/" + token
+	// Install URL pre-loads the configurator with this invite so the rig
+	// auto-attaches to the pool on first `surd connect`.
+	installURL := base + "/install?pool=" + strconv.FormatInt(pid, 10) + "&invite=" + token
 	writeJSON(w, 200, map[string]any{
-		"token":      token,
-		"invite_url": inviteURL,
-		"expires_at": expires.Unix(),
+		"token":       token,
+		"invite_url":  inviteURL,
+		"install_url": installURL,
+		"expires_at":  expires.Unix(),
+	})
+}
+
+// ─── GET /api/pools/invite/{token} — preview an invite (no side-effects) ──
+//
+// Read-only inspection used by the /join landing page so the user can see
+// which pool they're joining before they decide.  Anonymous-callable so
+// the page can render before sign-in.
+
+func (s *server) handlePoolInvitePreview(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	if token == "" {
+		writeErr(w, 400, "missing token")
+		return
+	}
+	var (
+		pid     int64
+		exp     int64
+		used    *int64
+		name    string
+		visib   string
+		ownerID int64
+	)
+	err := s.db.QueryRow(
+		`SELECT pi.pool_id, pi.expires_at, pi.used_at, p.name, p.visibility, p.owner_id
+		   FROM pool_invites pi JOIN pools p ON p.id = pi.pool_id
+		  WHERE pi.token = ?`,
+		token,
+	).Scan(&pid, &exp, &used, &name, &visib, &ownerID)
+	if err != nil {
+		writeErr(w, 404, "invalid invite")
+		return
+	}
+	status := "ok"
+	switch {
+	case used != nil:
+		status = "used"
+	case exp < nowUnix():
+		status = "expired"
+	}
+	writeJSON(w, 200, map[string]any{
+		"pool_id":    pid,
+		"pool_name":  name,
+		"visibility": visib,
+		"expires_at": exp,
+		"status":     status,
 	})
 }
 
@@ -372,7 +454,7 @@ func (s *server) handlePoolJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body poolJoinReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}
@@ -463,7 +545,7 @@ func (s *server) handlePoolAttachRig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body attachRigReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil || body.AgentID == "" {
 		writeErr(w, 400, "agent_id required")
 		return
 	}

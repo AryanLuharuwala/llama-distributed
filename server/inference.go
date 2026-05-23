@@ -40,6 +40,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -150,6 +151,39 @@ type inferRequestBody struct {
 	// NLayersOverride lets a caller drive the planner without a bound model
 	// (useful for plumbing tests; ignored once a real model is attached).
 	NLayersOverride int `json:"n_layers,omitempty"`
+
+	// ─── Sampling controls (forwarded to the agent's llama sampler chain) ──
+	// Truncation / shaping:
+	TopP        *float64 `json:"top_p,omitempty"`
+	TopK        *int     `json:"top_k,omitempty"`
+	MinP        *float64 `json:"min_p,omitempty"`
+	TypicalP    *float64 `json:"typical_p,omitempty"`
+	// Penalties (OpenAI-style + llama.cpp repetition penalty):
+	RepeatPenalty    *float64 `json:"repeat_penalty,omitempty"`
+	RepeatLastN      *int     `json:"repeat_last_n,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	// DRY sampler:
+	DryMultiplier     *float64 `json:"dry_multiplier,omitempty"`
+	DryBase           *float64 `json:"dry_base,omitempty"`
+	DryAllowedLength  *int     `json:"dry_allowed_length,omitempty"`
+	DryPenaltyLastN   *int     `json:"dry_penalty_last_n,omitempty"`
+	// XTC:
+	XtcProbability *float64 `json:"xtc_probability,omitempty"`
+	XtcThreshold   *float64 `json:"xtc_threshold,omitempty"`
+	// Mirostat v2 (set Mirostat=2 to enable; 0 = off):
+	Mirostat    *int     `json:"mirostat,omitempty"`
+	MirostatTau *float64 `json:"mirostat_tau,omitempty"`
+	MirostatEta *float64 `json:"mirostat_eta,omitempty"`
+	// Dynamic temperature (temp_ext); range > 0 enables it.
+	DynatempRange    *float64 `json:"dynatemp_range,omitempty"`
+	DynatempExponent *float64 `json:"dynatemp_exponent,omitempty"`
+	// Misc:
+	Seed       *int64           `json:"seed,omitempty"`
+	Stop       []string         `json:"stop,omitempty"`
+	IgnoreEOS  *bool            `json:"ignore_eos,omitempty"`
+	Grammar    string           `json:"grammar,omitempty"`
+	LogitBias  map[string]float64 `json:"logit_bias,omitempty"`
 }
 
 // Rough token estimator.  Real tokenisation happens on the agent; this is
@@ -175,7 +209,7 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body inferRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json")
 		return
 	}
@@ -213,6 +247,7 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	// Pick an online rig in the pool.
 	ac, ok := s.pickOnlineRigInPool(body.PoolID)
 	if !ok {
+		s.refundRequestSlot(u.ID)
 		s.logInference(u.ID, body.PoolID, 0, "", 0, 0, "no_rig")
 		writeErr(w, 503, "no online rigs in pool")
 		return
@@ -232,23 +267,13 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		incoming: make(chan *inferChunk, 32),
 		closed:   make(chan struct{}),
 	}
-	ac.peerMu.Lock()
-	if ac.peer != nil || ac.inferPeer != nil {
-		ac.peerMu.Unlock()
+	if !ac.acquireInferSlot(ip, ac.snapshotStatus().MaxConcurrent) {
+		s.refundRequestSlot(u.ID)
 		s.logInference(u.ID, body.PoolID, ac.userID, ac.agentID, 0, 0, "failed")
 		writeErr(w, 503, "agent busy")
 		return
 	}
-	ac.inferPeer = ip
-	ac.peerMu.Unlock()
-
-	defer func() {
-		ac.peerMu.Lock()
-		if ac.inferPeer == ip {
-			ac.inferPeer = nil
-		}
-		ac.peerMu.Unlock()
-	}()
+	defer ac.releaseInferSlot(ip)
 
 	// Announce start in the server log.
 	logID := s.logInference(u.ID, body.PoolID, ac.userID, ac.agentID, 0, 0, "running")
@@ -269,17 +294,48 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build + send request frame.
-	payloadJSON, _ := json.Marshal(map[string]any{
+	// Build + send request frame.  Only forward sampling params the caller
+	// explicitly set; the agent applies llama.cpp defaults for the rest.
+	pl := map[string]any{
 		"model":       body.Model,
 		"prompt":      body.Prompt,
 		"max_tokens":  body.MaxTokens,
 		"temperature": body.Temperature,
 		"shard_url":   shardURL,
 		"shard_file":  shardFile,
-	})
+	}
+	putF := func(k string, p *float64) { if p != nil { pl[k] = *p } }
+	putI := func(k string, p *int)     { if p != nil { pl[k] = *p } }
+	putI64 := func(k string, p *int64) { if p != nil { pl[k] = *p } }
+	putB := func(k string, p *bool)    { if p != nil { pl[k] = *p } }
+	putF("top_p", body.TopP)
+	putI("top_k", body.TopK)
+	putF("min_p", body.MinP)
+	putF("typical_p", body.TypicalP)
+	putF("repeat_penalty", body.RepeatPenalty)
+	putI("repeat_last_n", body.RepeatLastN)
+	putF("frequency_penalty", body.FrequencyPenalty)
+	putF("presence_penalty", body.PresencePenalty)
+	putF("dry_multiplier", body.DryMultiplier)
+	putF("dry_base", body.DryBase)
+	putI("dry_allowed_length", body.DryAllowedLength)
+	putI("dry_penalty_last_n", body.DryPenaltyLastN)
+	putF("xtc_probability", body.XtcProbability)
+	putF("xtc_threshold", body.XtcThreshold)
+	putI("mirostat", body.Mirostat)
+	putF("mirostat_tau", body.MirostatTau)
+	putF("mirostat_eta", body.MirostatEta)
+	putF("dynatemp_range", body.DynatempRange)
+	putF("dynatemp_exponent", body.DynatempExponent)
+	putI64("seed", body.Seed)
+	putB("ignore_eos", body.IgnoreEOS)
+	if len(body.Stop) > 0 { pl["stop"] = body.Stop }
+	if body.Grammar != "" { pl["grammar"] = body.Grammar }
+	if len(body.LogitBias) > 0 { pl["logit_bias"] = body.LogitBias }
+	payloadJSON, _ := json.Marshal(pl)
 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(body.Prompt)), payloadJSON)
 	if !ac.sendBin(reqFrame) {
+		s.refundRequestSlot(u.ID)
 		s.finishInference(logID, 0, 0, "failed")
 		writeSSEErr(w, flusher, "agent buffer full")
 		return
@@ -294,8 +350,12 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 		select {
 		case c, ok := <-ip.incoming:
 			if !ok {
-				writeSSEEvent(w, flusher, map[string]any{"done": true})
-				s.finishInference(logID, int(inTok), int(outTok), "ok")
+				// Channel closed without a terminating done/error chunk
+				// means the agent disconnected mid-stream (close() runs
+				// from the agent's read loop on EOF).  Report failure
+				// to the caller rather than fabricating a "done" event.
+				writeSSEErr(w, flusher, "agent disconnected")
+				s.finishInference(logID, int(inTok), int(outTok), "failed")
 				s.recordTokens(u.ID, int(inTok), int(outTok))
 				return
 			}
@@ -382,38 +442,134 @@ func (p *inferPeer) close() {
 	})
 }
 
+// acquireInferSlot attaches ip to ac iff the rig has a free slot and is
+// not currently bound as a relay/pp/dpp peer.  Returns true on success.
+// Slot capacity is determined by the rig's advertised MaxConcurrent
+// (treats 0 as 1 — legacy single-slot semantics).
+//
+// This replaces the historical `if ac.inferPeer != nil { busy }` pattern
+// with a multi-slot map keyed by reqID, which is what unlocks request
+// batching on rigs that opt in by advertising MaxConcurrent > 1.
+func (ac *agentConn) acquireInferSlot(ip *inferPeer, maxConcurrent int) bool {
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
+	ac.peerMu.Lock()
+	defer ac.peerMu.Unlock()
+	// A rig acting as a relay or a pipeline stage is "exclusively bound"
+	// for that purpose — concurrent OAI traffic would scramble its frame
+	// dispatch.  Refuse here just like the legacy check did.
+	if ac.peer != nil || ac.ppPeer != nil || ac.dppPeer != nil {
+		return false
+	}
+	if len(ac.inferPeers) >= maxConcurrent {
+		return false
+	}
+	// Collision on reqID would silently lose the older request's chunks
+	// when the dispatcher looks up by reqID; reject so the caller can
+	// retry with a fresh ID.
+	if _, dup := ac.inferPeers[ip.reqID]; dup {
+		return false
+	}
+	ac.inferPeers[ip.reqID] = ip
+	return true
+}
+
+// releaseInferSlot removes ip from the map iff it's still the live
+// binding for ip.reqID.  Idempotent — safe to call in defers even if
+// dispatchBinaryFromAgent already removed it after a done/error chunk.
+func (ac *agentConn) releaseInferSlot(ip *inferPeer) {
+	ac.peerMu.Lock()
+	defer ac.peerMu.Unlock()
+	if cur, ok := ac.inferPeers[ip.reqID]; ok && cur == ip {
+		delete(ac.inferPeers, ip.reqID)
+	}
+}
+
+// hasAnyInferPeer reports whether any /v1/chat or /api/infer request is
+// currently bound to ac.  Used by pp_route / dpp_route to refuse claiming
+// a rig that's mid-request — a stage and an inference can't share a rig
+// because the wire-frame demux assumes one mode per agentConn.
+func (ac *agentConn) hasAnyInferPeer() bool {
+	ac.peerMu.RLock()
+	defer ac.peerMu.RUnlock()
+	return len(ac.inferPeers) > 0
+}
+
+// snapshotInferSlots reports (used, capacity) for this rig — used by
+// /metrics to publish batching utilization across the swarm.  Capacity
+// reflects MaxConcurrent (clamped to ≥1 to match acquire semantics).
+func (ac *agentConn) snapshotInferSlots() (used, capacity int) {
+	ac.peerMu.RLock()
+	used = len(ac.inferPeers)
+	ac.peerMu.RUnlock()
+	capacity = ac.snapshotStatus().MaxConcurrent
+	if capacity <= 0 {
+		capacity = 1
+	}
+	return used, capacity
+}
+
 // dispatchBinaryFromAgent is called by the agent's WS reader on every binary
 // frame.  Try INFR (single-agent inference) first, then ACTV (pipeline-stage
 // activation), then fall through to the raw relay peer.  Returns true if the
 // frame was consumed.
 func (ac *agentConn) dispatchBinaryFromAgent(data []byte) bool {
-	ac.peerMu.RLock()
-	ip := ac.inferPeer
-	rp := ac.peer
-	ac.peerMu.RUnlock()
-
-	if ip != nil && len(data) >= 4 && binary.BigEndian.Uint32(data[0:4]) == infMagic {
+	// Read the reqID from the INFR header *before* taking the lock so we
+	// can route the chunk to the right peer in a multi-slot rig.  ACTV /
+	// DLAT frames are handled further down without the inferPeers lookup.
+	if len(data) >= 4 && binary.BigEndian.Uint32(data[0:4]) == infMagic {
 		c, err := decodeChunk(data)
 		if err != nil {
 			log.Printf("decode chunk: %v", err)
 			return true
 		}
-		if c.reqID != ip.reqID {
-			return true // stale
+		// Hold peerMu.RLock across the send so ac.close() — which takes
+		// peerMu.Lock() before closing each inferPeer's channels — can't
+		// close the channel between our nil-check and our send.  Without
+		// this, the ping-goroutine's close() can race against the reader
+		// here and trip a send-on-closed-channel panic.
+		ac.peerMu.RLock()
+		ip := ac.inferPeers[c.reqID]
+		if ip == nil {
+			ac.peerMu.RUnlock()
+			return true
+		}
+		// Probe the per-peer closed signal too: if a prior done/error
+		// chunk already closed this peer (within the dispatcher itself),
+		// it's already a no-op for the handler.
+		select {
+		case <-ip.closed:
+			ac.peerMu.RUnlock()
+			return true
+		default:
 		}
 		select {
 		case ip.incoming <- c:
 		default:
-			log.Printf("inferPeer incoming full, dropping chunk")
+			log.Printf("inferPeer incoming full, dropping chunk req=%d", c.reqID)
 		}
+		ac.peerMu.RUnlock()
 		if c.kind == chunkKindDone || c.kind == chunkKindError {
 			ip.close()
+			// Eagerly free the slot so the next request can claim it
+			// without waiting for the handler's defer.  releaseInferSlot
+			// is idempotent so the deferred release in the handler is
+			// harmless.
+			ac.releaseInferSlot(ip)
 		}
 		return true
 	}
-	// Pipeline-parallel activation frame?
+
+	ac.peerMu.RLock()
+	rp := ac.peer
+	ac.peerMu.RUnlock()
+	// Pipeline-parallel activation frame?  Try LLM-PP first, then diffusion-PP.
 	if len(data) >= 4 && binary.BigEndian.Uint32(data[0:4]) == actvMagic {
 		if ac.dispatchActvFromAgent(data) {
+			return true
+		}
+		if ac.dispatchDPPFromAgent(data) {
 			return true
 		}
 	}

@@ -37,6 +37,10 @@ type clientConn struct {
 	once   sync.Once
 }
 
+// sendBin enqueues a binary frame.  Returns false if the channel is full —
+// callers must treat this as a hard failure (close the relay) rather than
+// silently logging a drop, because the relay protocol assumes ordered,
+// complete delivery and a missing frame corrupts the streaming response.
 func (c *clientConn) sendBin(b []byte) bool {
 	select {
 	case c.binCh <- b:
@@ -194,7 +198,17 @@ func (s *server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 			buf := make([]byte, len(data))
 			copy(buf, data)
 			if !ac.sendBin(buf) {
-				log.Printf("relay: agent buffer full, dropping %d bytes", len(buf))
+				// Back-pressure: the agent's outbound buffer is full and the
+				// relay protocol can't tolerate drops.  Close the relay so
+				// the client retries from a clean state instead of receiving
+				// a corrupted stream.
+				log.Printf("relay: agent buffer full (%d bytes), closing relay to surface back-pressure", len(buf))
+				_ = wsjsonWrite(ctx, conn, map[string]any{
+					"kind": "error", "message": "agent back-pressure — retry",
+				})
+				cc.close()
+				_ = conn.Close(websocket.StatusTryAgainLater, "agent back-pressure")
+				return
 			}
 		}
 	}

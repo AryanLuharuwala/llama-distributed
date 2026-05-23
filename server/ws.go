@@ -2,15 +2,47 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
 )
+
+// clientIP returns the request's originating IP, honoring X-Forwarded-For
+// when set (we run behind nginx/cloudflare in prod).  Returns "" if the
+// address can't be parsed.
+func clientIP(r *http.Request) string {
+	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
+		// X-Forwarded-For is a comma-separated list; the left-most entry is
+		// the original client.
+		if i := strings.IndexByte(xf, ','); i > 0 {
+			return strings.TrimSpace(xf[:i])
+		}
+		return strings.TrimSpace(xf)
+	}
+	if xr := r.Header.Get("X-Real-IP"); xr != "" {
+		return strings.TrimSpace(xr)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// b64DecodeStd is a small adapter so callers don't have to import
+// encoding/base64 explicitly.
+func b64DecodeStd(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
+}
 
 // ─── Browser WebSocket ──────────────────────────────────────────────────────
 
@@ -133,10 +165,172 @@ type agentConn struct {
 
 	// Relay binding: if non-nil, binary frames from this agent are forwarded
 	// to the bound client.  Protected by peerMu.
-	peerMu    sync.RWMutex
-	peer      *clientConn
-	inferPeer *inferPeer // set while an /api/infer request is in flight
-	ppPeer    *ppPeer    // set while this agent is a stage in an /api/infer_pp request
+	peerMu     sync.RWMutex
+	peer       *clientConn
+	inferPeers map[uint16]*inferPeer // reqID → peer; len()==0 means idle.
+	ppPeer     *ppPeer               // set while this agent is a stage in an /api/infer_pp request
+	dppPeer    *dppPeer              // set while this agent is a stage in a diffusion-PP request
+
+	// ComfyUI result channels — keyed by job_id.  The dispatcher subscribes
+	// before sending `comfy_run` and unsubscribes when the job finishes.
+	// comfy_result frames from the rig are routed into the right channel.
+	comfyMu      sync.Mutex
+	comfyResults map[int64]chan comfyResultMsg
+
+	// Latest telemetry snapshot, populated from `status` frames.  Read by
+	// the swarm dashboard aggregator.  Server-derived fields (remoteIP,
+	// pairedAt) are written once at connect; agent-reported fields are
+	// overwritten on every status frame.
+	statusMu sync.RWMutex
+	live     liveStatus
+	remoteIP string
+	pairedAt int64
+
+	// Negotiated wire-protocol version (1 if rig was legacy / omitted the
+	// field).  Future incompatible frame changes branch on this.
+	protocolVersion int
+}
+
+func (a *agentConn) updateStatus(st agentStatus) {
+	a.statusMu.Lock()
+	defer a.statusMu.Unlock()
+	a.live.UpdatedAt = nowUnix()
+	a.live.TokensPS = st.TokensPS
+	if len(st.GPUUtil) > 0 {
+		a.live.GPUUtil = st.GPUUtil
+	}
+	if st.NGPUs > 0 {
+		a.live.NGPUs = st.NGPUs
+	}
+	if st.GPUModel != "" {
+		a.live.GPUModel = st.GPUModel
+	}
+	if st.VRAMTotal > 0 {
+		a.live.VRAMTotal = st.VRAMTotal
+	}
+	if st.VRAMFree > 0 {
+		a.live.VRAMFree = st.VRAMFree
+	}
+	if st.UptimeSec > 0 {
+		a.live.UptimeSec = st.UptimeSec
+	}
+	if len(st.RolesHeld) > 0 {
+		a.live.RolesHeld = st.RolesHeld
+	}
+	if len(st.ModelsHeld) > 0 {
+		a.live.ModelsHeld = st.ModelsHeld
+	}
+	a.live.Inflight = st.Inflight
+	if st.BWUpKbps > 0 {
+		a.live.BWUpKbps = st.BWUpKbps
+	}
+	if st.BWDnKbps > 0 {
+		a.live.BWDnKbps = st.BWDnKbps
+	}
+	a.live.LastError = st.LastError
+	if st.NATType != "" {
+		a.live.NATType = st.NATType
+	}
+	a.live.RelayCapable = st.RelayCapable
+	a.live.CoturnPort = st.CoturnPort
+	if st.PublicIP != "" {
+		a.live.PublicIP = st.PublicIP
+	}
+	if st.MaxConcurrent > 0 {
+		a.live.MaxConcurrent = st.MaxConcurrent
+	}
+}
+
+func (a *agentConn) snapshotStatus() liveStatus {
+	a.statusMu.RLock()
+	defer a.statusMu.RUnlock()
+	cp := a.live
+	if cp.GPUUtil != nil {
+		cp.GPUUtil = append([]float64(nil), cp.GPUUtil...)
+	}
+	if cp.RolesHeld != nil {
+		cp.RolesHeld = append([]string(nil), cp.RolesHeld...)
+	}
+	if cp.ModelsHeld != nil {
+		cp.ModelsHeld = append([]string(nil), cp.ModelsHeld...)
+	}
+	return cp
+}
+
+// comfyResultMsg is a single frame from a rig running a ComfyUI workflow.
+//   - Data + FileName populated on a result file frame.
+//   - Final = true marks the last frame; Err non-nil means the workflow failed.
+type comfyResultMsg struct {
+	FileName string
+	Data     []byte
+	Final    bool
+	Err      error
+}
+
+func (a *agentConn) subscribeComfy(jobID int64) chan comfyResultMsg {
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	if a.comfyResults == nil {
+		a.comfyResults = make(map[int64]chan comfyResultMsg)
+	}
+	ch := make(chan comfyResultMsg, 16)
+	a.comfyResults[jobID] = ch
+	return ch
+}
+
+func (a *agentConn) unsubscribeComfy(jobID int64) {
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	if ch, ok := a.comfyResults[jobID]; ok {
+		delete(a.comfyResults, jobID)
+		close(ch)
+	}
+}
+
+// deliverComfyResult routes a comfy_result frame to its subscriber.
+// Returns true if the frame was handled (so the WS reader can skip the
+// generic broadcast path).
+func (a *agentConn) deliverComfyResult(msg map[string]any) bool {
+	jobF, _ := msg["job_id"].(float64)
+	if jobF == 0 {
+		return false
+	}
+	jobID := int64(jobF)
+	out := comfyResultMsg{}
+	if name, ok := msg["file"].(string); ok {
+		out.FileName = name
+	}
+	if b64, ok := msg["data_b64"].(string); ok {
+		// Inline import keeps this file's import list minimal — base64 is
+		// already a transitive dep via openai.go.
+		if data, err := b64DecodeStd(b64); err == nil {
+			out.Data = data
+		} else {
+			out.Err = err
+		}
+	}
+	if final, _ := msg["final"].(bool); final {
+		out.Final = true
+		if errMsg, ok := msg["error"].(string); ok && errMsg != "" {
+			out.Err = errors.New(errMsg)
+		}
+	}
+	// Hold comfyMu across the send so a concurrent ac.close() — which
+	// takes comfyMu, drops the map, then closes each channel after
+	// releasing the lock — can't close `ch` between our map lookup
+	// and our send.  The send is non-blocking; total time-under-lock
+	// is microseconds.
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	ch, ok := a.comfyResults[jobID]
+	if !ok {
+		return false
+	}
+	select {
+	case ch <- out:
+	default:
+	}
+	return true
 }
 
 func (a *agentConn) incInflight() { a.inflight.Add(1) }
@@ -172,7 +366,47 @@ func (a *agentConn) getPeer() *clientConn {
 }
 
 func (a *agentConn) close() {
-	a.once.Do(func() { close(a.closed) })
+	a.once.Do(func() {
+		close(a.closed)
+		// Fail-fast every in-flight handler bound to this rig: LLM chat,
+		// LLM PP-stage, diffusion-PP stage, and comfy job subscribers
+		// all sit on per-request channels that the agent's read loop is
+		// the sole producer for.  Without this fan-out, a rig crash
+		// pins clients on their per-handler deadlines (2 min for chat,
+		// 10 min for comfy) instead of surfacing the disconnect
+		// immediately — and holds rate-limit slots in the meantime.
+		a.peerMu.Lock()
+		peers := a.inferPeers
+		a.inferPeers = make(map[uint16]*inferPeer)
+		pp := a.ppPeer
+		a.ppPeer = nil
+		dpp := a.dppPeer
+		a.dppPeer = nil
+		a.peerMu.Unlock()
+		for _, ip := range peers {
+			ip.close()
+		}
+		if pp != nil {
+			pp.close()
+		}
+		if dpp != nil {
+			dpp.close()
+		}
+
+		// Comfy job channels — we don't track the receiver's lifecycle
+		// the way we do for inference handlers, so close each one and
+		// let the consumer's `if !ok { … rig disconnected …}` branch
+		// run.  Holds comfyMu so a racing deliverComfyResult either
+		// sees an open chan and lands its message, or sees a deleted
+		// key and drops cleanly — never sends on a closed chan.
+		a.comfyMu.Lock()
+		jobs := a.comfyResults
+		a.comfyResults = nil
+		a.comfyMu.Unlock()
+		for _, ch := range jobs {
+			close(ch)
+		}
+	})
 }
 
 // agentHello is the first WS frame sent by dist-node.  Two shapes share the
@@ -187,6 +421,32 @@ type agentHello struct {
 	Hostname  string `json:"hostname"`
 	NGPUs     int    `json:"n_gpus"`
 	VRAMBytes int64  `json:"vram_bytes"`
+	// Signed-identity fields (optional during the rollout window).
+	//   PubkeyB64 — sent once on first pair so the server can store it.
+	//                On every resume, ignored unless the rig is rotating
+	//                its key (out of scope today).
+	PubkeyB64 string `json:"pubkey,omitempty"`
+
+	// Wire protocol version the rig is built against.  Optional today
+	// (legacy rigs leave it zero, treated as v1).  Future server changes
+	// that break compatibility — new ACTV frame layout, mandatory
+	// E2E encryption, etc. — bump serverProtocolMax and refuse rigs
+	// below serverProtocolMin.  See protocol_version.go.
+	ProtocolVersion int    `json:"protocol_version,omitempty"`
+	ClientBuild     string `json:"client_build,omitempty"` // free-form build tag
+
+	// CachedShards is what the rig has on disk at connect time.  Server
+	// indexes these in rig_shards so the planner can prefer P2P fetch.
+	// Empty / omitted on legacy rigs.
+	CachedShards []cachedShardEntry `json:"cached_shards,omitempty"`
+}
+
+// cachedShardEntry is one row of CachedShards.  Wire-only; we project it
+// into the rig_shards table.
+type cachedShardEntry struct {
+	ModelName string `json:"model"`
+	File      string `json:"file"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
 }
 
 type agentStatus struct {
@@ -194,6 +454,93 @@ type agentStatus struct {
 	TokensPS float64   `json:"tokens_sec"`
 	GPUUtil  []float64 `json:"gpu_util"`
 	NGPUs    int       `json:"n_gpus"`
+
+	// Optional richer telemetry — emitted by newer dist-node builds.  Older
+	// rigs leave these zero/empty; the swarm dashboard treats them as
+	// "unknown" but still counts the node.
+	GPUModel    string   `json:"gpu_model,omitempty"`     // e.g. "RTX 3050 Laptop GPU"
+	VRAMTotal   int64    `json:"vram_total,omitempty"`    // bytes
+	VRAMFree    int64    `json:"vram_free,omitempty"`     // bytes
+	UptimeSec   int64    `json:"uptime_sec,omitempty"`    // dist-node process uptime
+	RolesHeld   []string `json:"roles,omitempty"`         // ["text_encoder","unet",...]
+	ModelsHeld  []string `json:"models,omitempty"`        // huggingface repo ids served
+	Inflight    int      `json:"inflight,omitempty"`      // requests being processed
+	BWUpKbps    int64    `json:"bw_up_kbps,omitempty"`    // measured upload bw
+	BWDnKbps    int64    `json:"bw_dn_kbps,omitempty"`    // measured download bw
+	LastError   string   `json:"last_error,omitempty"`
+
+	// Peer-relay candidacy.  A rig that has a public IPv4 or a friendly
+	// (cone) NAT can volunteer to forward ACTV frames between peers that
+	// are themselves both behind symmetric NATs.  Reported by dist-node
+	// after its initial ICE gathering succeeds; values are advisory only.
+	//
+	//   NATType ∈ {"open", "cone", "symmetric", "blocked", "unknown"}
+	//   RelayCapable — true iff the rig is willing to forward for others.
+	NATType      string `json:"nat_type,omitempty"`
+	RelayCapable bool   `json:"relay_capable,omitempty"`
+
+	// TURN sidecar — when dist-node successfully spawns its bundled
+	// dist-turn server, this is the UDP port it's listening on.  The
+	// server combines the port with agentConn.remoteIP to assemble the
+	// `turn:<ip>:<port>` URL it ships in ICE entries.  Zero means the
+	// rig isn't running a TURN sidecar.
+	CoturnPort int `json:"coturn_port,omitempty"`
+
+	// PublicIP is the rig's server-reflexive (STUN-discovered) IPv4.
+	// The server prefers this over the WS source IP when forming the
+	// TURN URL — it's the correct UDP-reachable address even when WS
+	// traffic flows through a different NAT mapping (1:1 NAT on EC2,
+	// asymmetric routing, multi-homed hosts).
+	PublicIP string `json:"public_ip,omitempty"`
+
+	// CachedShards: delta-update of the rig's shard cache, sent any time
+	// the rig finishes pulling a new shard.  We treat it as authoritative
+	// (the rig knows what's on its own disk better than us), so a status
+	// frame with non-empty CachedShards causes us to upsert the listed
+	// entries — it does NOT clear unmentioned ones.  Disconnect clears
+	// the rig's row set entirely; that's the only deletion path.
+	CachedShards []cachedShardEntry `json:"cached_shards,omitempty"`
+
+	// MaxConcurrent is how many simultaneous /v1/chat or /api/infer
+	// requests this rig is willing to multiplex.  Defaults to 1 on
+	// legacy rigs (preserves the historical "agent busy" semantics);
+	// rigs running llama.cpp in --parallel N mode advertise N.  The
+	// server uses len(inferPeers) < MaxConcurrent to admit new
+	// requests instead of the old "any in-flight = busy" check.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
+}
+
+// liveStatus is the server-side snapshot of an agent's latest telemetry
+// plus a few server-derived fields (connecting IP, geo, paired-at).  It's
+// protected by the agentConn.statusMu RWMutex and is the only structure
+// the /api/swarm endpoint reads from when aggregating swarm-wide stats.
+type liveStatus struct {
+	UpdatedAt  int64    `json:"updated_at"`
+	TokensPS   float64  `json:"tokens_sec"`
+	GPUUtil    []float64 `json:"gpu_util,omitempty"`
+	NGPUs      int      `json:"n_gpus"`
+	GPUModel   string   `json:"gpu_model,omitempty"`
+	VRAMTotal  int64    `json:"vram_total,omitempty"`
+	VRAMFree   int64    `json:"vram_free,omitempty"`
+	UptimeSec  int64    `json:"uptime_sec,omitempty"`
+	RolesHeld  []string `json:"roles,omitempty"`
+	ModelsHeld []string `json:"models,omitempty"`
+	Inflight   int      `json:"inflight,omitempty"`
+	BWUpKbps   int64    `json:"bw_up_kbps,omitempty"`
+	BWDnKbps   int64    `json:"bw_dn_kbps,omitempty"`
+	LastError  string   `json:"last_error,omitempty"`
+
+	// Peer-relay candidacy (see agentStatus for semantics).  Populated from
+	// each status frame so a rig can change its mind (e.g. roam from cone
+	// to symmetric NAT) without re-pairing.
+	NATType      string `json:"nat_type,omitempty"`
+	RelayCapable bool   `json:"relay_capable,omitempty"`
+	CoturnPort   int    `json:"coturn_port,omitempty"`
+	PublicIP     string `json:"public_ip,omitempty"`
+
+	// MaxConcurrent — rig-advertised parallel inference slots.  Zero
+	// means "legacy, treat as 1".  See agentStatus.MaxConcurrent.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
 }
 
 func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +553,13 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+
+	// Default coder/websocket read limit is 32 KiB.  Comfy result frames
+	// carry base64-encoded image/video bytes — a 512×512 PNG is ~750 KiB
+	// after base64 and small videos run multi-MB.  Cap at 32 MiB so a
+	// single oversized frame can't OOM the server, but real comfy outputs
+	// fit comfortably.
+	conn.SetReadLimit(32 << 20)
 
 	ctx := r.Context()
 	ctx, cancel := context.WithCancel(ctx)
@@ -228,12 +582,33 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Protocol-version negotiation.  Rejecting too-old rigs *here* (before
+	// any DB work) keeps a malformed rig from polluting our pair-token
+	// store and gives the operator a clear upgrade message.
+	negotiated, ok := negotiateProtocol(hello.ProtocolVersion)
+	if !ok {
+		_ = wsjsonWrite(ctx, conn, map[string]any{
+			"kind":    "error",
+			"message": "dist-node is too old; upgrade to a newer build",
+			"server_protocol_min": serverProtocolMin,
+			"server_protocol_max": serverProtocolMax,
+		})
+		_ = conn.Close(websocket.StatusPolicyViolation, "protocol_version too old")
+		log.Printf("rejected agent %s: protocol v%d (server requires ≥v%d)",
+			hello.AgentID, hello.ProtocolVersion, serverProtocolMin)
+		return
+	}
+
 	var (
 		uid           int64
 		preferPoolID  int64
 		agentKey      string // sent back in welcome on first pair only
 		isFirstPair   bool
 	)
+
+	// pubkeyBytes is set on first-pair (from hello.PubkeyB64) and on every
+	// resume (from the rigs row).  Used below for signature verification.
+	var pubkeyBytes []byte
 
 	if hello.Kind == "hello" {
 		var err2 error
@@ -248,13 +623,23 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		// Mint a fresh agent_key that the rig persists for future reconnects.
 		agentKey = newRandomToken(24)
 		isFirstPair = true
+		// Optional: the rig uploads its ed25519 pubkey on first pair.  If
+		// missing we still accept (older rigs); we just can't verify sigs
+		// on subsequent resumes for this rig.
+		if hello.PubkeyB64 != "" {
+			if pk, err := decodePubkeyB64(hello.PubkeyB64); err == nil {
+				pubkeyBytes = pk
+			} else {
+				log.Printf("agent %s: ignoring bad pubkey: %v", hello.AgentID, err)
+			}
+		}
 	} else {
-		// resume: look up (agent_id, agent_key) → user_id.  Constant-time-ish
-		// match on a 48-char random token; not meaningfully attackable.
+		// resume: look up (agent_id, agent_key) → user_id + stored pubkey.
+		var pkRaw []byte
 		err2 := s.db.QueryRow(
-			`SELECT user_id FROM rigs WHERE agent_id = ? AND agent_key = ?`,
+			`SELECT user_id, pubkey FROM rigs WHERE agent_id = ? AND agent_key = ?`,
 			hello.AgentID, hello.AgentKey,
-		).Scan(&uid)
+		).Scan(&uid, &pkRaw)
 		if err2 != nil {
 			_ = wsjsonWrite(ctx, conn, map[string]any{
 				"kind": "error", "message": "bad agent_key — re-run the pair flow from the dashboard",
@@ -262,21 +647,79 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "bad agent_key")
 			return
 		}
+		pubkeyBytes = pkRaw
+
+		// If the rig has a registered pubkey, demand a signed challenge.
+		// Rigs paired before this feature shipped have a NULL pubkey and
+		// fall through on agent_key alone — we log a warning so the
+		// operator can see which rigs need to re-pair to get signed IDs.
+		if len(pubkeyBytes) > 0 {
+			nonce, ts, err := mintChallenge()
+			if err != nil {
+				log.Printf("agent %s: mint challenge: %v", hello.AgentID, err)
+				_ = conn.Close(websocket.StatusInternalError, "challenge")
+				return
+			}
+			if err := wsjsonWrite(ctx, conn, map[string]any{
+				"kind":  "challenge",
+				"nonce": nonce,
+				"ts":    ts,
+			}); err != nil {
+				return
+			}
+			sigCtx, scancel := context.WithTimeout(ctx, challengeTimeout)
+			var sigMsg struct {
+				Kind   string `json:"kind"`
+				SigB64 string `json:"sig"`
+			}
+			err = wsjsonRead(sigCtx, conn, &sigMsg)
+			scancel()
+			if err != nil || sigMsg.Kind != "sig" || sigMsg.SigB64 == "" {
+				_ = wsjsonWrite(ctx, conn, map[string]any{
+					"kind": "error", "message": "missing or bad sig frame",
+				})
+				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				return
+			}
+			sigBytes, err := decodeSigB64(sigMsg.SigB64)
+			if err != nil {
+				_ = wsjsonWrite(ctx, conn, map[string]any{
+					"kind": "error", "message": "sig decode: " + err.Error(),
+				})
+				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				return
+			}
+			if err := verifyAgentSig(pubkeyBytes, hello.AgentID, nonce, ts, sigBytes); err != nil {
+				log.Printf("agent %s: sig verify failed: %v", hello.AgentID, err)
+				_ = wsjsonWrite(ctx, conn, map[string]any{
+					"kind": "error", "message": "sig verify failed",
+				})
+				_ = conn.Close(websocket.StatusPolicyViolation, "bad sig")
+				return
+			}
+		} else {
+			log.Printf("agent %s: no registered pubkey — accepting on agent_key alone (legacy rig)", hello.AgentID)
+		}
 	}
 
-	// Upsert the rig.  On first pair, also persist the new agent_key; on
-	// resume, leave it in place.
+	// Upsert the rig.  On first pair, also persist the new agent_key + the
+	// uploaded ed25519 pubkey (if any); on resume, leave both in place.
 	if isFirstPair {
+		var pkArg any = nil
+		if len(pubkeyBytes) > 0 {
+			pkArg = pubkeyBytes
+		}
 		_, err = s.db.Exec(`INSERT INTO rigs
-			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, pubkey)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (user_id, agent_id)
 			DO UPDATE SET hostname   = excluded.hostname,
 			              n_gpus     = excluded.n_gpus,
 			              vram_bytes = excluded.vram_bytes,
 			              last_seen  = excluded.last_seen,
-			              agent_key  = excluded.agent_key`,
-			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), agentKey,
+			              agent_key  = excluded.agent_key,
+			              pubkey     = COALESCE(excluded.pubkey, rigs.pubkey)`,
+			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), agentKey, pkArg,
 		)
 	} else {
 		_, err = s.db.Exec(`UPDATE rigs SET hostname = ?, n_gpus = ?, vram_bytes = ?, last_seen = ?
@@ -316,28 +759,93 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		Scan(&displayName)
 
 	welcome := map[string]any{
-		"kind":         "welcome",
-		"user_id":      uid,
-		"display_name": displayName,
+		"kind":             "welcome",
+		"user_id":          uid,
+		"display_name":     displayName,
+		"protocol_version": negotiated,
+		"server_protocol_min": serverProtocolMin,
+		"server_protocol_max": serverProtocolMax,
 	}
 	if isFirstPair {
 		// Only surface the key on the frame that mints it.  On resume we
 		// don't re-emit — the rig already has it on disk.
 		welcome["agent_key"] = agentKey
 	}
+	// TURN sidecar secret — derived per-rig from the operator's master
+	// secret so a compromised rig only exposes its own credentials.  The
+	// derivation is HMAC-SHA256(masterSecret, agent_id) hex-encoded; the
+	// server applies the same derivation when minting creds targeted at
+	// this rig's sidecar (see rigTURNSecret + pickPeerRelays).
+	if s.cfg.turnSecret != "" {
+		welcome["turn_secret"] = s.rigTURNSecret(hello.AgentID)
+		if s.cfg.turnRealm != "" {
+			welcome["turn_realm"] = s.cfg.turnRealm
+		} else {
+			welcome["turn_realm"] = "dist"
+		}
+	}
 	_ = wsjsonWrite(ctx, conn, welcome)
 
 	ac := &agentConn{
-		userID:   uid,
-		agentID:  hello.AgentID,
-		hostname: hello.Hostname,
-		conn:     conn,
-		outCh:    make(chan any, 64),
-		binCh:    make(chan []byte, 64),
-		closed:   make(chan struct{}),
+		userID:          uid,
+		agentID:         hello.AgentID,
+		hostname:        hello.Hostname,
+		conn:            conn,
+		outCh:           make(chan any, 64),
+		binCh:           make(chan []byte, 64),
+		closed:          make(chan struct{}),
+		inferPeers:      make(map[uint16]*inferPeer),
+		remoteIP:        clientIP(r),
+		pairedAt:        nowUnix(),
+		protocolVersion: negotiated,
 	}
+	ac.live.NGPUs = hello.NGPUs
+	ac.live.VRAMTotal = hello.VRAMBytes
 	s.hub.registerAgent(ac)
-	defer s.hub.unregisterAgent(ac)
+	// A new rig changes which pools have which capacity; flush the
+	// per-pool cost snapshot cache so planPipeline doesn't ignore the
+	// rig for up to costCache.ttl.  Cheap (map reset under a mutex).
+	if s.costCache != nil {
+		s.costCache.invalidateAll()
+	}
+
+	// Shard cache index — the rig tells us what's on disk so we can
+	// route future shard fetches to peers instead of the origin.  We
+	// clear before upsert so a rig that GC'd between sessions doesn't
+	// leave dangling claims.  Empty CachedShards on a legacy rig leaves
+	// the cleared state intact, which is the correct default.
+	s.clearRigShards(uid, hello.AgentID)
+	if len(hello.CachedShards) > 0 {
+		s.upsertRigShards(uid, hello.AgentID, hello.CachedShards)
+	}
+	defer func() {
+		s.hub.unregisterAgent(ac)
+		// The plan can no longer route through this rig; drop cached
+		// cost snapshots so the next request observes the absence
+		// without waiting out the TTL.  Stage-level safety (hub.findAgent
+		// re-check before dispatch) already protects against the small
+		// window where the cache could still mention this rig.
+		if s.costCache != nil {
+			s.costCache.invalidateAll()
+		}
+		// Index claims are advisory and become misleading the moment
+		// the rig leaves — clear them now so /api/models/.../peers
+		// doesn't point downloaders at a dead WS.
+		s.clearRigShards(uid, hello.AgentID)
+		// Any active relay session this rig was serving is now dead.
+		// Mark each as a failure for the rig's reputation row — that
+		// pulls its score down for the next planner round so we stop
+		// picking it until it stabilises.  The compute stages on
+		// either side will observe the dropped P2P channel and the
+		// client will retry; the new plan won't include this rig.
+		if s.relays != nil {
+			for _, a := range s.relays.drainForAgent(ac.agentID) {
+				s.recordRelayFailure(a.AgentID)
+				log.Printf("relay %s disconnected mid-session %s (left=%s right=%s) — marked failed",
+					a.AgentID, a.SessionID, a.LeftPeer, a.RightPeer)
+			}
+		}
+	}()
 
 	// Tell the browser(s) the rig came online.  is_first_pair lets the UI
 	// flip the install card to a ✅ ("rig paired!") without waiting for a
@@ -364,7 +872,11 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				pctx, pc := context.WithTimeout(ctx, 10*time.Second)
+				// Ping timeout is generous (30s) because some agents reach the
+				// control plane over high-latency or bandwidth-throttled paths
+				// (reverse SSH tunnels, residential uplinks).  Half-open TCP is
+				// still caught — just on a longer fuse.
+				pctx, pc := context.WithTimeout(ctx, 30*time.Second)
 				err := conn.Ping(pctx)
 				pc()
 				if err != nil {
@@ -420,11 +932,68 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			if kind, _ := msg["kind"].(string); kind == "status" {
+			kind, _ := msg["kind"].(string)
+			if kind == "status" {
 				// Hot path: coalesce into in-memory map, flushed every 1s.
 				s.markLastSeen(uid, hello.AgentID)
+				// Decode rich telemetry into ac.live.  We re-marshal so
+				// json.Unmarshal handles type conversions; the wire copy
+				// is small.
+				var st agentStatus
+				if data2, err := json.Marshal(msg); err == nil {
+					if json.Unmarshal(data2, &st) == nil {
+						validateAndClampStatus(&st, ac.remoteIP)
+						ac.updateStatus(st)
+						// Shard cache delta (rig just finished pulling a
+						// new shard).  Status frames carry adds only;
+						// removals only happen on disconnect.
+						if len(st.CachedShards) > 0 {
+							s.upsertRigShards(uid, hello.AgentID, st.CachedShards)
+						}
+					}
+				}
+			}
+			if kind == "comfy_result" {
+				if ac.deliverComfyResult(msg) {
+					continue
+				}
+			}
+			if kind == "comfy_caps" {
+				s.upsertComfyCaps(uid, hello.AgentID, msg)
+				continue
+			}
+			if kind == "relay_stats" {
+				// Relay rig is reporting its byte counters from a finished
+				// session.  We attribute the count to the assignment record
+				// in-flight; the actual reputation row is updated when the
+				// release path runs `recordRelaySuccess(sum)`.
+				if s.relays != nil {
+					sid, _ := msg["session_id"].(string)
+					var l2r, r2l int64
+					var clampedL, clampedR bool
+					if v, ok := msg["bytes_l2r"].(float64); ok {
+						l2r, clampedL = clampRelayBytes(int64(v))
+					}
+					if v, ok := msg["bytes_r2l"].(float64); ok {
+						r2l, clampedR = clampRelayBytes(int64(v))
+					}
+					if clampedL || clampedR {
+						log.Printf("relay_stats: clamped bytes from agent %s session %s (raw l2r=%v r2l=%v)",
+							hello.AgentID, sid, msg["bytes_l2r"], msg["bytes_r2l"])
+					}
+					s.relays.mu.Lock()
+					if a := s.relays.byKey[relayKey{sid, hello.AgentID}]; a != nil {
+						a.BytesL2R = l2r
+						a.BytesR2L = r2l
+					}
+					s.relays.mu.Unlock()
+				}
+				continue
 			}
 			if deliverSignalAnswer(msg) {
+				continue
+			}
+			if s.deliverP2PSignal(uid, hello.AgentID, msg) {
 				continue
 			}
 			msg["agent_id"] = hello.AgentID

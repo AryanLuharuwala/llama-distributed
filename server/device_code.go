@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"strings"
@@ -54,7 +55,7 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 		NGPUs     int    `json:"n_gpus"`
 		VRAMBytes int64  `json:"vram_bytes"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body)
 
 	deviceCode := newRandomToken(24)
 	// Retry a few times in case of user_code collision (UNIQUE constraint).
@@ -80,14 +81,11 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	scheme := "https"
-	if r.TLS == nil && !strings.HasPrefix(r.Host, "localhost") {
-		scheme = "https" // ACA terminates TLS; r.TLS is nil but we're behind https
-	}
-	if strings.HasPrefix(r.Host, "localhost") || strings.HasPrefix(r.Host, "127.") {
-		scheme = "http"
-	}
-	verification := fmt.Sprintf("%s://%s/device", scheme, r.Host)
+	// Use the canonical publicURL — NOT r.Host — to defeat Host-header
+	// injection.  An attacker who can set r.Host would otherwise control the
+	// verification URL printed by every rig (phishing).  publicURL is
+	// configured at boot from a trusted source.
+	verification := strings.TrimRight(s.cfg.publicURL, "/") + "/device"
 
 	writeJSON(w, 200, map[string]any{
 		"device_code":              deviceCode,
@@ -112,7 +110,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		UserCode string `json:"user_code"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserCode == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&body); err != nil || body.UserCode == "" {
 		writeErr(w, 400, "user_code required")
 		return
 	}
@@ -201,7 +199,7 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DeviceCode string `json:"device_code"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DeviceCode == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&body); err != nil || body.DeviceCode == "" {
 		writeErr(w, 400, "device_code required")
 		return
 	}
@@ -232,12 +230,10 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wsHost := r.Host
-	scheme := "wss"
-	if strings.HasPrefix(wsHost, "localhost") || strings.HasPrefix(wsHost, "127.") {
-		scheme = "ws"
-	}
-	server := fmt.Sprintf("%s://%s/ws/agent", scheme, wsHost)
+	// Like verification_url above: use publicURL (trusted), not r.Host
+	// (attacker-controllable).  A rig that's poisoned here would reconnect
+	// to the attacker's WS endpoint forever.
+	server := httpToWS(strings.TrimRight(s.cfg.publicURL, "/")) + "/ws/agent"
 
 	writeJSON(w, 200, map[string]any{
 		"agent_id":  *agentID,

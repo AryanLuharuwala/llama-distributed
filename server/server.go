@@ -7,20 +7,26 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // ─── Server ─────────────────────────────────────────────────────────────────
 
 type server struct {
-	cfg config
-	db  *sql.DB
-	hub *hub
+	cfg     config
+	db      *sql.DB
+	dialect sqlDialect // set in main() after openDB; defaults to SQLite for tests via newServer
+	hub     *hub
 
 	// Pending last_seen updates, batched to cut SQLite WAL contention under
 	// load.  Key is (user_id, agent_id); value is the latest unix timestamp
@@ -28,14 +34,47 @@ type server struct {
 	// reapLoop into a single multi-row UPDATE.
 	lastSeenMu sync.Mutex
 	lastSeen   map[agentKey]int64
+
+	// HF importer: in-flight job cancellation registry.
+	hfJobs *importJobs
+
+	// ComfyUI jobs: in-flight image/video generation jobs.
+	comfyJobs *comfyJobs
+
+	// Active relay assignments — populated when pp_route sends
+	// p2p_relay_assign, drained on release or relay-rig disconnect.  Used
+	// to attribute bytes back to the right reputation row and to detect
+	// mid-session failures.
+	relays *activeRelays
+
+	// Per-pool rig-cost snapshot cache.  See cost_cache.go for the
+	// rationale; short TTL trades up to ~2s of plan-staleness for a big
+	// reduction in DB load on the planPipeline / planDPP hot paths.
+	costCache *rigCostCache
+
+	// Process start time — surfaced via /metrics for uptime tracking and
+	// used by /readyz to ignore the initial warm-up window when SQLite
+	// might still be migrating.
+	startedAt time.Time
+
+	// Flipped to true when graceful shutdown begins.  /readyz watches
+	// this so load balancers can stop sending new connections while the
+	// process drains in-flight work.
+	shuttingDown atomic.Bool
 }
 
 func newServer(cfg config, db *sql.DB) *server {
 	return &server{
-		cfg:      cfg,
-		db:       db,
-		hub:      newHub(),
-		lastSeen: make(map[agentKey]int64),
+		cfg:       cfg,
+		db:        db,
+		dialect:   sqliteDialect{}, // default; main() overrides after dialectFor()
+		hub:       newHub(),
+		lastSeen:  make(map[agentKey]int64),
+		hfJobs:    newImportJobs(),
+		comfyJobs: newComfyJobs(),
+		relays:    newActiveRelays(),
+		costCache: newRigCostCache(2 * time.Second),
+		startedAt: time.Now(),
 	}
 }
 
@@ -94,6 +133,8 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /", s.handleIndex)
 
 	// Auth
+	mux.HandleFunc("GET /auth", s.handleAuthPage)
+	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("GET /auth/github", s.handleGithubStart)
 	mux.HandleFunc("GET /auth/github/callback", s.handleGithubCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
@@ -119,6 +160,12 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
 	mux.HandleFunc("GET /build.sh", s.handleBuildSh)
 	mux.HandleFunc("GET /build.ps1", s.handleBuildPs1)
+	// Lightweight `surd`-only installers (Phase 1.4 — 3-step UX).
+	mux.HandleFunc("GET /setup.sh", s.handleSetupSh)
+	mux.HandleFunc("GET /setup.zsh", s.handleSetupZsh)
+	mux.HandleFunc("GET /setup.ps1", s.handleSetupPs1)
+	// Friendly UI for the one-liner above (OS picker, pool/invite fields).
+	mux.HandleFunc("GET /install", s.handleInstallPage)
 	mux.HandleFunc("POST /api/install_command", s.handleInstallCommand)
 	mux.HandleFunc("GET /api/install_targets", s.handleInstallTargets)
 	// Release tarball proxy — rigs fetch short-name tarballs from the control
@@ -147,6 +194,7 @@ func (s *server) router() http.Handler {
 	// Inference + usage
 	mux.HandleFunc("POST /api/infer", s.handleInfer)
 	mux.HandleFunc("POST /api/infer_pp", s.handleInferPP)
+	mux.HandleFunc("POST /api/infer_dpp", s.handleInferDPP)
 	mux.HandleFunc("GET /api/usage", s.handleUsage)
 	mux.HandleFunc("GET /api/inference_log", s.handleInferenceLog)
 
@@ -158,13 +206,45 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/models", s.handleListModels)
 	mux.HandleFunc("GET /models/{id}/manifest.json", s.handleModelManifest)
 	mux.HandleFunc("GET /models/{id}/shards/{file}", s.handleShardDownload)
+	// Shard-peers — list of online rigs (under the requester's user) that
+	// claim to have this shard.  Used by rigs spinning up to prefer P2P
+	// over origin downloads.  See shard_index.go.
+	mux.HandleFunc("GET /api/models/{name}/peers", s.handleShardPeers)
+	// Fetch plan — server returns an ordered list of source URLs (peers
+	// first, origin last) + recommended chunk size so a rig can do
+	// parallel range-GET against many sources.  See shard_fetch_plan.go.
+	mux.HandleFunc("GET /api/models/{name}/fetch-plan", s.handleShardFetchPlan)
+
+	// HuggingFace import flow.
+	mux.HandleFunc("POST /api/hf/token", s.handleHFSetToken)
+	mux.HandleFunc("GET /api/hf/token", s.handleHFGetToken)
+	mux.HandleFunc("POST /api/hf/resolve", s.handleHFResolve)
+	mux.HandleFunc("POST /api/hf/import", s.handleHFImport)
+	mux.HandleFunc("GET /api/hf/jobs", s.handleHFListJobs)
+	mux.HandleFunc("GET /api/hf/jobs/{id}", s.handleHFJobDetail)
+	mux.HandleFunc("POST /api/hf/jobs/{id}/cancel", s.handleHFJobCancel)
+
+	// ComfyUI image/video gen.
+	mux.HandleFunc("POST /api/comfy/workflows", s.handleComfyRegisterWorkflow)
+	mux.HandleFunc("GET /api/comfy/workflows", s.handleComfyListWorkflows)
+	mux.HandleFunc("POST /api/comfy/models", s.handleComfyRegisterModel)
+	mux.HandleFunc("GET /api/comfy/models", s.handleComfyListModels)
+	mux.HandleFunc("POST /api/comfy/generate", s.handleComfyGenerate)
+	mux.HandleFunc("GET /api/comfy/jobs", s.handleComfyListJobs)
+	mux.HandleFunc("GET /api/comfy/jobs/{id}", s.handleComfyJobDetail)
+	mux.HandleFunc("POST /api/comfy/jobs/{id}/cancel", s.handleComfyJobCancel)
+	mux.HandleFunc("GET /comfy/out/{id}/{file}", s.handleComfyOutput)
+	mux.HandleFunc("POST /v1/images/generations", s.handleOAIImageGen)
+	mux.HandleFunc("POST /v1/{slug}/images/generations", s.handleOAIImageGen)
 
 	// Pools
 	mux.HandleFunc("POST /api/pools", s.handleCreatePool)
 	mux.HandleFunc("GET /api/pools", s.handleListPools)
 	mux.HandleFunc("GET /api/pools/{id}", s.handlePoolDetail)
 	mux.HandleFunc("POST /api/pools/{id}/invite", s.handlePoolInvite)
+	mux.HandleFunc("GET /api/invites/{token}", s.handlePoolInvitePreview)
 	mux.HandleFunc("POST /api/pools/join", s.handlePoolJoin)
+	mux.HandleFunc("GET /join/{token}", s.handleJoinPage)
 	mux.HandleFunc("POST /api/pools/{id}/rigs", s.handlePoolAttachRig)
 	mux.HandleFunc("DELETE /api/pools/{id}/rigs/{rigID}", s.handlePoolDetachRig)
 
@@ -173,10 +253,32 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /ws/agent", s.handleAgentWS)
 	mux.HandleFunc("GET /ws/client", s.handleClientWS)
 
-	// Health
+	// Public swarm dashboard — no auth.  Aggregates live telemetry across
+	// every connected rig (Petals-style global view).
+	mux.HandleFunc("GET /api/swarm", s.handleSwarmStats)
+	mux.HandleFunc("GET /swarm", s.handleSwarmPage)
+
+	// Dashboard read-only APIs (futuristic /console UI).
+	mux.HandleFunc("GET /api/me/rigs", s.handleMeRigs)
+	mux.HandleFunc("GET /api/me/rigs/stream", s.handleMeRigsStream)
+	mux.HandleFunc("GET /api/me/earnings", s.handleMeEarnings)
+	mux.HandleFunc("GET /api/pools/{id}/topology", s.handlePoolTopology)
+	mux.HandleFunc("GET /api/pools/{id}/sessions", s.handlePoolSessions)
+	mux.HandleFunc("GET /api/console/network", s.handleConsoleNetwork)
+	mux.HandleFunc("GET /api/install/oneliner", s.handleInstallOneliner)
+	// Desktop-widget combined feed (session OR agent-key auth).
+	mux.HandleFunc("GET /api/widget/state", s.handleWidgetState)
+	mux.HandleFunc("GET /console", s.handleConsolePage)
+
+	// Health + readiness + metrics.  /healthz is a cheap liveness
+	// probe (always 200 if the process is up); /readyz pings the DB and
+	// flips during graceful shutdown so LBs can drain; /metrics emits
+	// Prometheus text exposition.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
 
 	// On-demand LAN reachability check.  Re-runs the boot-time firewall
 	// probe; used by the dashboard's "Test LAN reachability" button so
@@ -189,7 +291,38 @@ func (s *server) router() http.Handler {
 		writeJSON(w, 200, firewallProbe(s.cfg.addr))
 	})
 
-	return withLogging(mux)
+	return withRequestID(withLogging(withSecurityHeaders(withCORSForV1(mux))))
+}
+
+// withSecurityHeaders sets common defense-in-depth headers on every
+// response.  Cheap, well-understood, and missing them is a frequent
+// audit finding even on otherwise-clean services.
+//
+//   X-Content-Type-Options:  stops MIME sniffing on user-uploaded blobs
+//                            (model shards, comfy outputs).
+//   X-Frame-Options:         the dashboard isn't an embeddable widget;
+//                            clickjacking defence.
+//   Referrer-Policy:         keep referer leaks to a minimum.
+//   Strict-Transport-Security: only set when the request came in over
+//                              HTTPS (TLS-terminating proxy or built-in
+//                              TLS); harmless on dev HTTP.
+//
+// We deliberately skip Content-Security-Policy here — the dashboard
+// uses some inline scripts and locking it down without an audit risks
+// breaking the UI.  Add later when there's time to inventory sources.
+func withSecurityHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// HSTS is meaningful only when the connection actually used TLS.
+		// `r.TLS != nil` covers in-process TLS; `X-Forwarded-Proto: https`
+		// covers a TLS-terminating reverse proxy (the common deploy).
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -214,13 +347,85 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// requestIDKey is the context key for the per-request correlation ID.
+// We use an unexported type so callers can't collide on the value.
+type requestIDKey struct{}
+
+// requestIDFromContext returns the per-request ID set by withRequestID,
+// or "" if no ID is in scope.  Handlers / log lines can include this so
+// a problem reported by a user can be traced back through middleware.
+func requestIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(requestIDKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// withRequestID assigns a stable correlation ID per request.  Honours an
+// inbound X-Request-ID when present (so reverse proxies or callers can
+// propagate one); otherwise mints a fresh 16-byte hex.  Echoed in the
+// response header so clients can correlate without parsing logs.
+func withRequestID(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rid := r.Header.Get("X-Request-ID")
+		if rid == "" || len(rid) > 64 {
+			rid = newRandomToken(8) // 16 hex chars
+		}
+		w.Header().Set("X-Request-ID", rid)
+		ctx := context.WithValue(r.Context(), requestIDKey{}, rid)
+		h.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// logJSON is the toggle for structured access logs.  Defaulted off so dev
+// runs stay human-readable; set DIST_LOG_JSON=1 in production.
+var logJSON = os.Getenv("DIST_LOG_JSON") == "1"
+
 func withLogging(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t0 := time.Now()
 		sr := &statusRecorder{ResponseWriter: w, status: 200}
 		h.ServeHTTP(sr, r)
-		log.Printf("%s %s -> %d in %s",
-			r.Method, r.URL.Path, sr.status, time.Since(t0))
+		dur := time.Since(t0)
+		rid := requestIDFromContext(r.Context())
+		if logJSON {
+			entry := map[string]any{
+				"ts":         t0.UTC().Format(time.RFC3339Nano),
+				"level":      "info",
+				"event":      "http_request",
+				"request_id": rid,
+				"method":     r.Method,
+				"path":       r.URL.Path,
+				"status":     sr.status,
+				"duration_ms": dur.Milliseconds(),
+				"remote":     r.RemoteAddr,
+			}
+			b, _ := json.Marshal(entry)
+			fmt.Fprintln(os.Stdout, string(b))
+			return
+		}
+		log.Printf("[%s] %s %s -> %d in %s",
+			rid, r.Method, r.URL.Path, sr.status, dur)
+	})
+}
+
+// withCORSForV1 emits permissive CORS headers on /v1/* paths so any OpenAI
+// client can call the pool endpoints from a browser.  Safe because auth on
+// /v1/* is Bearer-only — cookies are blocked by SameSite=Lax, so allowing
+// `*` origin doesn't expose any cookie-authenticated surface.
+func withCORSForV1(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Pool-Slug")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		h.ServeHTTP(w, r)
 	})
 }
 
@@ -385,12 +590,18 @@ func (s *server) handleListRigs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"rigs": rigs})
 }
 
-// Dev login — POST {display_name} — only enabled when DIST_GITHUB_CLIENT is unset.
+// Dev login — POST {display_name}.  Opt-in only via DIST_DEV_MODE=1 / --dev.
+// Defense-in-depth: even if the route is wired by accident, refuse when devMode
+// is off.  Combined with the router gate this is belt-and-suspenders.
 func (s *server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.devMode {
+		writeErr(w, 404, "not found")
+		return
+	}
 	var body struct {
 		DisplayName string `json:"display_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DisplayName == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil || body.DisplayName == "" {
 		writeErr(w, 400, "display_name required")
 		return
 	}
@@ -452,10 +663,10 @@ func (s *server) handlePairMint(w http.ResponseWriter, r *http.Request) {
 }
 
 func httpToWS(u string) string {
-	if len(u) > 7 && u[:7] == "http://" {
+	if len(u) >= 7 && strings.EqualFold(u[:7], "http://") {
 		return "ws://" + u[7:]
 	}
-	if len(u) > 8 && u[:8] == "https://" {
+	if len(u) >= 8 && strings.EqualFold(u[:8], "https://") {
 		return "wss://" + u[8:]
 	}
 	return u
@@ -506,6 +717,11 @@ func (s *server) reapLoop(ctx context.Context) {
 	defer reap.Stop()
 	flush := time.NewTicker(1 * time.Second)
 	defer flush.Stop()
+	// Hourly: prune idle reputation rows + reap stale relay assignments.
+	// Both are bounded-growth defences; running them less often than the
+	// per-minute table reap keeps the hot loop quick.
+	slow := time.NewTicker(1 * time.Hour)
+	defer slow.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -516,6 +732,31 @@ func (s *server) reapLoop(ctx context.Context) {
 		case <-reap.C:
 			_, _ = s.db.Exec(`DELETE FROM sessions    WHERE expires_at < ?`, nowUnix())
 			_, _ = s.db.Exec(`DELETE FROM pair_tokens WHERE expires_at < ?`, nowUnix())
+			// Reap any relay assignment older than maxRelayAssignmentAge —
+			// the session leaked (client disappeared without release).
+			if s.relays != nil {
+				stale := s.relays.reapStale(nowUnix(), maxRelayAssignmentAge)
+				for _, a := range stale {
+					s.recordRelayFailure(a.AgentID)
+					log.Printf("relay assignment %s/%s reaped after %ds (no release frame)",
+						a.AgentID, a.SessionID, nowUnix()-a.StartedAt)
+				}
+			}
+			// Comfy jobs that have gone unmoved for ~15 minutes are
+			// orphaned (handler crashed, rig died without disconnect
+			// being observed, etc.).  Fail them so users see a
+			// terminal state instead of staring at a "running" row
+			// that will never update.
+			if n, err := s.reapStaleComfyJobs(15 * 60); err == nil && n > 0 {
+				log.Printf("comfy_jobs: reaped %d stale rows", n)
+			}
+		case <-slow.C:
+			// 30-day idle eviction.  Reputation can always be rebuilt; the
+			// goal is to keep the table from holding forever rows for
+			// agents that did one session and vanished.
+			if n, err := s.pruneIdleReputation(30 * 24 * 3600); err == nil && n > 0 {
+				log.Printf("rig_reputation: pruned %d idle rows", n)
+			}
 		}
 	}
 }
@@ -573,6 +814,36 @@ func (h *hub) findAgent(userID int64, agentID string) (*agentConn, bool) {
 	return a, ok
 }
 
+// findAgentByID looks up the first online agentConn whose agentID matches,
+// across all users.  P2P signaling needs this because the planner can pair
+// rigs from different users within the same pool.  When agent IDs collide
+// across users (theoretically possible — they're free-form strings the rig
+// chose), we return the first match; rigs MUST treat their agent_id as
+// globally unique within their pool for P2P to work.
+func (h *hub) findAgentByID(agentID string) *agentConn {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for k, a := range h.agents {
+		if k.agentID == agentID {
+			return a
+		}
+	}
+	return nil
+}
+
+// snapshotAgents returns a slice copy of every online agentConn — safe to
+// iterate without holding the hub lock.  Used by the swarm dashboard
+// aggregator, which must not block hot-path operations on the hub.
+func (h *hub) snapshotAgents() []*agentConn {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]*agentConn, 0, len(h.agents))
+	for _, a := range h.agents {
+		out = append(out, a)
+	}
+	return out
+}
+
 // countOnlineRigsInPool counts how many pool_rigs are currently online.
 func (s *server) countOnlineRigsInPool(poolID int64) int {
 	rows, err := s.db.Query(`
@@ -594,6 +865,66 @@ func (s *server) countOnlineRigsInPool(poolID int64) int {
 		}
 	}
 	return n
+}
+
+// pickAndReserveRig picks the least-loaded rig in the pool AND atomically
+// attaches `ip` to it (acquireInferSlot).  Skips rigs whose slots are full
+// or that are currently bound as a relay/pp/dpp peer.  Returns nil if no
+// rig has spare capacity.  The caller still owns the inflight increment
+// for the chosen rig — we don't touch it here.
+//
+// This is the single entry point that lets batching pay off: when N
+// concurrent /v1/chat requests hit the same multi-slot rig, each call to
+// pickAndReserveRig admits up to MaxConcurrent of them onto the same
+// agentConn instead of bouncing the later ones with 503.
+func (s *server) pickAndReserveRig(poolID int64, ip *inferPeer) *agentConn {
+	rows, err := s.db.Query(`
+		SELECT r.user_id, r.agent_id FROM pool_rigs pr
+		JOIN rigs r ON r.id = pr.rig_id
+		WHERE pr.pool_id = ?
+		ORDER BY RANDOM()`, poolID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	type cand struct {
+		ac   *agentConn
+		load int32
+		cap  int
+	}
+	var cands []cand
+	for rows.Next() {
+		var uid int64
+		var aid string
+		if err := rows.Scan(&uid, &aid); err != nil {
+			continue
+		}
+		a, ok := s.hub.findAgent(uid, aid)
+		if !ok {
+			continue
+		}
+		st := a.snapshotStatus()
+		maxConc := st.MaxConcurrent
+		if maxConc <= 0 {
+			maxConc = 1
+		}
+		cands = append(cands, cand{ac: a, load: a.loadInflight(), cap: maxConc})
+	}
+	// Sort by least loaded.  Slice is small (handful of rigs) so a single
+	// linear scan beats sort.Slice overhead.
+	for i := range cands {
+		for j := i + 1; j < len(cands); j++ {
+			if cands[j].load < cands[i].load {
+				cands[i], cands[j] = cands[j], cands[i]
+			}
+		}
+	}
+	for _, c := range cands {
+		if c.ac.acquireInferSlot(ip, c.cap) {
+			return c.ac
+		}
+	}
+	return nil
 }
 
 // pickOnlineRigInPool returns the least-loaded live agentConn in the pool.

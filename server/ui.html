@@ -269,6 +269,8 @@ main{flex:1;padding:24px 20px;max-width:1160px;width:100%;margin:0 auto}
     <button class="tab-btn" data-tab="rigs">Rigs</button>
     <button class="tab-btn" data-tab="pools">Pools</button>
     <button class="tab-btn" data-tab="playground">Playground</button>
+    <button class="tab-btn" data-tab="models">Models</button>
+    <button class="tab-btn" data-tab="images">Images</button>
     <button class="tab-btn" data-tab="keys">API Keys</button>
   </nav>
   <div class="hdr-r">
@@ -440,6 +442,134 @@ main{flex:1;padding:24px 20px;max-width:1160px;width:100%;margin:0 auto}
   </div>
 </div>
 
+<!-- models tab -->
+<div class="tab-panel" id="tab-models">
+  <div class="sec-hd">
+    <div class="sec-t">Models</div>
+    <button class="btn btn-g btn-sm" onclick="openModal('m-hf-token')">🔑 HF Token</button>
+  </div>
+
+  <div class="card mb4">
+    <div class="card-hd"><div class="card-t">Import from Hugging Face</div></div>
+    <div class="xs muted mb2">
+      Paste a HF repo ID (e.g. <code>TheBloke/Llama-2-7B-Chat-GGUF</code>) or a full URL,
+      then resolve to see the GGUF files. Private/gated repos need a HF token (button above).
+    </div>
+    <div class="flex g2 mb2" style="flex-wrap:wrap;align-items:stretch">
+      <input id="hf-repo" type="text" placeholder="org/repo  (e.g. bartowski/Llama-3.2-1B-Instruct-GGUF)"
+             style="flex:1 1 280px;padding:8px 10px;background:#0c0e13;border:1px solid var(--border);
+                    color:#e6e7eb;border-radius:6px">
+      <input id="hf-rev" type="text" placeholder="revision (main)"
+             style="width:130px;padding:8px 10px;background:#0c0e13;border:1px solid var(--border);
+                    color:#e6e7eb;border-radius:6px">
+      <button class="btn btn-g btn-sm" onclick="hfResolve()">Resolve</button>
+    </div>
+    <div id="hf-files" class="xs muted">Files appear here after resolving.</div>
+    <div class="flex g2 mb2 mt2" style="align-items:center">
+      <span class="xs muted">Model name:</span>
+      <input id="hf-modelname" type="text" placeholder="auto from repo id"
+             style="flex:1 1 220px;padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                    color:#e6e7eb;border-radius:6px">
+      <span class="xs muted">Pipeline stages:</span>
+      <input id="hf-stages" type="number" min="1" max="64" value="1"
+             style="width:80px;padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                    color:#e6e7eb;border-radius:6px">
+      <label class="xs muted" style="display:flex;align-items:center;gap:4px">
+        <input id="hf-convert" type="checkbox">
+        Convert (if no GGUF)
+      </label>
+      <select id="hf-quant" title="Convert quantization"
+              style="padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                     color:#e6e7eb;border-radius:6px">
+        <option value="q8_0" selected>q8_0</option>
+        <option value="q4_k_m">q4_k_m</option>
+        <option value="q5_k_m">q5_k_m</option>
+        <option value="q6_k">q6_k</option>
+        <option value="f16">f16</option>
+        <option value="bf16">bf16</option>
+      </select>
+      <button class="btn btn-p btn-sm" onclick="hfImport()" id="hf-import-btn" disabled>Import</button>
+    </div>
+    <div id="hf-status" class="xs muted"></div>
+  </div>
+
+  <div class="sec-hd"><div class="sec-t">Active Imports</div></div>
+  <div id="hf-jobs" class="xs muted mb4">No imports yet.</div>
+
+  <div class="sec-hd"><div class="sec-t">Registered Models</div></div>
+  <div id="model-list" class="xs muted">Loading…</div>
+</div>
+
+<!-- images tab (ComfyUI) -->
+<div class="tab-panel" id="tab-images">
+  <div class="sec-hd"><div class="sec-t">Image / Video Generation</div></div>
+
+  <div class="card mb4">
+    <div class="card-hd"><div class="card-t">Generate</div></div>
+    <div class="xs muted mb2">
+      Requires at least one rig with ComfyUI installed
+      (<code>DIST_WITH_COMFYUI=1</code> at install). Image generation routes to the first
+      capable rig in your pool.
+    </div>
+    <div class="flex g2 mb2" style="flex-wrap:wrap">
+      <textarea id="img-prompt" placeholder="A photo of a llama on a beach at sunset, cinematic, 4k"
+                style="flex:1 1 400px;min-height:80px;padding:8px 10px;background:#0c0e13;
+                       border:1px solid var(--border);color:#e6e7eb;border-radius:6px;
+                       font-family:inherit"></textarea>
+    </div>
+    <div class="flex g2 mb2" style="flex-wrap:wrap;align-items:center">
+      <span class="xs muted">Model:</span>
+      <select id="img-model" style="padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                                     color:#e6e7eb;border-radius:6px">
+        <option value="sd_xl_base_1.0.safetensors">SDXL Base 1.0 (default)</option>
+      </select>
+      <span class="xs muted">Size:</span>
+      <select id="img-size" style="padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                                    color:#e6e7eb;border-radius:6px">
+        <option value="1024x1024">1024×1024</option>
+        <option value="768x768">768×768</option>
+        <option value="512x512">512×512</option>
+        <option value="1280x720">1280×720</option>
+      </select>
+      <span class="xs muted">Pool:</span>
+      <select id="img-pool" style="padding:6px 8px;background:#0c0e13;border:1px solid var(--border);
+                                    color:#e6e7eb;border-radius:6px">
+        <option value="0">— any rig —</option>
+      </select>
+      <button class="btn btn-p btn-sm" onclick="imgGenerate()">Generate</button>
+    </div>
+    <div id="img-status" class="xs muted"></div>
+  </div>
+
+  <div class="sec-hd"><div class="sec-t">Recent Renders</div></div>
+  <div id="img-gallery" class="xs muted">No renders yet.</div>
+</div>
+
+<!-- HF token modal -->
+<div class="overlay hidden" id="m-hf-token">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-t">Hugging Face Token</div>
+      <button class="modal-x" onclick="closeModal('m-hf-token')">×</button>
+    </div>
+    <div class="xs muted mb2">
+      Required for gated/private repos. Generated at
+      <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a>.
+      Stored encrypted (AES-GCM) and never sent back to the browser.
+    </div>
+    <div class="fg">
+      <label for="hf-token-in">Token</label>
+      <input id="hf-token-in" type="password" placeholder="hf_...">
+    </div>
+    <div id="hf-token-status" class="xs muted mb2"></div>
+    <div class="flex g2 mt2">
+      <button class="btn btn-p btn-sm" onclick="hfSaveToken()">Save</button>
+      <button class="btn btn-g btn-sm" onclick="hfDeleteToken()">Remove</button>
+      <button class="btn btn-g btn-sm" onclick="closeModal('m-hf-token')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- keys tab -->
 <div class="tab-panel" id="tab-keys">
   <div class="sec-hd">
@@ -583,12 +713,17 @@ async function boot(){
   $('app').classList.remove('hidden');
   $('hdr-user').textContent = '@' + (ST.me.github_login || ST.me.display_name);
 
-  await Promise.all([loadRigs(), loadPools(), loadKeys(), loadUsage(), loadTargets()]);
+  await Promise.all([loadRigs(), loadPools(), loadKeys(), loadUsage(), loadTargets(), loadModels(), loadHFJobs(), loadImgJobs()]);
   renderAll();
   connectWS();
   handleInviteParam();
   handleDeviceParam();
   setInterval(loadUsage, 30000);
+  // When the Models / Images tab is active, refresh more aggressively.
+  setInterval(()=>{
+    if(document.getElementById('tab-models').classList.contains('on')) { loadHFJobs(); loadModels(); }
+    if(document.getElementById('tab-images').classList.contains('on')) { loadImgJobs(); }
+  }, 5000);
 }
 
 async function devLogin(){
@@ -1057,7 +1192,7 @@ function copyLink(){
 // ── Pool selects ──────────────────────────────────────────────────────────────
 function populatePoolSelects(){
   const my=ST.pools.filter(p=>p.role==='owner'||p.role==='member');
-  ['pk-pool','play-pool'].forEach(id=>{
+  ['pk-pool','play-pool','img-pool'].forEach(id=>{
     const sel=$(id); if(!sel)return;
     const cur=sel.value;
     while(sel.options.length>1)sel.remove(1);
@@ -1065,6 +1200,162 @@ function populatePoolSelects(){
     if(cur)sel.value=cur;
   });
 }
+
+// ── Models tab (HF importer) ─────────────────────────────────────────────────
+async function loadModels(){
+  try{
+    const r=await jget('/api/models');
+    ST.models = r.models || [];
+    const html = (!ST.models.length)
+      ? '<div class="empty"><div class="empty-icon">📦</div><div>No models registered yet.</div></div>'
+      : '<table style="width:100%;border-collapse:collapse">'
+        + '<tr style="text-align:left;color:#8b8d96;font-size:12px"><th style="padding:6px">Name</th><th>Layers</th><th>Shards</th><th>Created</th></tr>'
+        + ST.models.map(m=>`<tr style="border-top:1px solid var(--border)">
+            <td style="padding:6px"><code>${esc(m.name)}</code></td>
+            <td>${m.n_layers}</td><td>${m.n_shards}</td>
+            <td>${new Date(m.created_at*1000).toLocaleString()}</td>
+           </tr>`).join('')
+        + '</table>';
+    $('model-list').innerHTML = html;
+  }catch(e){
+    $('model-list').textContent = 'Failed to load: ' + (e.error||e);
+  }
+}
+async function loadHFJobs(){
+  try{
+    const r=await jget('/api/hf/jobs');
+    const jobs = r.jobs || [];
+    if(!jobs.length){ $('hf-jobs').textContent = 'No imports yet.'; return; }
+    $('hf-jobs').innerHTML = jobs.map(j => {
+      const pct = j.bytes_total ? Math.floor(100*j.bytes_done/j.bytes_total) : 0;
+      const cancelBtn = (j.status==='downloading'||j.status==='queued'||j.status==='splitting')
+        ? `<button class="btn btn-g btn-sm" onclick="hfCancel(${j.id})">Cancel</button>` : '';
+      const err = j.error ? `<div style="color:#e95757">${esc(j.error)}</div>` : '';
+      return `<div style="padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+        <div class="flex g2 ac" style="justify-content:space-between">
+          <div><code>${esc(j.repo_id)}</code> · <span class="xs muted">${esc(j.status)}</span></div>
+          ${cancelBtn}
+        </div>
+        <div style="background:#1a1d24;height:6px;border-radius:3px;margin-top:4px;overflow:hidden">
+          <div style="background:#5b8def;height:6px;width:${pct}%"></div>
+        </div>
+        <div class="xs muted" style="margin-top:2px">${fmtBytes(j.bytes_done)} / ${fmtBytes(j.bytes_total)} (${pct}%)</div>
+        ${err}
+      </div>`;
+    }).join('');
+  }catch(_){}
+}
+async function hfSaveToken(){
+  const v = $('hf-token-in').value.trim();
+  try{
+    await jpost('/api/hf/token', {token: v});
+    $('hf-token-status').textContent = v ? 'Token saved.' : 'Token removed.';
+    $('hf-token-in').value = '';
+  }catch(e){ $('hf-token-status').textContent = 'Failed: '+(e.error||e); }
+}
+async function hfDeleteToken(){
+  await jpost('/api/hf/token', {token: ''});
+  $('hf-token-status').textContent = 'Token removed.';
+}
+async function hfResolve(){
+  const repo = $('hf-repo').value.trim();
+  const rev = $('hf-rev').value.trim();
+  if(!repo){ $('hf-files').textContent = 'Repo ID required.'; return; }
+  $('hf-files').textContent = 'Resolving…';
+  $('hf-import-btn').disabled = true;
+  try{
+    const r = await jpost('/api/hf/resolve', {repo_id: repo, revision: rev});
+    ST.hfFiles = r.files;
+    ST.hfRepoID = r.repo_id;
+    ST.hfRev = r.revision || 'main';
+    const lines = r.files.map(f => `<label style="display:block">
+      <input type="checkbox" class="hf-file-cb" data-path="${esc(f.path)}" checked>
+      <code>${esc(f.path)}</code> <span class="xs muted">(${fmtBytes(f.size)})</span>
+    </label>`).join('');
+    $('hf-files').innerHTML = `<div style="max-height:240px;overflow:auto;padding:6px;
+      border:1px solid var(--border);border-radius:6px">${lines}</div>
+      <div class="xs muted" style="margin-top:4px">Total: ${fmtBytes(r.bytes_total)}</div>`;
+    if(!$('hf-modelname').value) $('hf-modelname').value = r.repo_id.replace('/','_');
+    if(r.convertible){
+      $('hf-convert').checked = true;
+      $('hf-status').innerHTML = '<span class="muted">No prebuilt GGUF in this repo — convert path enabled (will run convert_hf_to_gguf.py).</span>';
+    }
+    $('hf-import-btn').disabled = false;
+  }catch(e){
+    $('hf-files').innerHTML = `<span style="color:#e95757">${esc(e.error||String(e))}</span>`;
+  }
+}
+async function hfImport(){
+  const selected = Array.from(document.querySelectorAll('.hf-file-cb'))
+    .filter(cb=>cb.checked).map(cb=>cb.dataset.path);
+  if(!selected.length){ $('hf-status').textContent='Select at least one file.'; return; }
+  const name = $('hf-modelname').value.trim() || ST.hfRepoID.replace('/','_');
+  const stages = Math.max(1, parseInt($('hf-stages').value)||1);
+  $('hf-status').textContent = 'Starting import…';
+  try{
+    const r = await jpost('/api/hf/import', {
+      repo_id: ST.hfRepoID, revision: ST.hfRev, files: selected,
+      n_stages: stages, model_name: name,
+      convert: $('hf-convert').checked,
+      convert_quant: $('hf-quant').value,
+    });
+    $('hf-status').innerHTML = `Job <strong>#${r.job_id}</strong> queued.`;
+    loadHFJobs();
+  }catch(e){
+    $('hf-status').innerHTML = `<span style="color:#e95757">Failed: ${esc(e.error||String(e))}</span>`;
+  }
+}
+async function hfCancel(id){
+  try { await jpost('/api/hf/jobs/'+id+'/cancel', {}); loadHFJobs(); } catch(_){}
+}
+
+// ── Images tab (ComfyUI) ─────────────────────────────────────────────────────
+async function loadImgJobs(){
+  try{
+    const r = await jget('/api/comfy/jobs');
+    const jobs = r.jobs || [];
+    if(!jobs.length){ $('img-gallery').textContent='No renders yet.'; return; }
+    $('img-gallery').innerHTML = jobs.map(j => {
+      const imgs = (j.out_urls||[]).map(u =>
+        `<a href="${u}" target="_blank"><img src="${u}" style="max-width:240px;max-height:240px;
+          border:1px solid var(--border);border-radius:4px;margin:4px"></a>`).join('');
+      const err = j.error ? `<div style="color:#e95757">${esc(j.error)}</div>` : '';
+      return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+        <div class="flex ac" style="justify-content:space-between;gap:8px">
+          <div class="xs"><code>${esc(j.prompt.slice(0,120))}</code> · <span class="muted">${esc(j.status)}</span></div>
+          <div class="xs muted">${new Date(j.created_at*1000).toLocaleString()}</div>
+        </div>
+        <div>${imgs}</div>
+        ${err}
+      </div>`;
+    }).join('');
+  }catch(_){}
+}
+async function imgGenerate(){
+  const prompt = $('img-prompt').value.trim();
+  if(!prompt){ $('img-status').textContent='Prompt required.'; return; }
+  const model = $('img-model').value;
+  const size = $('img-size').value;
+  const poolID = parseInt($('img-pool').value)||0;
+  $('img-status').textContent = 'Submitting…';
+  try{
+    const r = await jpost('/api/comfy/generate', {
+      prompt, model, pool_id: poolID, params: {size},
+    });
+    $('img-status').innerHTML = `Job <strong>#${r.job_id}</strong> queued (${esc(r.kind)}).`;
+    loadImgJobs();
+  }catch(e){
+    $('img-status').innerHTML = `<span style="color:#e95757">Failed: ${esc(e.error||String(e))}</span>`;
+  }
+}
+
+function fmtBytes(n){
+  if(!n) return '0 B';
+  const u=['B','KB','MB','GB','TB']; let i=0;
+  while(n>=1024 && i<u.length-1){ n/=1024; i++; }
+  return n.toFixed(i?1:0)+' '+u[i];
+}
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 // ── Playground ────────────────────────────────────────────────────────────────
 function clearChat(){ ST.chat=[]; renderChat(); }
@@ -1140,6 +1431,13 @@ function connectWS(){
     if(evt.kind==='rig_online'&&evt.payload?.is_first_pair){
       const host=evt.payload.hostname||evt.payload.agent_id||'rig';
       $('install-status').textContent=`✓ ${host} paired — ready to route`;
+    }
+    if(evt.kind==='hf_progress'){
+      loadHFJobs();
+      if(evt.payload?.status==='done'){ loadModels(); }
+    }
+    if(evt.kind==='comfy_progress'){
+      loadImgJobs();
     }
   };
 }

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>install · surd</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=JetBrains+Mono:wght@400;600&family=Sora:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#04060a; --hull:#0c1422; --line:#1a2740;
+  --cyan:#5af0ff; --magenta:#ff4d9b; --amber:#ffb547; --green:#52ffb1; --violet:#9b6bff;
+  --ink:#dfe7f5; --dim:#7b8ba8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--void);color:var(--ink);font-family:"Sora",sans-serif;min-height:100vh}
+body{
+  background:
+    radial-gradient(900px 600px at 12% 0%, rgba(155,107,255,.18), transparent 60%),
+    radial-gradient(700px 500px at 88% 100%, rgba(90,240,255,.12), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(26,39,64,.35) 23px 24px),
+    var(--void);
+}
+.wrap{max-width:880px;margin:0 auto;padding:88px 32px 120px}
+.brand{
+  font-family:"Major Mono Display",monospace;font-size:14px;letter-spacing:.18em;
+  color:var(--cyan);display:flex;align-items:center;gap:10px;
+}
+.brand::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--cyan);
+  box-shadow:0 0 14px var(--cyan);animation:beat 1.7s ease-in-out infinite}
+@keyframes beat{50%{transform:scale(.6);opacity:.55}}
+h1{font-family:"Major Mono Display",monospace;font-weight:400;font-size:46px;line-height:1.05;
+  letter-spacing:-.01em;margin:18px 0 8px}
+.sub{color:var(--dim);max-width:560px;font-size:14.5px;line-height:1.55}
+.sub b{color:var(--ink);font-weight:600}
+
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:38px 0 24px}
+.step{
+  background:linear-gradient(180deg,rgba(12,20,34,.85),rgba(7,11,20,.7));
+  border:1px solid var(--line);border-radius:14px;padding:16px 14px;position:relative;
+  font-family:"JetBrains Mono",monospace;
+}
+.step .n{font-family:"Major Mono Display",monospace;font-size:11px;color:var(--cyan);letter-spacing:.18em}
+.step h3{margin:6px 0 2px;font-family:"Sora",sans-serif;font-weight:600;font-size:14.5px;color:var(--ink)}
+.step p{margin:0;color:var(--dim);font-size:12.5px;line-height:1.45}
+.step.is-current{border-color:rgba(90,240,255,.55);box-shadow:0 0 0 1px rgba(90,240,255,.25), inset 0 0 0 1px rgba(90,240,255,.06)}
+
+.picker{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px;
+  background:rgba(7,11,20,.6);border:1px solid var(--line);border-radius:12px;padding:8px;
+}
+.picker button{
+  appearance:none;background:transparent;border:1px solid transparent;color:var(--dim);
+  font-family:"JetBrains Mono",monospace;font-size:13px;padding:11px 10px;border-radius:8px;
+  cursor:pointer;letter-spacing:.05em;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.picker button:hover{color:var(--ink);background:rgba(26,39,64,.45)}
+.picker button.on{
+  color:var(--void);background:linear-gradient(135deg,var(--cyan),var(--violet));
+  border-color:transparent;font-weight:600;
+}
+.picker .os{font-size:11px;text-transform:uppercase;letter-spacing:.18em}
+
+.oneliner{
+  margin-top:18px;position:relative;
+  background:#020409;border:1px solid var(--line);border-radius:14px;
+  font-family:"JetBrains Mono",monospace;font-size:13.5px;line-height:1.7;color:var(--ink);
+  padding:22px 70px 22px 24px;overflow-x:auto;
+}
+.oneliner::before{
+  content:"$";position:absolute;left:10px;top:22px;color:var(--cyan);opacity:.6;font-size:12px;
+}
+.oneliner .cmd{white-space:pre;display:block}
+.copy{
+  position:absolute;top:14px;right:14px;background:rgba(90,240,255,.12);color:var(--cyan);
+  border:1px solid rgba(90,240,255,.4);font-family:"JetBrains Mono",monospace;font-size:11px;
+  letter-spacing:.12em;text-transform:uppercase;padding:7px 12px;border-radius:8px;
+  cursor:pointer;transition:all .15s
+}
+.copy:hover{background:var(--cyan);color:var(--void)}
+.copy.done{background:var(--green);color:var(--void);border-color:var(--green)}
+
+.config{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:28px}
+.field label{display:block;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.field input{
+  width:100%;background:rgba(7,11,20,.6);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;font-family:"JetBrains Mono",monospace;font-size:13px;
+  outline:none;transition:border-color .15s
+}
+.field input:focus{border-color:var(--cyan)}
+
+.next{
+  margin-top:34px;background:linear-gradient(180deg,rgba(12,20,34,.85),rgba(7,11,20,.65));
+  border:1px solid var(--line);border-radius:14px;padding:18px 22px;
+}
+.next .title{font-family:"Major Mono Display",monospace;font-size:12px;letter-spacing:.18em;color:var(--cyan);margin-bottom:10px}
+.next ol{margin:0;padding-left:18px;color:var(--dim);font-size:13.5px;line-height:1.8}
+.next code{font-family:"JetBrains Mono",monospace;color:var(--ink);background:rgba(26,39,64,.5);
+  padding:2px 8px;border-radius:6px;font-size:12.5px}
+
+.footer{margin-top:48px;color:var(--dim);font-size:12px;font-family:"JetBrains Mono",monospace;
+  display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.footer a{color:var(--cyan);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">SURD // INSTALL</div>
+  <h1>three commands<br>then your rig is online.</h1>
+  <p class="sub">Pick your shell, copy the one-liner, and the <b>surd</b> CLI lands on PATH.
+  Then run <b>surd login</b> (opens your browser) and <b>surd connect</b>. The dashboard
+  picks up the rig within a few seconds.</p>
+
+  <div class="steps">
+    <div class="step is-current"><div class="n">01</div><h3>install</h3><p>one-liner below drops the surd CLI into your PATH.</p></div>
+    <div class="step"><div class="n">02</div><h3>surd login</h3><p>device-code flow — opens this dashboard to authorise.</p></div>
+    <div class="step"><div class="n">03</div><h3>surd connect</h3><p>brings the rig online and joins your pool.</p></div>
+  </div>
+
+  <div class="picker" id="picker">
+    <button data-os="linux"   class="on"><span class="os">linux</span><span>· bash</span></button>
+    <button data-os="macos"><span class="os">macOS</span><span>· sh</span></button>
+    <button data-os="zsh"><span class="os">zsh</span><span>· any</span></button>
+    <button data-os="windows"><span class="os">windows</span><span>· ps1</span></button>
+  </div>
+
+  <div class="config">
+    <div class="field"><label>pool id (optional)</label><input id="pool" placeholder="e.g. 17"></div>
+    <div class="field"><label>invite code (optional)</label><input id="invite" placeholder="paste invite token"></div>
+  </div>
+
+  <div class="oneliner">
+    <button class="copy" id="copy">copy</button>
+    <span class="cmd" id="cmd">loading…</span>
+  </div>
+
+  <div class="next">
+    <div class="title">next</div>
+    <ol>
+      <li>open a fresh shell so PATH is loaded</li>
+      <li>run <code>surd login</code> — the dashboard opens for one-tap approval</li>
+      <li>run <code>surd connect</code> — your rig shows up on <a href="/console" style="color:var(--cyan)">/console</a> within seconds</li>
+    </ol>
+  </div>
+
+  <div class="footer">
+    <span>docs · /console · /api/install/oneliner</span>
+    <a href="/console">→ open dashboard</a>
+  </div>
+</div>
+
+<script>
+const state = { os: "linux", pool: "", invite: "" };
+const $cmd = document.getElementById("cmd");
+const $copy = document.getElementById("copy");
+const picker = document.getElementById("picker");
+
+async function refresh(){
+  const q = new URLSearchParams({ os: state.os });
+  if (state.pool)   q.set("pool", state.pool);
+  if (state.invite) q.set("invite", state.invite);
+  try{
+    const r = await fetch("/api/install/oneliner?" + q.toString());
+    const j = await r.json();
+    $cmd.textContent = j.oneliner || "";
+  }catch(e){
+    $cmd.textContent = "(failed to fetch one-liner)";
+  }
+}
+
+picker.addEventListener("click", e => {
+  const b = e.target.closest("button[data-os]");
+  if (!b) return;
+  for (const x of picker.querySelectorAll("button")) x.classList.remove("on");
+  b.classList.add("on");
+  state.os = b.dataset.os;
+  refresh();
+});
+
+for (const id of ["pool","invite"]){
+  document.getElementById(id).addEventListener("input", e => {
+    state[id] = e.target.value.trim();
+    refresh();
+  });
+}
+
+$copy.addEventListener("click", async () => {
+  try{
+    await navigator.clipboard.writeText($cmd.textContent);
+    $copy.textContent = "copied";
+    $copy.classList.add("done");
+    setTimeout(() => { $copy.textContent = "copy"; $copy.classList.remove("done"); }, 1400);
+  }catch(_){}
+});
+
+// Pre-fill pool/invite from URL so /install?pool=17&invite=abc just works.
+const params = new URLSearchParams(location.search);
+if (params.get("pool")){   state.pool   = params.get("pool");   document.getElementById("pool").value   = state.pool; }
+if (params.get("invite")){ state.invite = params.get("invite"); document.getElementById("invite").value = state.invite; }
+if (params.get("os") && ["linux","macos","zsh","windows"].includes(params.get("os"))){
+  state.os = params.get("os");
+  for (const x of picker.querySelectorAll("button")) x.classList.toggle("on", x.dataset.os === state.os);
+}
+
+// Best-guess default from user agent.
+if (!params.get("os")){
+  const ua = navigator.userAgent.toLowerCase();
+  let guess = "linux";
+  if (ua.includes("win"))  guess = "windows";
+  else if (ua.includes("mac")) guess = "macos";
+  state.os = guess;
+  for (const x of picker.querySelectorAll("button")) x.classList.toggle("on", x.dataset.os === state.os);
+}
+refresh();
+</script>
+</body>
+</html>

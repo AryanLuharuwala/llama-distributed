@@ -2,6 +2,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,33 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed assets/auth.html
+var authPageHTML []byte
+
+// handleAuthPage serves the unified sign-in / signup landing page.  The
+// page works for both first-time and returning users — there is no
+// separate signup flow, the OAuth callback upserts on github_id.
+func (s *server) handleAuthPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(authPageHTML)
+}
+
+// handleAuthStatus tells the /auth page whether GitHub OAuth is wired,
+// whether dev-login is permitted, and whether the caller is already
+// signed in (so we can skip the form and redirect).
+func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	uid := int64(0)
+	if u, ok := s.userFromRequest(r); ok {
+		uid = u.ID
+	}
+	writeJSON(w, 200, map[string]any{
+		"github_configured": s.cfg.githubClient != "",
+		"dev_mode":          s.cfg.devMode,
+		"user_id":           uid,
+	})
+}
 
 // Minimal GitHub OAuth.
 //
@@ -36,6 +64,18 @@ func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   600,
 		SameSite: http.SameSiteLaxMode,
 	})
+	// Stash the post-login landing URL.  We only accept site-relative paths
+	// so this can't be turned into an open-redirect gadget.
+	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "oauth_next",
+			Value:    next,
+			Path:     "/auth",
+			HttpOnly: true,
+			MaxAge:   600,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 	q := url.Values{}
 	q.Set("client_id", s.cfg.githubClient)
 	q.Set("redirect_uri", s.cfg.publicURL+"/auth/github/callback")
@@ -104,7 +144,13 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, sid, exp)
-	http.Redirect(w, r, "/", http.StatusFound)
+	dest := "/console"
+	if c, err := r.Cookie("oauth_next"); err == nil && strings.HasPrefix(c.Value, "/") && !strings.HasPrefix(c.Value, "//") {
+		dest = c.Value
+		// Clear the cookie so it doesn't sticky across logins.
+		http.SetCookie(w, &http.Cookie{Name: "oauth_next", Value: "", Path: "/auth", MaxAge: -1})
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
 }
 
 type githubUser struct {

@@ -2,23 +2,24 @@ package main
 
 import (
 	"database/sql"
-	"strings"
 )
 
 // addColumnIfMissing runs an ALTER TABLE ADD COLUMN, silently ignoring
-// "duplicate column" errors so migrations are idempotent.
-func addColumnIfMissing(db *sql.DB, stmt string) error {
-	_, err := db.Exec(stmt)
+// "duplicate column" errors so migrations are idempotent across both
+// SQLite (string-matched) and Postgres (SQLSTATE 42701).  The dialect
+// hides that detail.
+func addColumnIfMissing(db *sql.DB, d sqlDialect, stmt string) error {
+	_, err := db.Exec(d.RewriteDDL(stmt))
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "duplicate column name") {
+	if d.IsDuplicateColumn(err) {
 		return nil
 	}
 	return err
 }
 
-func migrate(db *sql.DB) error {
+func migrate(db *sql.DB, d sqlDialect) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,7 +147,7 @@ func migrate(db *sql.DB) error {
 
 	}
 	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
+		if _, err := db.Exec(d.RewriteDDL(s)); err != nil {
 			return err
 		}
 	}
@@ -158,6 +159,13 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE pools ADD COLUMN model_id    INTEGER REFERENCES models(id)`,
 		`ALTER TABLE pools ADD COLUMN pp_stages   INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE pools ADD COLUMN tp_size     INTEGER NOT NULL DEFAULT 1`,
+		// tp_mode controls how TPSize is realised.
+		//   "intra" (default): TPSize is intra-rig (a single rig with N
+		//                      GPUs runs NCCL locally).
+		//   "inter": TPSize rigs at the *same* pp_stage form a tensor-parallel
+		//            group; allreduce traffic crosses the WAN.  Used for
+		//            >1-rig TP groups when no single rig has the GPU count.
+		`ALTER TABLE pools ADD COLUMN tp_mode     TEXT NOT NULL DEFAULT 'intra'`,
 		// Rig capability fields needed by the planner.
 		`ALTER TABLE rigs  ADD COLUMN n_gpus_available INTEGER NOT NULL DEFAULT 0`,
 		// Pool slug — the <slug>.<apex> subdomain that serves the
@@ -173,9 +181,15 @@ func migrate(db *sql.DB) error {
 		// and replays it on every reconnect, so pair tokens become a
 		// one-shot bootstrap rather than a per-restart requirement.
 		`ALTER TABLE rigs ADD COLUMN agent_key TEXT`,
+		// Signed agent identity.  The rig generates an ed25519 keypair
+		// on first boot and registers the public key here.  On every
+		// resume the rig signs a per-connect nonce so a leaked agent_key
+		// alone is not enough to impersonate the rig — the attacker would
+		// also need the private key (which never leaves the device).
+		`ALTER TABLE rigs ADD COLUMN pubkey BLOB`,
 	}
 	for _, s := range alters {
-		if err := addColumnIfMissing(db, s); err != nil {
+		if err := addColumnIfMissing(db, d, s); err != nil {
 			return err
 		}
 	}
@@ -220,6 +234,28 @@ func migrate(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_device_codes_user_code ON device_codes(user_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_device_codes_device_code ON device_codes(device_code)`,
+
+		// Shard cache index — what each online rig has on its disk.
+		// Populated from the rig's `hello`/`status` frame, cleared on
+		// disconnect.  Lets the planner route shard fetches to a peer
+		// that already has the file (P2P shard fan-out) instead of
+		// hammering the origin every time a new rig spins up.
+		//
+		// (user_id, agent_id) is the rig identifier; (model_name, file)
+		// is the shard.  We store model_name (TEXT) rather than model_id
+		// because rigs cache HF repos that may not (yet) be in the
+		// `models` table, and the join cost is irrelevant for a table
+		// that is essentially a hash set scoped by online rig count.
+		`CREATE TABLE IF NOT EXISTS rig_shards (
+			user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			agent_id    TEXT    NOT NULL,
+			model_name  TEXT    NOT NULL,
+			file        TEXT    NOT NULL,
+			size_bytes  INTEGER NOT NULL DEFAULT 0,
+			cached_at   INTEGER NOT NULL,
+			PRIMARY KEY (user_id, agent_id, model_name, file)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rig_shards_lookup ON rig_shards(model_name, file)`,
 	}
 	for _, s := range more {
 		if _, err := db.Exec(s); err != nil {

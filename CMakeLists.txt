@@ -13,6 +13,7 @@ option(DIST_USE_METAL    "Enable Metal acceleration (macOS)"      OFF)
 option(DIST_USE_VULKAN   "Enable Vulkan acceleration"             OFF)
 option(DIST_BUILD_TESTS  "Build unit tests"                       OFF)
 option(DIST_BUILD_VM     "Build the experimental VM layer"        OFF)
+option(DIST_USE_P2P      "Build with libdatachannel-backed P2P ACTV transport (WebRTC + ICE)" OFF)
 
 # Where to find llama.cpp.
 #   AUTO    — use third_party/llama.cpp submodule (default)
@@ -147,6 +148,10 @@ add_library(dist_common STATIC
     src/pp_engine.cpp
     src/shard_download.cpp
     src/gpu_lock.cpp
+    src/comfy_adapter.cpp
+    src/diffusion_pp_adapter.cpp
+    src/agent_identity.cpp
+    src/actv_p2p.cpp
 )
 
 target_include_directories(dist_common
@@ -159,8 +164,40 @@ target_include_directories(dist_common
 
 find_package(OpenSSL REQUIRED)
 
+# Optional libdatachannel — when present (and DIST_USE_P2P=ON), wires WebRTC
+# data channels as the ACTV transport so rigs can talk directly instead of
+# relaying every frame through the dist-server.  Without it, dist-node falls
+# back to the legacy server-relay path (still fully functional).
+set(_DIST_P2P_LIBS)
+if(DIST_USE_P2P)
+    find_package(LibDataChannel CONFIG QUIET)
+    if(LibDataChannel_FOUND)
+        message(STATUS "[llama-distributed] using system libdatachannel for P2P ACTV")
+    else()
+        include(FetchContent)
+        FetchContent_Declare(
+            LibDataChannel
+            GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+            GIT_TAG        v0.21.2
+        )
+        # Keep the FetchContent build lean — we only need data channels.
+        set(NO_MEDIA    ON  CACHE BOOL "" FORCE)
+        set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
+        set(NO_EXAMPLES ON  CACHE BOOL "" FORCE)
+        set(NO_TESTS    ON  CACHE BOOL "" FORCE)
+        set(USE_GNUTLS  OFF CACHE BOOL "" FORCE)  # reuse our OpenSSL
+        set(USE_NICE    OFF CACHE BOOL "" FORCE)  # use bundled libjuice
+        FetchContent_MakeAvailable(LibDataChannel)
+        message(STATUS "[llama-distributed] vendored libdatachannel via FetchContent")
+    endif()
+    target_compile_definitions(dist_common PUBLIC DIST_HAVE_P2P=1)
+    list(APPEND _DIST_P2P_LIBS LibDataChannel::LibDataChannel)
+else()
+    message(STATUS "[llama-distributed] P2P ACTV disabled (DIST_USE_P2P=OFF) — server-relay only")
+endif()
+
 target_link_libraries(dist_common
-    PUBLIC  ${_LLAMA_LIBS} ${_PLATFORM_LIBS} OpenSSL::SSL OpenSSL::Crypto
+    PUBLIC  ${_LLAMA_LIBS} ${_PLATFORM_LIBS} OpenSSL::SSL OpenSSL::Crypto ${_DIST_P2P_LIBS}
 )
 
 target_compile_options(dist_common PRIVATE

@@ -63,17 +63,25 @@ public:
     // Model geometry exposed to callers.
     int  n_embd() const { return n_embd_; }
     int  n_vocab() const { return n_vocab_; }
+    int  n_ctx_train() const { return n_ctx_train_; }
     const llama_vocab * vocab() const { return vocab_; }
 
     // Tokenise a UTF-8 string with the shard's vocab.  Only meaningful on the
     // stage that owns the input embedding table (stage 0).  `add_bos` should
     // be true for the very first prompt; false for per-token continuations.
-    std::vector<int32_t> tokenize(const std::string & text, bool add_bos) const;
+    std::vector<int32_t> tokenize(const std::string & text, bool add_bos,
+                                  bool parse_special = false) const;
 
     // Detokenise a single token id to a short utf-8 piece.
     std::string detokenize(int32_t token) const;
 
     int32_t eos_token() const;
+
+    // Format `user_prompt` as a single user turn using the model's built-in
+    // chat template (gguf metadata), with add_ass=true so the assistant turn
+    // is opened.  Returns the raw prompt unchanged if the model has no chat
+    // template or the template apply fails.
+    std::string apply_chat_template(const std::string & user_prompt) const;
 
     // Clear the KV cache so this engine can start a fresh sequence.
     // Also drops the prompt-prefix cache.
@@ -165,6 +173,7 @@ private:
     const llama_vocab * vocab_ = nullptr;
     int             n_embd_  = 0;
     int             n_vocab_ = 0;
+    int             n_ctx_train_ = 0;
     std::string     err_;
     GpuLock       * gpu_lock_ = nullptr;
 

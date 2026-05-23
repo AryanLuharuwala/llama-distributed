@@ -23,14 +23,16 @@ DIST_SERVER="${DIST_SERVER:-}"
 PAIR=""
 TOKEN=""
 SERVER=""
+WITH_COMFYUI=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --pair)    PAIR="$2"; shift 2 ;;
-    --token)   TOKEN="$2"; shift 2 ;;
-    --server)  SERVER="$2"; shift 2 ;;
-    --version) VERSION="$2"; shift 2 ;;
-    --repo)    GITHUB_REPO="$2"; shift 2 ;;
+    --pair)         PAIR="$2"; shift 2 ;;
+    --token)        TOKEN="$2"; shift 2 ;;
+    --server)       SERVER="$2"; shift 2 ;;
+    --version)      VERSION="$2"; shift 2 ;;
+    --repo)         GITHUB_REPO="$2"; shift 2 ;;
+    --with-comfyui) WITH_COMFYUI=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -107,12 +109,14 @@ pkg="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n1)"
 [ -n "$pkg" ] || { echo "extracted tarball had no top-level dir" >&2; exit 1; }
 
 echo "[install] running platform installer"
+extra=""
+[ -n "$WITH_COMFYUI" ] && extra="--with-comfyui"
 if [ -n "$PAIR" ]; then
-  sh "$pkg/scripts/install/${target_os}-install.sh" install --pair "$PAIR"
+  sh "$pkg/scripts/install/${target_os}-install.sh" install --pair "$PAIR" $extra
 else
   args="install --token $TOKEN"
   [ -n "$SERVER" ] && args="$args --server $SERVER"
-  sh "$pkg/scripts/install/${target_os}-install.sh" $args
+  sh "$pkg/scripts/install/${target_os}-install.sh" $args $extra
 fi
 
 echo "[install] done."

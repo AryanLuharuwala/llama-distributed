@@ -32,6 +32,7 @@ bool PpEngine::load(const PpEngineConfig & cfg) {
     vocab_   = llama_model_get_vocab(model_);
     n_embd_  = llama_model_n_embd(model_);
     n_vocab_ = llama_vocab_n_tokens(vocab_);
+    n_ctx_train_ = llama_model_n_ctx_train(model_);
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx      = cfg.n_ctx;
@@ -47,14 +48,15 @@ bool PpEngine::load(const PpEngineConfig & cfg) {
     return true;
 }
 
-std::vector<int32_t> PpEngine::tokenize(const std::string & text, bool add_bos) const {
+std::vector<int32_t> PpEngine::tokenize(const std::string & text, bool add_bos,
+                                        bool parse_special) const {
     std::vector<int32_t> toks(text.size() + 8);
     int n = llama_tokenize(vocab_, text.c_str(), (int) text.size(),
-                           toks.data(), (int) toks.size(), add_bos, false);
+                           toks.data(), (int) toks.size(), add_bos, parse_special);
     if (n < 0) {
         toks.resize(-n);
         n = llama_tokenize(vocab_, text.c_str(), (int) text.size(),
-                           toks.data(), (int) toks.size(), add_bos, false);
+                           toks.data(), (int) toks.size(), add_bos, parse_special);
     }
     if (n < 0) return {};
     toks.resize(n);
@@ -70,6 +72,22 @@ std::string PpEngine::detokenize(int32_t token) const {
 
 int32_t PpEngine::eos_token() const {
     return llama_vocab_eos(vocab_);
+}
+
+std::string PpEngine::apply_chat_template(const std::string & user_prompt) const {
+    if (!model_) return user_prompt;
+    const char * tmpl = llama_model_chat_template(model_, nullptr);
+    if (!tmpl || !*tmpl) return user_prompt;
+    llama_chat_message msg{ "user", user_prompt.c_str() };
+    // First call with empty buffer to learn required size.
+    int32_t need = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass=*/true,
+                                             nullptr, 0);
+    if (need <= 0) return user_prompt;
+    std::vector<char> buf((size_t) need + 1, 0);
+    int32_t n = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass=*/true,
+                                          buf.data(), (int32_t) buf.size());
+    if (n <= 0) return user_prompt;
+    return std::string(buf.data(), buf.data() + n);
 }
 
 void PpEngine::reset_kv() {

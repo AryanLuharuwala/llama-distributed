@@ -25,13 +25,23 @@ type StageAssignment struct {
 	UserID     int64  `json:"user_id"`
 	AgentID    string `json:"agent_id"`
 	Hostname   string `json:"hostname"`
-	TPSize     int    `json:"tp_size"`      // intra-node GPUs
+	TPSize     int    `json:"tp_size"`      // intra-node GPUs (intra mode) OR group cardinality (inter)
 	TransportHint string `json:"transport"` // "ws" for now; "rtc" later
 
 	// Model-shard download pointer.  Populated by the coordinator after the
 	// planner picks stages so the node can fetch just its slab.
 	ShardURL   string `json:"shard_url,omitempty"`
 	ShardFile  string `json:"shard_file,omitempty"`
+
+	// Inter-rig TP group fields.  In tp_mode=intra these are zero/empty
+	// (TPGroupID stays -1) and the rig handles its own NCCL.  In
+	// tp_mode=inter, the planner emits TPSize StageAssignments per pipeline
+	// stage, all sharing TPGroupID and StageIdx but differing in TPRank.
+	// TPPeers lists peer agent_ids in the same group (excluding self),
+	// in rank order; the runtime uses this to set up cross-rig allreduce.
+	TPGroupID int      `json:"tp_group_id,omitempty"` // -1 = no group
+	TPRank    int      `json:"tp_rank,omitempty"`     // 0..TPSize-1
+	TPPeers   []string `json:"tp_peers,omitempty"`
 }
 
 // PipelinePlan is what we send to the first node (stage 0) and each next
@@ -53,6 +63,7 @@ type poolParallelism struct {
 	NLayers     int
 	PPStages    int
 	TPSize      int
+	TPMode      string // "intra" (default) or "inter"
 }
 
 // loadPoolParallelism reads the parallelism config + (optional) bound model
@@ -62,11 +73,15 @@ func (s *server) loadPoolParallelism(poolID int64) (poolParallelism, error) {
 	var p poolParallelism
 	var modelID *int64
 	err := s.db.QueryRow(
-		`SELECT parallelism, model_id, pp_stages, tp_size FROM pools WHERE id = ?`,
+		`SELECT parallelism, model_id, pp_stages, tp_size, COALESCE(tp_mode, 'intra')
+		 FROM pools WHERE id = ?`,
 		poolID,
-	).Scan(&p.Parallelism, &modelID, &p.PPStages, &p.TPSize)
+	).Scan(&p.Parallelism, &modelID, &p.PPStages, &p.TPSize, &p.TPMode)
 	if err != nil {
 		return p, err
+	}
+	if p.TPMode != "inter" {
+		p.TPMode = "intra"
 	}
 	if modelID != nil && *modelID > 0 {
 		p.ModelID = *modelID
@@ -145,25 +160,37 @@ func (s *server) planPipeline(poolID int64, reqID uint32, modelOverride string, 
 		return nil, fmt.Errorf("pool has no model bound and request did not supply n_layers")
 	}
 
-	rigs, err := s.onlineRigsInPool(poolID)
+	// Cost-based picker: scores rigs by throughput + VRAM + bandwidth and
+	// allocates layer counts proportional to score.  Falls back to equal
+	// slabs when no telemetry has arrived yet (cold pool).
+	costs, err := s.rigCostsForPool(poolID)
 	if err != nil {
 		return nil, err
 	}
-	if len(rigs) == 0 {
+	if len(costs) == 0 {
 		return nil, fmt.Errorf("no online rigs in pool")
 	}
 
 	stages := cfg.PPStages
-	if stages > len(rigs) {
-		// Degrade: use as many stages as we have rigs.  The caller still gets
-		// a plan; we just don't split as finely as the pool config asked for.
-		stages = len(rigs)
+
+	// Inter-rig TP groups: each pipeline stage needs TPSize distinct rigs.
+	// Total rigs required = stages * TPSize.  Degrade to what's available.
+	tpWidth := 1
+	if cfg.TPMode == "inter" && cfg.TPSize > 1 {
+		tpWidth = cfg.TPSize
+	}
+	if stages*tpWidth > len(costs) {
+		// Degrade: shrink the pipeline (keep TP group width if possible).
+		stages = len(costs) / tpWidth
+		if stages < 1 {
+			stages = 1
+			if tpWidth > len(costs) {
+				tpWidth = len(costs)
+			}
+		}
 	}
 
-	// Contiguous layer slabs.  Last stage absorbs the remainder so every
-	// layer is assigned exactly once.
-	base := nLayers / stages
-	rem := nLayers % stages
+	picked, layerCounts := pickStagesByScore(costs, stages, nLayers)
 
 	plan := &PipelinePlan{
 		ReqID:       reqID,
@@ -173,23 +200,39 @@ func (s *server) planPipeline(poolID int64, reqID uint32, modelOverride string, 
 		Parallelism: cfg.Parallelism,
 	}
 
+	// Track rigs already pinned to a pipeline stage so the inter-rig TP
+	// group expander doesn't re-use them for ranks > 0.
+	taken := map[agentKey]bool{}
+	for i := 0; i < stages; i++ {
+		taken[agentKey{picked[i].info.userID, picked[i].info.agentID}] = true
+	}
+
 	lo := 0
 	for i := 0; i < stages; i++ {
-		hi := lo + base
-		if i == stages-1 {
-			hi += rem
-		}
-		rig := rigs[i%len(rigs)]
+		hi := lo + layerCounts[i]
+		rig := picked[i].info
 
-		// Honour requested TP width, but clamp to what the rig actually has.
+		// Honour requested TP width, but clamp to what the rig actually has
+		// in intra mode.  In inter mode the per-rank rig is its own host;
+		// the TP width is the *group cardinality*.
 		tp := cfg.TPSize
-		if rig.nGPUs > 0 && tp > rig.nGPUs {
-			tp = rig.nGPUs
+		if cfg.TPMode == "intra" {
+			if rig.nGPUs > 0 && tp > rig.nGPUs {
+				tp = rig.nGPUs
+			}
+		} else {
+			tp = tpWidth
 		}
 		if tp < 1 {
 			tp = 1
 		}
 
+		// Rank 0 — the picked rig for this pipeline stage.
+		groupID := -1
+		var peerIDs []string
+		if cfg.TPMode == "inter" && tp > 1 {
+			groupID = i // stable per pipeline stage
+		}
 		plan.Stages = append(plan.Stages, StageAssignment{
 			StageIdx:      i,
 			LayerLo:       lo,
@@ -199,7 +242,51 @@ func (s *server) planPipeline(poolID int64, reqID uint32, modelOverride string, 
 			Hostname:      rig.hostname,
 			TPSize:        tp,
 			TransportHint: "ws",
+			TPGroupID:     groupID,
+			TPRank:        0,
+			TPPeers:       peerIDs,
 		})
+
+		// Ranks 1..tp-1 — pick additional rigs for the TP group.  These
+		// share the layer slab with rank 0 and run AllReduce across the
+		// group every layer.
+		if cfg.TPMode == "inter" && tp > 1 {
+			groupMembers := []onlineRigInfo{rig}
+			for rank := 1; rank < tp; rank++ {
+				pick, ok := pickRigForRole(costs, "tp", taken)
+				if !ok {
+					break
+				}
+				taken[agentKey{pick.info.userID, pick.info.agentID}] = true
+				groupMembers = append(groupMembers, pick.info)
+				plan.Stages = append(plan.Stages, StageAssignment{
+					StageIdx:      i,
+					LayerLo:       lo,
+					LayerHi:       hi,
+					UserID:        pick.info.userID,
+					AgentID:       pick.info.agentID,
+					Hostname:      pick.info.hostname,
+					TPSize:        tp,
+					TransportHint: "ws",
+					TPGroupID:     groupID,
+					TPRank:        rank,
+				})
+			}
+			// Backfill TPPeers on every member of this group (peers list
+			// excludes self).
+			for j := range plan.Stages {
+				if plan.Stages[j].StageIdx != i || plan.Stages[j].TPGroupID != groupID {
+					continue
+				}
+				peers := make([]string, 0, len(groupMembers)-1)
+				for _, m := range groupMembers {
+					if m.agentID != plan.Stages[j].AgentID {
+						peers = append(peers, m.agentID)
+					}
+				}
+				plan.Stages[j].TPPeers = peers
+			}
+		}
 		lo = hi
 	}
 

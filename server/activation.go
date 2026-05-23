@@ -52,6 +52,16 @@ const (
 	actvFlagIsPrompt     = uint8(0x01)
 	actvFlagKVAppend     = uint8(0x02)
 	actvFlagEndOfPrompt  = uint8(0x04)
+	// Diffusion pipeline-parallel: latent / hidden state riding the same
+	// activation channel.  Payload layout is dtype × prod(Dims) bytes, e.g.
+	// fp16 [B,C,H,W] for a UNet activation, fp16 [B,T,D] for text embeds.
+	actvFlagDPPLatent    = uint8(0x08)
+	// Marks the final latent emitted by the last UNet stage — the next
+	// stage (VAE) should decode rather than forward.
+	actvFlagDPPFinal     = uint8(0x10)
+	// DPP image-bytes frame: the VAE stage emits one of these as the
+	// terminal payload, dtype=bytes, payload is PNG/JPEG.
+	actvFlagDPPImage     = uint8(0x20)
 )
 
 // ActvFrame is the decoded/encodeable form.  Payload is owned by the caller;
