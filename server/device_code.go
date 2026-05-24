@@ -107,7 +107,7 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 // Marks the row approved + binds the current user_id, mints an agent_key
 // and a stable agent_id, and inserts/updates the rigs row.
 func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
-	if s.ipRL != nil && !s.ipRL.deviceApprove.allow(remoteIPForRateLimit(r)) {
+	if s.ipRL != nil && !s.ipRL.deviceApprove.allow(s.remoteIPForRateLimit(r)) {
 		writeErr(w, 429, "too many approval attempts — slow down")
 		return
 	}
@@ -215,7 +215,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 // Returns 428 (precondition_required) until approved, then 200 with
 // {agent_id, agent_key, server}.
 func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
-	if s.ipRL != nil && !s.ipRL.devicePoll.allow(remoteIPForRateLimit(r)) {
+	if s.ipRL != nil && !s.ipRL.devicePoll.allow(s.remoteIPForRateLimit(r)) {
 		writeErr(w, 429, "poll too fast — back off")
 		return
 	}

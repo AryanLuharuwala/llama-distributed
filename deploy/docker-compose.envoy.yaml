@@ -1,0 +1,66 @@
+# docker-compose for the prod-branch envoy + dist-server topology.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.envoy.yaml up -d
+#
+# Required env (set in deploy/.env or your shell):
+#   DIST_SESSION_SECRET   32+ char secret for cookie HMAC + HF token KEK
+#   DIST_PUBLIC_URL       https://your.domain
+#   TLS_DIR               host path containing fullchain.pem + privkey.pem
+#                         (certbot's /etc/letsencrypt/live/<host>/ works)
+#
+# Network model:
+#   envoy publishes :80 + :443.  dist-server binds inside the compose
+#   network at port 8080 — NOT published — and only envoy reaches it.
+#   This is what makes DIST_TRUSTED_PROXIES safe: the only thing that
+#   can send traffic with envoy's source IP is envoy.
+
+services:
+  dist-server:
+    image: ghcr.io/aryanluharuwala/llama-distributed:latest
+    restart: unless-stopped
+    # No ports: section — the server is not directly reachable from the
+    # host.  Envoy is the only ingress.
+    environment:
+      DIST_ADDR: ":8080"
+      DIST_PUBLIC_URL: ${DIST_PUBLIC_URL}
+      DIST_SESSION_SECRET: ${DIST_SESSION_SECRET}
+      # Tell the server that envoy (sharing this compose network) is
+      # the only trusted XFF source.  172.16.0.0/12 covers the default
+      # docker bridge networks; tighten to envoy's exact IP for paranoia.
+      DIST_TRUSTED_PROXIES: "172.16.0.0/12,127.0.0.1/32"
+      # Optional: enable structured JSON logging so envoy + dist-server
+      # both feed a log aggregator with parseable output.
+      DIST_LOG_JSON: "1"
+    volumes:
+      - dist-data:/var/lib/distpool
+      - dist-models:/var/lib/distpool/models
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 30s
+
+  envoy:
+    image: envoyproxy/envoy:v1.33-latest
+    restart: unless-stopped
+    depends_on:
+      dist-server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      # Admin port intentionally NOT published.
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ${TLS_DIR}:/etc/envoy/tls:ro
+    command: >
+      envoy
+        --config-path /etc/envoy/envoy.yaml
+        --log-level info
+        --service-cluster dist-edge
+
+volumes:
+  dist-data:
+  dist-models:

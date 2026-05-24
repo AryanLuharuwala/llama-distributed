@@ -79,6 +79,15 @@ type config struct {
 	turnTTL        time.Duration // ephemeral credential lifetime
 	turnStaticUser string        // long-lived username (static mode)
 	turnStaticPass string        // long-lived password (static mode)
+
+	// Trusted-proxy CIDRs.  When non-empty, X-Forwarded-For is honored
+	// only for hops within these networks (see trusted_proxy.go).  Set
+	// via DIST_TRUSTED_PROXIES="10.0.0.0/8,127.0.0.1/32".  Empty means
+	// XFF is ignored and clientIP/remoteIPForRateLimit fall back to
+	// r.RemoteAddr — the safe default when the server is exposed
+	// directly to the internet.
+	trustedProxiesRaw string
+	trustedProxies    *trustedProxySet
 }
 
 func loadConfig() config {
@@ -108,6 +117,14 @@ func loadConfig() config {
 		turnStaticUser: os.Getenv("DIST_TURN_USER"),
 		turnStaticPass: os.Getenv("DIST_TURN_PASS"),
 		turnTTL:        parseDurationEnv("DIST_TURN_TTL", time.Hour),
+
+		trustedProxiesRaw: os.Getenv("DIST_TRUSTED_PROXIES"),
+	}
+	tp, bad := parseTrustedProxies(c.trustedProxiesRaw)
+	c.trustedProxies = tp
+	if len(bad) > 0 {
+		log.Printf("warn: DIST_TRUSTED_PROXIES contained %d invalid entries; ignored: %v",
+			len(bad), bad)
 	}
 	if v := strings.ToLower(os.Getenv("DIST_WITH_COMFYUI")); v == "1" || v == "true" || v == "yes" {
 		c.comfyEnabled = true

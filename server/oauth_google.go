@@ -37,7 +37,7 @@ func (s *server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google OAuth not configured (set DIST_GOOGLE_CLIENT/SECRET)", 501)
 		return
 	}
-	state := s.mintOAuthState(clientIP(r))
+	state := s.mintOAuthState(s.clientIP(r))
 	secure := s.secureCookies()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
@@ -82,7 +82,7 @@ func (s *server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad oauth state", 400)
 		return
 	}
-	if !s.verifyOAuthState(state, clientIP(r)) {
+	if !s.verifyOAuthState(state, s.clientIP(r)) {
 		http.Error(w, "oauth state expired or bound to a different client", 400)
 		return
 	}

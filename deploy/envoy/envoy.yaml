@@ -1,0 +1,181 @@
+# Envoy front-proxy for dist-server (prod branch).
+#
+# Topology:
+#
+#   internet ──> 443 (envoy: TLS terminate) ──> 127.0.0.1:8080 (dist-server)
+#                       │
+#                       └─ strips inbound XFF on the public listener
+#                          and appends its own based on TCP peer
+#
+# Pair with DIST_TRUSTED_PROXIES on dist-server:
+#
+#   DIST_TRUSTED_PROXIES="127.0.0.1/32"
+#
+# so the server honors the X-Forwarded-For envoy emits and only that.
+# If you run envoy on a different host, replace 127.0.0.1/32 with the
+# pod/VM CIDR envoy's egress comes from.
+#
+# WebSocket support is essential — every rig holds an open WS to
+# /ws/agent and the dashboard holds an SSE stream to /api/me/rigs/stream.
+# Both are configured below.
+
+static_resources:
+  listeners:
+  - name: https
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 443
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: /etc/envoy/tls/fullchain.pem }
+              private_key:       { filename: /etc/envoy/tls/privkey.pem }
+            # Modern profile only.  HTTP/2 ALPN advertised so browsers
+            # negotiate h2 — h1 still works for older clients and for
+            # the WebSocket upgrade path (envoy translates h2->h1 to
+            # upstream, since dist-server speaks h1).
+            alpn_protocols: ["h2", "http/1.1"]
+      filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_https
+          codec_type: AUTO
+
+          # ──────────────────────────────────────────────────────────
+          # CRITICAL: forwarding model.
+          #
+          # use_remote_address=true tells envoy to ignore any inbound
+          # X-Forwarded-For and treat the TCP peer as the client.
+          # That's what stops a remote attacker from setting their own
+          # XFF header and laundering the spoofed IP through us.
+          #
+          # xff_num_trusted_hops=0 means "trust no hops in front of
+          # envoy" — appropriate when envoy is the public edge.  If
+          # you put a CDN in front (cloudflare, fastly), set this to
+          # the number of *trusted* hops they add and ensure their
+          # IP ranges are in internal_address_config below so envoy
+          # uses XFF instead of the CDN's TCP peer.
+          # ──────────────────────────────────────────────────────────
+          use_remote_address: true
+          xff_num_trusted_hops: 0
+          skip_xff_append: false
+
+          # internal_address_config marks which IPs envoy itself treats
+          # as internal (its own upstreams, sidecars, mesh peers).
+          # Leave empty for an edge envoy facing the internet.
+          internal_address_config:
+            cidr_ranges: []
+
+          # Strip any inbound x-envoy-* / x-forwarded-* / authority
+          # spoofing.  We rebuild what we need.
+          strip_any_host_port: true
+
+          # ──────────────────────────────────────────────────────────
+          # WebSocket + SSE.
+          # ──────────────────────────────────────────────────────────
+          upgrade_configs:
+          - upgrade_type: websocket
+          common_http_protocol_options:
+            # SSE streams from /api/me/rigs/stream can be idle for
+            # minutes between events; long idle timeout prevents
+            # envoy from killing them.
+            idle_timeout: 600s
+            max_stream_duration: 0s  # 0 = unbounded; relied on by rigs
+          http2_protocol_options:
+            initial_stream_window_size: 1048576
+            initial_connection_window_size: 4194304
+
+          # Honest server header — don't leak envoy version.
+          server_header_transformation: PASS_THROUGH
+
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              # Compact format; one line per request.  %DOWNSTREAM_REMOTE_ADDRESS%
+              # is the *real* client (post-trust resolution).
+              log_format:
+                text_format_source:
+                  inline_string: "[%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %BYTES_RECEIVED%/%BYTES_SENT% %DURATION%ms %DOWNSTREAM_REMOTE_ADDRESS% -> %UPSTREAM_HOST%\n"
+
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: dist
+              domains: ["*"]
+              # Header presence guard: ACME challenge over plain HTTP
+              # gets short-circuited if you front this with a separate
+              # :80 listener (not shown — your call: certbot or
+              # cert-manager will manage it out-of-band).
+              routes:
+              - match: { prefix: "/" }
+                route:
+                  cluster: dist_server
+                  timeout: 0s            # streaming endpoints need unbounded
+                  idle_timeout: 600s
+                  upgrade_configs:
+                  - upgrade_type: websocket
+
+  # Optional plaintext listener for HTTP→HTTPS redirect.  Disabled by
+  # default — enable when you're ready to serve real traffic.
+  # - name: http_redirect
+  #   address: { socket_address: { address: 0.0.0.0, port_value: 80 } }
+  #   ...
+
+  clusters:
+  - name: dist_server
+    connect_timeout: 1s
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    # h1 to upstream — dist-server speaks net/http, no h2 cleartext.
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http_protocol_options:
+            accept_http_10: false
+        common_http_protocol_options:
+          idle_timeout: 600s
+    load_assignment:
+      cluster_name: dist_server
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                # dist-server in the same pod/container network.
+                # Override via envsubst or use STRICT_DNS to look up a
+                # k8s service when you graduate to multi-pod.
+                address: 127.0.0.1
+                port_value: 8080
+    # Health checks keep envoy from routing to a freshly-killed
+    # dist-server while the next replica is still booting.
+    health_checks:
+    - timeout: 1s
+      interval: 5s
+      unhealthy_threshold: 2
+      healthy_threshold: 1
+      http_health_check:
+        path: /api/health
+        expected_statuses:
+        - start: 200
+          end: 300
+
+admin:
+  address:
+    socket_address:
+      # Loopback only — admin endpoint has /quitquitquit etc.  Never
+      # expose to the network.
+      address: 127.0.0.1
+      port_value: 9901

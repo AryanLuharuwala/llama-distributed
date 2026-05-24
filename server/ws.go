@@ -11,7 +11,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,26 +45,25 @@ func (s *server) failWSAuth(ctx context.Context, conn *websocket.Conn, ip, msg s
 	_ = conn.Close(websocket.StatusPolicyViolation, msg)
 }
 
-// clientIP returns the request's originating IP, honoring X-Forwarded-For
-// when set (we run behind nginx/cloudflare in prod).  Returns "" if the
-// address can't be parsed.
-func clientIP(r *http.Request) string {
-	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-		// X-Forwarded-For is a comma-separated list; the left-most entry is
-		// the original client.
-		if i := strings.IndexByte(xf, ','); i > 0 {
-			return strings.TrimSpace(xf[:i])
+// clientIP returns the request's originating IP.  When the server has a
+// configured trusted-proxy set (DIST_TRUSTED_PROXIES), XFF is walked
+// right-to-left with each trusted hop stripped, returning the first
+// untrusted address — the actual client.  Otherwise XFF is ignored and
+// we use r.RemoteAddr (the TCP peer).
+//
+// trustedClientIP returns "" only if r.RemoteAddr can't be parsed; that's
+// effectively impossible for a real http.Request.
+func (s *server) clientIP(r *http.Request) string {
+	if s == nil || s.cfg.trustedProxies == nil {
+		// Pre-init or in a test that wired a partial server — fall back
+		// to the pre-trust-set behavior so we don't panic.
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return r.RemoteAddr
 		}
-		return strings.TrimSpace(xf)
+		return host
 	}
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return strings.TrimSpace(xr)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return trustedClientIP(r, s.cfg.trustedProxies)
 }
 
 // b64DecodeStd is a small adapter so callers don't have to import
@@ -574,7 +572,7 @@ type liveStatus struct {
 }
 
 func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
-	srcIP := clientIP(r)
+	srcIP := s.clientIP(r)
 
 	// Per-IP throttle before any handshake work.  Burst of 3, refill 12s
 	// (≈5/min) — generous for an honest rig that reconnects on transient
@@ -838,7 +836,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		binCh:           make(chan []byte, 64),
 		closed:          make(chan struct{}),
 		inferPeers:      make(map[uint16]*inferPeer),
-		remoteIP:        clientIP(r),
+		remoteIP:        s.clientIP(r),
 		pairedAt:        nowUnix(),
 		protocolVersion: negotiated,
 	}

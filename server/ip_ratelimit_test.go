@@ -70,27 +70,109 @@ func TestIPRateBucketJanitorPrunesStale(t *testing.T) {
 	}
 }
 
+// remoteIPForRateLimit on the prod branch consults the trusted-proxy
+// resolver in trusted_proxy.go: XFF is honored only when the TCP peer
+// is a trusted hop.  These cases verify the contract callers depend on
+// (rate-limiter keys, device-code ratchet, audit trail).
 func TestRemoteIPForRateLimitXFF(t *testing.T) {
 	cases := []struct {
-		name string
-		xff  string
-		addr string
-		want string
+		name  string
+		trust string
+		xff   string
+		addr  string
+		want  string
 	}{
-		{"single xff", "203.0.113.7", "127.0.0.1:1234", "203.0.113.7"},
-		{"xff list takes first", "203.0.113.7, 10.0.0.1", "127.0.0.1:1234", "203.0.113.7"},
-		{"no xff falls back to remoteaddr", "", "203.0.113.99:51234", "203.0.113.99"},
-		{"remoteaddr unparseable returns raw", "", "weird", "weird"},
+		// Empty trust set ⇒ XFF ignored.  The historical "trust XFF
+		// blindly" behavior is gone; without configuring trust, the
+		// only thing we attribute traffic to is the TCP peer.
+		{"trust empty: ignores xff",
+			"", "203.0.113.7", "198.51.100.5:1234", "198.51.100.5"},
+		// Loopback proxy, single client hop — the most common
+		// envoy-on-the-same-host topology.  The peer (127.0.0.1) is
+		// trusted, so XFF is consulted; the only entry is the real
+		// client.
+		{"trusted single hop",
+			"127.0.0.1/32", "203.0.113.7", "127.0.0.1:1234", "203.0.113.7"},
+		// Multi-hop chain where every intermediate proxy is trusted.
+		// Walking right-to-left, we skip 10.0.0.1 (trusted) and stop
+		// at 203.0.113.7 — the actual client.
+		{"trusted chain walks right-to-left to client",
+			"127.0.0.1/32,10.0.0.0/8",
+			"203.0.113.7, 10.0.0.1", "127.0.0.1:1234", "203.0.113.7"},
+		// Untrusted peer with an XFF header — the classic spoof.
+		// We must refuse to honor the header and report the TCP peer.
+		{"untrusted peer ignores xff (spoof defense)",
+			"10.0.0.0/8", "203.0.113.7", "198.51.100.5:1234", "198.51.100.5"},
+		// Trusted peer, no XFF — misconfigured proxy.  Best we can do
+		// is surface the peer; we never invent a "client" IP.
+		{"trusted peer no xff",
+			"127.0.0.1/32", "", "127.0.0.1:1234", "127.0.0.1"},
+		// Garbage in XFF mid-chain — at that point the chain integrity
+		// is broken and we surface the garbage rather than scanning
+		// past it (an attacker controlling one upstream-of-garbage hop
+		// could otherwise inject a fake "earlier" entry).
+		{"trusted chain with malformed entry",
+			"127.0.0.1/32",
+			"not-an-ip, 127.0.0.1", "127.0.0.1:1234", "not-an-ip"},
+		// IPv6 trusted hop + IPv4 client — confirms the matcher works
+		// across families.
+		{"ipv6 trusted hop, ipv4 client",
+			"::1/128", "203.0.113.7", "[::1]:1234", "203.0.113.7"},
+		// RemoteAddr unparseable, empty trust — preserve raw RemoteAddr
+		// so we still bucket on *something*.
+		{"unparseable remoteaddr",
+			"", "", "weird", "weird"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			tp, bad := parseTrustedProxies(c.trust)
+			if len(bad) > 0 {
+				t.Fatalf("test trust spec %q invalid: %v", c.trust, bad)
+			}
+			s := &server{cfg: config{trustedProxies: tp}}
 			r := httptest.NewRequest("GET", "/", nil)
 			r.RemoteAddr = c.addr
 			if c.xff != "" {
 				r.Header.Set("X-Forwarded-For", c.xff)
 			}
-			if got := remoteIPForRateLimit(r); got != c.want {
+			if got := s.remoteIPForRateLimit(r); got != c.want {
 				t.Errorf("got %q want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// parseTrustedProxies rejects garbage but accepts every reasonable
+// CIDR/IP form.  Verifying this matters: a typo in
+// DIST_TRUSTED_PROXIES silently drops the entry, and we want operators
+// to discover that at boot (warn log) — but it also can't crash startup.
+func TestParseTrustedProxies(t *testing.T) {
+	cases := []struct {
+		name    string
+		spec    string
+		want    int  // # of accepted nets
+		wantBad int  // # of rejected entries
+		empty   bool // expected empty() result
+	}{
+		{"empty string", "", 0, 0, true},
+		{"single cidr", "10.0.0.0/8", 1, 0, false},
+		{"bare ipv4 promoted to /32", "127.0.0.1", 1, 0, false},
+		{"bare ipv6 promoted to /128", "::1", 1, 0, false},
+		{"mixed list", "127.0.0.1, 10.0.0.0/8, ::1/128", 3, 0, false},
+		{"trailing comma + spaces tolerated", " 10.0.0.0/8 , ", 1, 0, false},
+		{"garbage entries flagged", "10.0.0.0/8,nope,/24", 1, 2, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tp, bad := parseTrustedProxies(c.spec)
+			if got := len(tp.nets); got != c.want {
+				t.Errorf("nets: got %d want %d", got, c.want)
+			}
+			if got := len(bad); got != c.wantBad {
+				t.Errorf("bad: got %d want %d (%v)", got, c.wantBad, bad)
+			}
+			if got := tp.empty(); got != c.empty {
+				t.Errorf("empty: got %v want %v", got, c.empty)
 			}
 		})
 	}

@@ -136,7 +136,7 @@ func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub OAuth not configured (set DIST_GITHUB_CLIENT/SECRET)", 501)
 		return
 	}
-	state := s.mintOAuthState(clientIP(r))
+	state := s.mintOAuthState(s.clientIP(r))
 	secure := s.secureCookies()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oauth_state",
@@ -181,7 +181,7 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad oauth state", 400)
 		return
 	}
-	if !s.verifyOAuthState(state, clientIP(r)) {
+	if !s.verifyOAuthState(state, s.clientIP(r)) {
 		// Cookie matched the state echoed back by GitHub but the HMAC
 		// doesn't validate against this client IP or has expired.
 		// Refuse — an attacker who pried the cookie loose from a

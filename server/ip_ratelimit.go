@@ -21,7 +21,6 @@ package main
 import (
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -145,20 +144,25 @@ func newIPRateLimiterSet() *ipRateLimiterSet {
 }
 
 // remoteIPForRateLimit extracts a stable IP key from an HTTP request.
-// Honors X-Forwarded-For when set (matches the existing clientIP
-// helper in ws.go).  The trust-XFF caveat is documented in
-// [[xff_trust_known_gap]] — safe behind a real reverse proxy, spoofable
-// when the server is exposed directly to the public internet.
-func remoteIPForRateLimit(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return strings.TrimSpace(xff[:i])
+// On the prod branch this goes through the trusted-proxy resolver in
+// trusted_proxy.go: XFF is only honored when the TCP peer is in the
+// configured trust set, preventing arbitrary clients from spoofing
+// their rate-limit bucket via a forged X-Forwarded-For header.
+//
+// Empty trust set ⇒ XFF ignored, fall back to r.RemoteAddr.  Operators
+// running the server directly on the internet should leave it empty;
+// operators behind envoy/nginx set DIST_TRUSTED_PROXIES to the proxy's
+// inbound CIDR(s).
+func (s *server) remoteIPForRateLimit(r *http.Request) string {
+	if s == nil || s.cfg.trustedProxies == nil {
+		// Defensive: pre-init / test harness with a partial server.
+		// Match the pre-trust-set behavior so the rate limiter still
+		// has a key to bucket on.
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return r.RemoteAddr
 		}
-		return strings.TrimSpace(xff)
+		return host
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return trustedClientIP(r, s.cfg.trustedProxies)
 }
