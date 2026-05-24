@@ -25,6 +25,8 @@
 #include "diffusion_pp_adapter.h"
 #include "agent_identity.h"
 #include "actv_p2p.h"
+#include "runtime_adapter.h"
+#include "vllm_adapter.h"
 
 #include "llama.h"
 
@@ -1156,6 +1158,36 @@ static int run_pair_mode(const std::string& token, const std::string& server,
         ws.send_text(caps.str());
         std::cout << "[pair] dpp_caps ok=" << (dpp_ok ? "1" : "0")
                   << " err=" << dpp_err << "\n";
+    }
+
+    // ── vLLM capability advertisement ────────────────────────────────────
+    //
+    // P12: when DIST_RUNTIME=vllm (or when DIST_VLLM_URL is set explicitly),
+    // probe the local vLLM OpenAI-compatible server and advertise
+    // `vllm_caps` so the control plane can route full-model jobs here.
+    // The agent does not yet swap its inference path to vLLM by default;
+    // this hook lets operators stage a rig as a vLLM endpoint and the
+    // server side can light it up once dispatch is taught about runtimes.
+    {
+        const char* rt = std::getenv("DIST_RUNTIME");
+        const char* url = std::getenv("DIST_VLLM_URL");
+        const bool want_vllm =
+            (rt && std::string(rt) == "vllm") || (url && *url);
+        if (want_vllm) {
+            auto adapter = dist::make_runtime_adapter(dist::RuntimeKind::VLLM);
+            auto* va = dynamic_cast<dist::VllmAdapter*>(adapter.get());
+            bool ok = va && va->probe(1500);
+            std::ostringstream caps;
+            caps << "{\"kind\":\"vllm_caps\","
+                 << "\"ok\":" << (ok ? "true" : "false") << ","
+                 << "\"base_url\":\""
+                 << json_escape(va ? va->config().base_url : std::string())
+                 << "\"}";
+            ws.send_text(caps.str());
+            std::cout << "[pair] vllm_caps ok=" << (ok ? "1" : "0")
+                      << " base_url=" << (va ? va->config().base_url : std::string())
+                      << "\n";
+        }
     }
 
     // Base64 (standard alphabet, no line breaks) — used to package binary

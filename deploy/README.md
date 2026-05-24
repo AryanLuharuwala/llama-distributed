@@ -441,6 +441,74 @@ Period-first ordering means a single row-range scan returns every
 user for a billing period — the same shape any external reporting
 view (BigQuery federation over Bigtable) will want.
 
+## Pluggable inference runtime (P12)
+
+`dist-node` ships with llama.cpp as the default backend.  It is the
+right choice for the project's core use case: pipeline-parallel
+inference across heterogeneous rigs, with bf16 / fp16 activations
+flowing over the ACTV wire.  But on rigs where the whole model fits
+in local VRAM, the high-throughput single-rig runtime in the OSS
+world is **vLLM** (PagedAttention, continuous batching, prefix
+caching).  vLLM is single-rig — it cannot do pipeline parallelism
+across networks — so the right composition is:
+
+- multi-rig pipeline runs keep using llama.cpp (inline path through
+  `pp_engine.cpp` / `node_agent.cpp`);
+- full-model runs on a single rig can pick any **runtime adapter**
+  that implements `dist::IRuntimeAdapter`
+  (`include/runtime_adapter.h`).
+
+The vLLM adapter (`src/vllm_adapter.cpp`) speaks to vLLM's
+OpenAI-compatible HTTP server (`vllm.entrypoints.openai.api_server`)
+over plain HTTP/SSE.  No libcurl dependency — the agent already
+hand-rolls HTTP for ComfyUI and we keep the same shape here.
+
+### Environment
+
+| Env                          | Default                  | Notes                                                                            |
+|------------------------------|--------------------------|----------------------------------------------------------------------------------|
+| `DIST_RUNTIME`               | `llama-cpp`              | `llama-cpp` (default) \| `vllm` \| `sglang` (P13) \| `trtllm` (P14)              |
+| `DIST_VLLM_URL`              | `http://127.0.0.1:8000`  | Base URL of the vLLM OpenAI server.  Setting this auto-enables the `vllm_caps` advertisement on `hello`. |
+| `DIST_VLLM_API_KEY`          | unset                    | Bearer for vLLM's `--api-key` mode.                                              |
+| `DIST_VLLM_SPAWN`            | `0`                      | When truthy, the adapter forks `python -m vllm.entrypoints.openai.api_server …`. |
+| `DIST_VLLM_PYTHON`           | `python3`                | Interpreter used in spawn mode.                                                  |
+| `DIST_VLLM_EXTRA_ARGS`       | empty                    | Whitespace-split, appended verbatim to the vLLM CLI in spawn mode.               |
+| `DIST_VLLM_SPAWN_TIMEOUT`    | `60`                     | Seconds to wait for vLLM `/health` after spawn.                                  |
+| `DIST_VLLM_CONNECT_TIMEOUT_MS` | `2000`                 | Socket-connect timeout for probe and request open.                               |
+
+### Capability advertisement
+
+When `DIST_RUNTIME=vllm` or `DIST_VLLM_URL` is set, dist-node probes
+the local vLLM server at startup and emits a `vllm_caps` frame on
+the agent WS:
+
+```
+{"kind":"vllm_caps","ok":true,"base_url":"http://127.0.0.1:8000"}
+```
+
+The control plane uses this to know which rigs can take full-model
+jobs through the vLLM path.  Probe failure logs a warning but does
+not crash the agent — the rig falls back to the llama.cpp inline
+path the same way it would without `DIST_RUNTIME` set.
+
+### Streaming protocol
+
+The adapter posts to `/v1/completions` with `"stream": true` and
+parses SSE `data: {...}` frames line by line.  Each delta becomes
+one `RuntimeChunk` passed to the caller's `ChunkCallback`; returning
+`false` from the callback closes the socket and stops decoding (the
+SSE cancellation path used by `/v1/chat/completions` already).
+
+### What's intentionally not in this PR
+
+The agent's existing inference path still routes through
+`pp_engine`.  P12 establishes the adapter interface and a working
+vLLM bridge; lifting the inline llama.cpp path behind a
+`LlamaCppAdapter` and switching the dispatcher to call the
+adapter trait by default is the P12-follow-up.  Until then, set
+`DIST_RUNTIME=vllm` only on rigs where the operator has manually
+wired the vLLM endpoint into their server-side routing.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output

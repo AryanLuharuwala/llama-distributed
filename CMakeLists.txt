@@ -152,6 +152,8 @@ add_library(dist_common STATIC
     src/diffusion_pp_adapter.cpp
     src/agent_identity.cpp
     src/actv_p2p.cpp
+    src/runtime_adapter.cpp
+    src/vllm_adapter.cpp
 )
 
 target_include_directories(dist_common
