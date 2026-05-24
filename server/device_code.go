@@ -367,7 +367,13 @@ func (s *server) handleAgentMintAPIKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Label string `json:"label"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	// Cap the request body so an agent_key holder can't post a multi-GiB
+	// label string. Matches the convention applied to other auth'd JSON
+	// endpoints (BUGS_FOUND #3); 8 KiB is generous for a label.
+	_ = json.NewDecoder(io.LimitReader(r.Body, 8*1024)).Decode(&body)
+	if len(body.Label) > 256 {
+		body.Label = body.Label[:256]
+	}
 	if body.Label == "" {
 		body.Label = "rig:" + agentID
 	}

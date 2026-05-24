@@ -150,7 +150,7 @@ func (s *server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		Name: "oidc_verifier", Value: verifier, Path: "/auth", HttpOnly: true,
 		Secure: secure, MaxAge: 600, SameSite: http.SameSiteLaxMode,
 	})
-	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+	if next := r.URL.Query().Get("next"); isSafeNext(next) {
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_next", Value: next, Path: "/auth", HttpOnly: true,
 			Secure: secure, MaxAge: 600, SameSite: http.SameSiteLaxMode,
@@ -241,7 +241,7 @@ func (s *server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	s.setSessionCookie(w, sid, exp)
 
 	dest := "/console"
-	if c, err := r.Cookie("oauth_next"); err == nil && strings.HasPrefix(c.Value, "/") && !strings.HasPrefix(c.Value, "//") {
+	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		http.SetCookie(w, &http.Cookie{
 			Name: "oauth_next", Value: "", Path: "/auth", HttpOnly: true,

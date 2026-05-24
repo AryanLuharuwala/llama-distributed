@@ -697,20 +697,40 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// resume: look up by agent_id, then constant-time verify the hash.
-		// We deliberately don't WHERE on agent_key here — that would give a
-		// (tiny) timing differential between "no such rig" and "rig exists
-		// but wrong key", and it also forced us to keep plaintext in the
-		// table.  See agent_key.go for the hashing helper.
+		// resume: look up by agent_key_hash (the *secret* identifier) and
+		// cross-check that the presented agent_id matches the row. An older
+		// version keyed the WHERE on agent_id, which let an attacker who
+		// learned the victim's agent_id squat the row from their own account.
+		// Keying on the hash ties the lookup to the secret. A legacy fallback
+		// covers rigs whose agent_key_hash hasn't been backfilled yet (NULL
+		// hash, plaintext agent_key in legacy column).
+		presentedHash := hashAgentKey(hello.AgentKey)
 		var pkRaw []byte
 		var storedHash sql.NullString
-		var legacyPlain sql.NullString // read for the transitional rescue path below
+		var legacyPlain sql.NullString
+		var rowAgentID string
 		err2 := s.dbQueryRow(
-			`SELECT user_id, pubkey, agent_key_hash, agent_key FROM rigs WHERE agent_id = ? LIMIT 1`,
-			hello.AgentID,
-		).Scan(&uid, &pkRaw, &storedHash, &legacyPlain)
+			`SELECT user_id, pubkey, agent_key_hash, agent_key, agent_id
+			   FROM rigs
+			  WHERE agent_key_hash = ?
+			  LIMIT 1`,
+			presentedHash,
+		).Scan(&uid, &pkRaw, &storedHash, &legacyPlain, &rowAgentID)
+		if err2 != nil {
+			// Backfill rescue: fall back to the legacy agent_id lookup if the
+			// modern hash-keyed lookup missed (covers rows still on plaintext).
+			err2 = s.dbQueryRow(
+				`SELECT user_id, pubkey, agent_key_hash, agent_key, agent_id
+				   FROM rigs WHERE agent_id = ? LIMIT 1`,
+				hello.AgentID,
+			).Scan(&uid, &pkRaw, &storedHash, &legacyPlain, &rowAgentID)
+		}
 		if err2 != nil || !verifyAgentKeyWithFallback(storedHash, legacyPlain, hello.AgentKey) {
 			s.failWSAuth(ctx, conn, srcIP, "bad agent_key — re-run the pair flow from the dashboard")
+			return
+		}
+		if rowAgentID != hello.AgentID {
+			s.failWSAuth(ctx, conn, srcIP, "agent_id does not match this agent_key")
 			return
 		}
 		pubkeyBytes = pkRaw

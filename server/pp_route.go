@@ -246,7 +246,10 @@ func (s *server) handleInferPP(w http.ResponseWriter, r *http.Request) {
 		peers[i] = pp
 		attached = append(attached, agents[i])
 	}
-	defer cleanup()
+	// `cleanup` is rebound below (relay credits, p2p pair revokes); use a
+	// closure so the deferred call resolves the *current* binding at return
+	// time rather than capturing the original detach-only function.
+	defer func() { cleanup() }()
 
 	// Stage 0 for token loopback: after terminal emits a token, re-kick stage
 	// 0 with that token as a kv_append ACTV so it can extend its KV cache and

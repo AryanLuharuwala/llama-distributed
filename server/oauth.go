@@ -75,6 +75,26 @@ var authPageHTML []byte
 // handleAuthPage serves the unified sign-in / signup landing page.  The
 // page works for both first-time and returning users — there is no
 // separate signup flow, the OAuth callback upserts on github_id.
+// isSafeNext returns true iff `v` is a site-relative path safe to use as a
+// post-login redirect target. We reject:
+//   - empty / non-rooted ("/foo" required)
+//   - protocol-relative ("//evil.com")
+//   - backslash anywhere ("/\evil.com" — some browsers normalize \ to /,
+//     producing //evil.com cross-origin)
+//   - embedded NUL or control chars
+func isSafeNext(v string) bool {
+	if v == "" || !strings.HasPrefix(v, "/") {
+		return false
+	}
+	if strings.HasPrefix(v, "//") {
+		return false
+	}
+	if strings.ContainsAny(v, "\\\x00") {
+		return false
+	}
+	return true
+}
+
 func (s *server) handleAuthPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -151,7 +171,7 @@ func (s *server) handleGithubStart(w http.ResponseWriter, r *http.Request) {
 	})
 	// Stash the post-login landing URL.  We only accept site-relative paths
 	// so this can't be turned into an open-redirect gadget.
-	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+	if next := r.URL.Query().Get("next"); isSafeNext(next) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_next",
 			Value:    next,
@@ -250,7 +270,7 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, sid, exp)
 	dest := "/console"
-	if c, err := r.Cookie("oauth_next"); err == nil && strings.HasPrefix(c.Value, "/") && !strings.HasPrefix(c.Value, "//") {
+	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		// Clear the cookie so it doesn't sticky across logins.
 		http.SetCookie(w, &http.Cookie{

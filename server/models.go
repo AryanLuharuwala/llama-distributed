@@ -364,6 +364,11 @@ func isSafeShardFile(f string) bool {
 	if f == "" || strings.Contains(f, "/") || strings.Contains(f, "\\") {
 		return false
 	}
+	// Reject embedded NUL — os.Open rejects it at syscall time, but treating
+	// it as invalid here is the cheap defense-in-depth.
+	if strings.ContainsRune(f, 0) {
+		return false
+	}
 	if f == "." || f == ".." {
 		return false
 	}

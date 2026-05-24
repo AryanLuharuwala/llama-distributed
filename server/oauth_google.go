@@ -48,7 +48,7 @@ func (s *server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   600,
 		SameSite: http.SameSiteLaxMode,
 	})
-	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+	if next := r.URL.Query().Get("next"); isSafeNext(next) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_next",
 			Value:    next,
@@ -137,7 +137,7 @@ func (s *server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, sid, exp)
 	dest := "/nexus"
-	if c, err := r.Cookie("oauth_next"); err == nil && strings.HasPrefix(c.Value, "/") && !strings.HasPrefix(c.Value, "//") {
+	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		http.SetCookie(w, &http.Cookie{
 			Name:     "oauth_next",

@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -783,11 +784,46 @@ func (s *server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// CSRF defense: require POST + same-origin (Origin or Referer matches
+	// configured publicURL). GET logout is reachable via <img> tag from any
+	// site; a server-side attacker holding a leaked cookie can DELETE the
+	// session row via curl. Origin check stops the cross-origin path even
+	// when the cookie travels.
+	if r.Method != http.MethodPost {
+		writeErr(w, 405, "use POST")
+		return
+	}
+	if !s.requestOriginMatchesPublicURL(r) {
+		writeErr(w, 403, "origin mismatch")
+		return
+	}
 	if c, err := r.Cookie(sessionCookieName); err == nil {
 		_, _ = s.dbExec(`DELETE FROM sessions WHERE id = ?`, c.Value)
 	}
 	s.clearSessionCookie(w)
 	writeJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// requestOriginMatchesPublicURL returns true iff the Origin (preferred) or
+// Referer header carries the configured publicURL scheme+host. If publicURL
+// is unset (test/dev), we accept any same-host Origin to avoid blocking the
+// developer flow.
+func (s *server) requestOriginMatchesPublicURL(r *http.Request) bool {
+	want := strings.TrimRight(s.cfg.publicURL, "/")
+	if want == "" {
+		return true
+	}
+	if o := r.Header.Get("Origin"); o != "" {
+		return strings.EqualFold(strings.TrimRight(o, "/"), want)
+	}
+	if ref := r.Header.Get("Referer"); ref != "" {
+		u, err := url.Parse(ref)
+		if err == nil {
+			got := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+			return strings.EqualFold(got, want)
+		}
+	}
+	return false
 }
 
 // ─── Handlers: pairing ──────────────────────────────────────────────────────

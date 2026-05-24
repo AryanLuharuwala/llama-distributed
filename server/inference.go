@@ -114,6 +114,11 @@ func encodeChunk(reqID uint16, kind uint8, tokIn, tokOut uint32, payload []byte)
 	return buf
 }
 
+// Cap on a single inference chunk payload. Anything larger almost
+// certainly indicates a corrupted/malicious frame; the live tokenizer
+// path produces chunks well under 1 MiB.
+const maxChunkPayloadBytes = 16 * 1024 * 1024
+
 func decodeChunk(b []byte) (*inferChunk, error) {
 	if len(b) < 24 {
 		return nil, fmt.Errorf("chunk too short: %d bytes", len(b))
@@ -128,7 +133,12 @@ func decodeChunk(b []byte) (*inferChunk, error) {
 		return nil, fmt.Errorf("not a chunk: type=%d", b[5])
 	}
 	plen := binary.BigEndian.Uint32(b[20:24])
-	if uint32(len(b)) < 24+plen {
+	// Bound peer-controlled length before any arithmetic so 24+plen can
+	// neither wrap a uint32 nor produce a negative int when sliced.
+	if plen > maxChunkPayloadBytes {
+		return nil, fmt.Errorf("payload too large: %d bytes", plen)
+	}
+	if len(b) < 24+int(plen) {
 		return nil, fmt.Errorf("truncated payload: got %d want %d", len(b)-24, plen)
 	}
 	return &inferChunk{

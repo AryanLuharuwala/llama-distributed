@@ -1212,6 +1212,10 @@ func isSafeOutputFile(f string) bool {
 	if f == "" || strings.Contains(f, "/") || strings.Contains(f, "\\") {
 		return false
 	}
+	// Defense-in-depth against NUL truncation in any downstream consumer.
+	if strings.ContainsRune(f, 0) {
+		return false
+	}
 	if f == "." || f == ".." {
 		return false
 	}
