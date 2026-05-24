@@ -1073,6 +1073,13 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				)
 				continue
 			}
+			if kind == "spec_caps" {
+				// P16: speculative-decoding capability claim.  Stored in
+				// its own table; the dispatcher will look at it when
+				// routing latency-sensitive requests.
+				s.upsertSpecCaps(uid, hello.AgentID, msg)
+				continue
+			}
 			if kind == "trtllm_caps" {
 				// P14: TensorRT-LLM tier (via Triton).  Triton owns the
 				// engine plan and per-model prefix-cache config; we treat

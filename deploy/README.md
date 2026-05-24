@@ -645,6 +645,58 @@ GPU fleets, dedicated inference pods), a follow-up can ship a
 DIST_USE_TRTLLM CMake flag that pulls the in-process runtime in
 behind a build option.
 
+## Speculative decoding capability (P16)
+
+Speculative decoding (Medusa heads / Eagle / draft-model) lets a
+rig produce K candidate tokens per target-model forward pass.
+Real-world acceptance rates of 1.5–3× turn long completions
+from "interactive" into "fast."  The heads themselves live in
+the backing runtime — vLLM, SGLang, TensorRT-LLM, or a
+llama.cpp draft-model pair — and we don't try to reimplement
+them.  P16 wires the control-plane half: rigs claim a method
+and an expected draft size; the dispatcher will use that to
+prefer them for latency-sensitive endpoints.
+
+### Agent environment
+
+| variable                      | meaning                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
+| `DIST_SPEC_DECODING`          | `medusa` \| `eagle` \| `draft_model` \| `lookahead` \| `none`  |
+| `DIST_SPEC_DRAFT_TOKENS`      | K = how many tokens the rig speculates per step (default `4`) |
+| `DIST_SPEC_ACCEPT_HINT`       | optional float in `[0,1]`, the operator's measured accept rate|
+
+`DIST_SPEC_DECODING=1` (truthy alias) is treated as `medusa`,
+matching the most common single-model integration.
+
+### Wire frame
+
+Sent once on pair-time:
+
+```json
+{
+  "kind": "spec_caps",
+  "ok": true,
+  "method": "medusa",
+  "draft_tokens": 4,
+  "accept_rate_hint": 0.62
+}
+```
+
+Server stores it in `spec_caps (user_id, agent_id, ok, method,
+draft_tokens, accept_rate_hint, updated_at)`.  Unknown methods
+and out-of-range numbers are normalized server-side — agents
+cannot inject arbitrary strings into the column.
+
+### Routing (follow-up)
+
+This PR establishes the surface end-to-end (agent advert →
+server table → tested upserts) but does **not** yet wire
+`spec_caps.ok` into dispatch ranking.  The intended use is in a
+follow-up to bias the dispatcher toward `ok=1` rigs when the
+incoming request is small (`max_tokens < 256`, `stream=true`)
+and tie-break by `draft_tokens * accept_rate_hint` as a proxy
+for expected per-step token gain.
+
 ## FP8 (E4M3) ACTV compression (P15)
 
 Set `DIST_ACTV_FP8=1` on a rig to opt-in to FP8 E4M3 hidden-state

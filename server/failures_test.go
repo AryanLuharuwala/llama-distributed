@@ -96,6 +96,9 @@ func newTestServer(t *testing.T) *server {
 	if err := migratePrefixAffinity(db, dialect); err != nil {
 		t.Fatalf("migratePrefixAffinity: %v", err)
 	}
+	if err := migrateSpecCaps(db, dialect); err != nil {
+		t.Fatalf("migrateSpecCaps: %v", err)
+	}
 	if err := applyVersionedMigrations(context.Background(), db, dialect); err != nil {
 		t.Fatalf("applyVersionedMigrations: %v", err)
 	}

@@ -1256,6 +1256,43 @@ static int run_pair_mode(const std::string& token, const std::string& server,
         }
     }
 
+    // ── Speculative-decoding capability advertisement ───────────────────
+    //
+    // P16: when the operator declares the rig supports speculative
+    // decoding (via Medusa heads, Eagle, a draft model, or runtime
+    // built-in lookahead), advertise `spec_caps` so the control plane
+    // can prefer this rig for latency-sensitive endpoints.  The actual
+    // heads live in the backing runtime — we just claim the capability.
+    {
+        const char* method = std::getenv("DIST_SPEC_DECODING");
+        if (method && *method) {
+            std::string m = method;
+            // Normalize known aliases.
+            if (m == "1" || m == "true" || m == "yes") m = "medusa";
+            int draft_k = 4;
+            if (const char* k = std::getenv("DIST_SPEC_DRAFT_TOKENS")) {
+                int v = std::atoi(k);
+                if (v >= 1 && v <= 32) draft_k = v;
+            }
+            float accept_hint = 0.0f;
+            if (const char* h = std::getenv("DIST_SPEC_ACCEPT_HINT")) {
+                float v = (float)std::atof(h);
+                if (v >= 0.0f && v <= 1.0f) accept_hint = v;
+            }
+            std::ostringstream caps;
+            caps << "{\"kind\":\"spec_caps\","
+                 << "\"ok\":true,"
+                 << "\"method\":\"" << json_escape(m) << "\","
+                 << "\"draft_tokens\":" << draft_k << ","
+                 << "\"accept_rate_hint\":" << accept_hint
+                 << "}";
+            ws.send_text(caps.str());
+            std::cout << "[pair] spec_caps method=" << m
+                      << " draft_tokens=" << draft_k
+                      << " accept_hint=" << accept_hint << "\n";
+        }
+    }
+
     // Base64 (standard alphabet, no line breaks) — used to package binary
     // ComfyUI outputs into the JSON `comfy_result` frames the control plane
     // expects.  Keeps the WS protocol all-text for symmetry with the rest
