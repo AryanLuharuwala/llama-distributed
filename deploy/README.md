@@ -568,6 +568,83 @@ hash is over the first 512 prompt bytes only, so a long shared
 prefix followed by per-user PII produces a stable hash without
 storing the PII anywhere.
 
+## TensorRT-LLM via Triton (P14)
+
+P14 adds a third runtime tier — TensorRT-LLM — for pinned
+production models where the engine plan and prefix-cache config
+are owned by the operator and rebuilt rarely.  TRT-LLM compiles a
+model to a fused engine plan and runs it under NVIDIA's runtime;
+the fastest path to that runtime from outside is **Triton
+Inference Server's `tensorrtllm_backend`**, which exposes a stable
+HTTP/gRPC surface.  dist-node talks to Triton over HTTP+SSE and
+does **not** link against `nvinfer` / `cudart` / the TRT-LLM C++
+runtime — keeps the dist-node binary CPU-only and the build host
+free of NVIDIA dependencies.
+
+### Wire
+
+`POST {base_url}/v2/models/{model_name}/generate_stream` with
+
+```json
+{
+  "text_input": "<prompt>",
+  "parameters": {
+    "max_tokens": 64,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "stop_words": ["</s>"],
+    "stream": true
+  }
+}
+```
+
+The server replies with SSE events of the form
+
+```
+data: {"text_output":"<delta>","model_name":"...","finished":false}
+```
+
+and signals end-of-stream with `"finished": true` (Triton does
+**not** send `[DONE]`).
+
+### Environment
+
+| variable                          | default                   | meaning                                                                          |
+| --------------------------------- | ------------------------- | -------------------------------------------------------------------------------- |
+| `DIST_RUNTIME`                    | `llama-cpp`               | Set to `trtllm` (also `tensorrt-llm` / `tensorrtllm`) to enable.                 |
+| `DIST_TRTLLM_URL`                 | `http://127.0.0.1:8000`   | Triton HTTP base URL.  Setting this auto-enables the `trtllm_caps` advertisement.|
+| `DIST_TRTLLM_MODEL`               | `ensemble`                | Name under Triton's model repository (must match the served model directory).    |
+| `DIST_TRTLLM_API_KEY`             | unset                     | Bearer token for Triton's HTTP API (if the operator fronts it with auth).        |
+| `DIST_TRTLLM_CONNECT_TIMEOUT_MS`  | `2000`                    | Socket-connect timeout.                                                          |
+
+### Capability advertisement
+
+At pair-time dist-node probes Triton's `/v2/health/ready` and
+emits a `trtllm_caps` frame:
+
+```json
+{"kind":"trtllm_caps","ok":true,"base_url":"http://127.0.0.1:8000","model":"ensemble"}
+```
+
+The control plane stores it in the same `sglang_caps` table as
+the vLLM tier (no per-prefix `cached_tokens` channel — Triton
+owns prefix caching internally and does not surface a stable
+counter), so the dispatcher can route full-model jobs to the
+Triton-backed rig.
+
+### Why not link the TRT-LLM C++ runtime directly?
+
+In-process TRT-LLM is faster than HTTP-via-Triton.  It is also
+the path that drags `nvinfer`, `cudart`, and the TRT-LLM static
+libs onto every machine that wants to build dist-node — including
+the CI host that has no GPU and shouldn't.  HTTP is a clean
+process boundary: the operator builds and runs Triton with all
+the NVIDIA bits, and the dist-node binary stays portable.  When
+the latency cost matters more than the build-host story (large
+GPU fleets, dedicated inference pods), a follow-up can ship a
+DIST_USE_TRTLLM CMake flag that pulls the in-process runtime in
+behind a build option.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output

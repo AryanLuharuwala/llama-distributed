@@ -1073,6 +1073,26 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				)
 				continue
 			}
+			if kind == "trtllm_caps" {
+				// P14: TensorRT-LLM tier (via Triton).  Triton owns the
+				// engine plan and per-model prefix-cache config; we treat
+				// it like vLLM from the dispatcher's perspective (no
+				// per-prefix cache_tokens signal) and store ok/base_url.
+				_, _ = s.dbExec(
+					`INSERT INTO sglang_caps (user_id, agent_id, ok, base_url, prefix_cache, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?)
+					 ON CONFLICT(user_id, agent_id) DO UPDATE SET
+					   ok = excluded.ok,
+					   base_url = excluded.base_url,
+					   updated_at = excluded.updated_at`,
+					uid, hello.AgentID,
+					func() int { if v, _ := msg["ok"].(bool); v { return 1 }; return 0 }(),
+					func() string { v, _ := msg["base_url"].(string); return v }(),
+					0,
+					nowUnix(),
+				)
+				continue
+			}
 			if kind == "relay_stats" {
 				// Relay rig is reporting its byte counters from a finished
 				// session.  We attribute the count to the assignment record

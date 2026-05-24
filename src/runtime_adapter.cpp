@@ -3,13 +3,14 @@
 // notes; this file owns the small bits of glue that don't belong in
 // either the header or in any one adapter's TU.
 //
-// Only the vLLM adapter is wired in this PR (P12).  SGLang / TRT-LLM
-// land in P13 / P14; until those exist the factory returns nullptr for
-// those kinds and the caller falls back to the inline llama.cpp path.
+// vLLM, SGLang, and TRT-LLM-via-Triton adapters are wired here (P12 – P14).
+// The LlamaCpp kind still returns nullptr, which is the documented signal
+// that the caller takes the inline pp_engine path.
 
 #include "runtime_adapter.h"
 #include "vllm_adapter.h"
 #include "sglang_adapter.h"
+#include "trtllm_adapter.h"
 
 #include <algorithm>
 #include <cctype>
@@ -52,8 +53,7 @@ std::unique_ptr<IRuntimeAdapter> make_runtime_adapter(RuntimeKind kind) {
         case RuntimeKind::SGLang:
             return std::make_unique<SglangAdapter>(sglang_config_from_env());
         case RuntimeKind::TRTLLM:
-            // Not yet compiled into this build.
-            return nullptr;
+            return std::make_unique<TrtLlmAdapter>(trtllm_config_from_env());
     }
     return nullptr;
 }

@@ -28,6 +28,7 @@
 #include "runtime_adapter.h"
 #include "vllm_adapter.h"
 #include "sglang_adapter.h"
+#include "trtllm_adapter.h"
 
 #include "llama.h"
 
@@ -1218,6 +1219,39 @@ static int run_pair_mode(const std::string& token, const std::string& server,
             ws.send_text(caps.str());
             std::cout << "[pair] sglang_caps ok=" << (ok ? "1" : "0")
                       << " base_url=" << (sa ? sa->config().base_url : std::string())
+                      << "\n";
+        }
+    }
+
+    // ── TensorRT-LLM (Triton) capability advertisement ───────────────────
+    //
+    // P14: when DIST_RUNTIME=trtllm or DIST_TRTLLM_URL is set, probe the
+    // operator-hosted Triton Inference Server's tensorrtllm_backend and
+    // advertise `trtllm_caps`.  We do NOT link the TRT-LLM C++ runtime —
+    // Triton's HTTP surface (/v2/models/{name}/generate_stream) is the
+    // boundary, which keeps the dist-node binary CPU-only.
+    {
+        const char* rt  = std::getenv("DIST_RUNTIME");
+        const char* url = std::getenv("DIST_TRTLLM_URL");
+        const bool want_trtllm =
+            (rt && std::string(rt) == "trtllm") || (url && *url);
+        if (want_trtllm) {
+            auto adapter = dist::make_runtime_adapter(dist::RuntimeKind::TRTLLM);
+            auto* ta = dynamic_cast<dist::TrtLlmAdapter*>(adapter.get());
+            bool ok = ta && ta->probe(1500);
+            std::ostringstream caps;
+            caps << "{\"kind\":\"trtllm_caps\","
+                 << "\"ok\":" << (ok ? "true" : "false") << ","
+                 << "\"base_url\":\""
+                 << json_escape(ta ? ta->config().base_url : std::string())
+                 << "\","
+                 << "\"model\":\""
+                 << json_escape(ta ? ta->config().model_name : std::string())
+                 << "\"}";
+            ws.send_text(caps.str());
+            std::cout << "[pair] trtllm_caps ok=" << (ok ? "1" : "0")
+                      << " base_url=" << (ta ? ta->config().base_url : std::string())
+                      << " model=" << (ta ? ta->config().model_name : std::string())
                       << "\n";
         }
     }
