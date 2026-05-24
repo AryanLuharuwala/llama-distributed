@@ -826,6 +826,24 @@ The encoder is pure C++17 scalar code in `include/fp8.h`; no
 NVIDIA intrinsics are required and the dist-node binary stays
 CPU-portable.
 
+## coturn anycast edges (P18)
+
+For TURN-relayed ACTV traffic (the fourth ICE candidate tier, after
+host / port-mapped / server-reflexive), production deploys multiple
+coturn edges behind a shared anycast IP so a client lands on the
+closest edge by BGP without GeoDNS.  Each edge is a stand-alone
+process — no clustered state — and the upstream router must hash
+by 5-tuple for TURN allocations to stick.  Config files,
+docker-compose, and the deployment playbook live in `coturn/`; see
+`coturn/README.md` for the anycast topology, REST-style ephemeral
+credential format, and TLS material wiring.
+
+The in-tree `cmd/dist-turn/` Go binary (pion/turn) is the
+operator-controlled fallback for residential relay rigs or
+operators who can't run coturn — same wire protocol, no external
+dependency.  Rig planner selects between them transparently based
+on the published `relay_only` / `coturn_port` capability fields.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output

@@ -1,0 +1,53 @@
+# Edge-local coturn deployment.  Run one of these per region on a
+# host that holds the anycast IP via BGP (or behind an L4 anycast
+# load balancer).  All edges share the same `static-auth-secret`
+# but otherwise are independent processes.
+#
+# Required env at deploy time:
+#   ANYCAST_IPV4              the anycast IP this host advertises
+#   EDGE_PUBLIC_IPV4          the IP clients see (= anycast IP in pure-anycast,
+#                             unicast egress IP behind L4 LB)
+#   DIST_TURN_AUTH_SECRET     32+ random bytes, identical across edges
+#   DIST_TURN_REALM           your domain, e.g. turn.dist.example.com
+#   DIST_TURN_CLI_PASSWORD    coturn CLI password (telnet-only, edge-local)
+#
+# TLS material is bind-mounted from the host's certbot output.
+
+version: "3.9"
+
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    # Host networking is required: coturn's range of relay ports
+    # (49152-65535) cannot be efficiently published through a userland
+    # NAT — the container needs raw access to the host's IP stack.
+    restart: always
+    volumes:
+      - ./coturn.conf:/etc/coturn/turnserver.conf:ro
+      - /etc/letsencrypt/live/${DIST_TURN_REALM}/fullchain.pem:/etc/coturn/certs/fullchain.pem:ro
+      - /etc/letsencrypt/live/${DIST_TURN_REALM}/privkey.pem:/etc/coturn/certs/privkey.pem:ro
+    environment:
+      ANYCAST_IPV4: "${ANYCAST_IPV4}"
+      EDGE_PUBLIC_IPV4: "${EDGE_PUBLIC_IPV4}"
+      DIST_TURN_AUTH_SECRET: "${DIST_TURN_AUTH_SECRET}"
+      DIST_TURN_REALM: "${DIST_TURN_REALM}"
+      DIST_TURN_CLI_PASSWORD: "${DIST_TURN_CLI_PASSWORD}"
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    healthcheck:
+      test: ["CMD", "turnutils_uclient", "-u", "test", "-w", "test",
+             "-y", "127.0.0.1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Prometheus exporter scraping the coturn CLI port.
+  coturn-exporter:
+    image: ghcr.io/prometheus-community/coturn-exporter:latest
+    network_mode: host
+    restart: always
+    environment:
+      COTURN_HOST: "127.0.0.1"
+      COTURN_PORT: "5766"
+      COTURN_PASSWORD: "${DIST_TURN_CLI_PASSWORD}"
