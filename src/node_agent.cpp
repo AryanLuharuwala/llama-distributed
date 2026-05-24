@@ -8,6 +8,7 @@
 
 #include "node_agent.h"
 #include "auth.h"
+#include "fp8.h"
 #include "topology.h"
 
 // llama.cpp public API
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -30,6 +32,25 @@
 #endif
 
 namespace dist {
+
+namespace {
+
+// P15: DIST_ACTV_FP8=1 enables E4M3 hidden-state compression on the
+// ACTV wire.  Read once at process start so the per-tensor cost is just
+// a load.  Logits (final-stage output) are never compressed — the
+// vocab-sized softmax is sensitive to precision and the wire savings
+// are dominated by the per-step embeddings, not the final logit blob.
+bool actv_fp8_enabled() {
+    static const bool v = []() {
+        const char* e = std::getenv("DIST_ACTV_FP8");
+        if (!e || !*e) return false;
+        return std::string(e) == "1" || std::string(e) == "true" ||
+               std::string(e) == "TRUE" || std::string(e) == "yes";
+    }();
+    return v;
+}
+
+} // namespace
 
 // ─── Construction / destruction ─────────────────────────────────────────────
 
@@ -178,7 +199,26 @@ void NodeAgent::data_recv_thread_fn() {
 
         ActivationBatch batch;
         batch.header = *reinterpret_cast<const TensorHeader*>(payload.data());
-        batch.data.assign(payload.begin() + sizeof(TensorHeader), payload.end());
+        const uint8_t* body     = payload.data() + sizeof(TensorHeader);
+        const size_t   body_len = payload.size() - sizeof(TensorHeader);
+
+        if (batch.header.dtype == 3) {
+            // P15: FP8 E4M3 with leading float32 scale.  Decode to f32
+            // so the compute path stays dtype-agnostic.
+            if (body_len < sizeof(float)) continue;
+            float scale;
+            std::memcpy(&scale, body, sizeof(float));
+            const uint8_t* fp8_bytes = body + sizeof(float);
+            const size_t   n_elems   =
+                (size_t)batch.header.n_tokens * batch.header.n_embd;
+            if (body_len < sizeof(float) + n_elems) continue;
+            batch.data.resize(n_elems * sizeof(float));
+            float* dst = reinterpret_cast<float*>(batch.data.data());
+            fp8::decode_tensor(fp8_bytes, n_elems, scale, dst);
+            batch.header.dtype = 0; // present as f32 to the compute thread
+        } else {
+            batch.data.assign(body, body + body_len);
+        }
 
         recv_queue_.push(std::move(batch));
     }
@@ -420,13 +460,26 @@ ActivationBatch NodeAgent::run_layers(const ActivationBatch& in) {
             // For now we pass the embeddings of the last token as the activation.
             // TODO: use ggml_backend_sched intermediate tensor once API is stable.
             const float* embd = llama_get_embeddings_ith(lctx_, n_tokens - 1);
-            out.header.n_embd = (uint32_t)llama_n_embd(lm_);
+            const uint32_t out_n_embd = (uint32_t)llama_n_embd(lm_);
+            out.header.n_embd   = out_n_embd;
             out.header.n_tokens = 1; // pipeline transmits one token at a time
-            out.header.dtype  = 0;  // f32
-            out.data.assign(
-                reinterpret_cast<const uint8_t*>(embd),
-                reinterpret_cast<const uint8_t*>(embd) + n_embd * sizeof(float)
-            );
+
+            if (actv_fp8_enabled()) {
+                // P15: encode to FP8 E4M3 with a leading float32 scale.
+                out.header.dtype = 3;
+                float scale = 1.0f;
+                std::vector<uint8_t> fp8(out_n_embd);
+                fp8::encode_tensor(embd, out_n_embd, &scale, fp8.data());
+                out.data.resize(sizeof(float) + out_n_embd);
+                std::memcpy(out.data.data(), &scale, sizeof(float));
+                std::memcpy(out.data.data() + sizeof(float), fp8.data(), out_n_embd);
+            } else {
+                out.header.dtype = 0;
+                out.data.assign(
+                    reinterpret_cast<const uint8_t*>(embd),
+                    reinterpret_cast<const uint8_t*>(embd) + out_n_embd * sizeof(float)
+                );
+            }
         }
     } else {
         // Middle or last stage: input is the hidden state from previous node.
@@ -464,11 +517,22 @@ ActivationBatch NodeAgent::run_layers(const ActivationBatch& in) {
             const float* embd = llama_get_embeddings_ith(lctx_, 0);
             out.header.n_embd   = (uint32_t)n_embd;
             out.header.n_tokens = 1;
-            out.header.dtype    = 0;
-            out.data.assign(
-                reinterpret_cast<const uint8_t*>(embd),
-                reinterpret_cast<const uint8_t*>(embd) + n_embd * sizeof(float)
-            );
+
+            if (actv_fp8_enabled()) {
+                out.header.dtype = 3;
+                float scale = 1.0f;
+                std::vector<uint8_t> fp8(n_embd);
+                fp8::encode_tensor(embd, n_embd, &scale, fp8.data());
+                out.data.resize(sizeof(float) + n_embd);
+                std::memcpy(out.data.data(), &scale, sizeof(float));
+                std::memcpy(out.data.data() + sizeof(float), fp8.data(), n_embd);
+            } else {
+                out.header.dtype = 0;
+                out.data.assign(
+                    reinterpret_cast<const uint8_t*>(embd),
+                    reinterpret_cast<const uint8_t*>(embd) + n_embd * sizeof(float)
+                );
+            }
         }
     }
 

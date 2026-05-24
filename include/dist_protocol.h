@@ -189,7 +189,7 @@ struct TensorHeader {
     uint32_t seq_pos;      // position in sequence (for KV cache indexing)
     uint32_t n_tokens;     // rows
     uint32_t n_embd;       // cols (hidden dimension)
-    uint16_t dtype;        // 0=f32, 1=f16, 2=bf16
+    uint16_t dtype;        // 0=f32, 1=f16, 2=bf16, 3=fp8_e4m3 (P15: 4-byte scale prefix)
     uint8_t  is_last;      // 1 if this is the final stage output
     uint8_t  _pad;
     // followed by n_tokens * n_embd * sizeof(dtype) bytes
@@ -249,12 +249,21 @@ inline size_t dtype_size(uint16_t dtype) {
         case 0: return 4; // f32
         case 1: return 2; // f16
         case 2: return 2; // bf16
+        case 3: return 1; // fp8_e4m3
         default: return 4;
     }
 }
 
+// P15: fp8_e4m3 carries a per-tensor float32 scale prefix immediately
+// after TensorHeader and before the element bytes.  Other dtypes have
+// no prefix.
+inline size_t dtype_scale_prefix_bytes(uint16_t dtype) {
+    return dtype == 3 ? sizeof(float) : 0;
+}
+
 inline size_t tensor_payload_bytes(const TensorHeader& th) {
     return sizeof(TensorHeader)
+         + dtype_scale_prefix_bytes(th.dtype)
          + (size_t)th.n_tokens * th.n_embd * dtype_size(th.dtype);
 }
 

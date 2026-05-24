@@ -645,6 +645,80 @@ GPU fleets, dedicated inference pods), a follow-up can ship a
 DIST_USE_TRTLLM CMake flag that pulls the in-process runtime in
 behind a build option.
 
+## FP8 (E4M3) ACTV compression (P15)
+
+Set `DIST_ACTV_FP8=1` on a rig to opt-in to FP8 E4M3 hidden-state
+compression on the ACTV wire.  Hidden states are normally streamed
+between pipeline stages as fp32 (`dtype=0`).  With FP8 enabled, the
+sender quantizes each per-step hidden vector to E4M3 with a
+per-tensor float32 scale factor, and the receiver decodes back to
+fp32 before feeding the next stage.  Logits are **not** compressed
+— the vocab softmax is sensitive to precision and the wire cost is
+dominated by per-step hidden vectors anyway.
+
+### Wire shape
+
+When `TensorHeader.dtype == 3` the payload is:
+
+```
+TensorHeader { dtype=3, n_tokens, n_embd, ... }
+float32       per_tensor_scale
+uint8_t[n]    E4M3 bytes   (n = n_tokens * n_embd)
+```
+
+The receiver recovers `f32_value = decode_e4m3(byte) * scale`.
+Scale is chosen so the largest |x| in the tensor maps to ±448
+(the E4M3 max-normal), preserving as much dynamic range as the
+format allows.
+
+### Bandwidth
+
+| dtype     | bytes/element | example: 8192 hidden × 32 steps |
+| --------- | ------------- | -------------------------------- |
+| fp32 (0)  | 4             | 1.00 MB                          |
+| fp16 (1)  | 2             | 0.50 MB                          |
+| fp8  (3)  | 1 + scale     | 0.25 MB + 4 B                    |
+
+In practice the 4-byte per-tensor scale is amortized across
+several thousand elements, so the realized savings are ≥3.99× vs
+fp32 and ≥1.99× vs fp16.
+
+### Round-trip quality
+
+On N(0, σ²) hidden states (the practical distribution after
+RMSNorm), mean absolute error sits around 2% of mean(|x|) with
+no per-element relative errors above 10% on the |x| > 0.1 tail.
+That's below the noise floor of greedy / temperature sampling at
+the next stage's softmax.
+
+### When to enable
+
+- High-latency cross-region peer-relay rigs where the SDK doubles
+  the data on each leg.
+- Low-end uplinks where 16 KB/step vs 64 KB/step is a real cost.
+- Anywhere bandwidth, not GPU, is the bottleneck.
+
+Leave **off** when:
+
+- All rigs share a LAN or a tight DC mesh (CPU encode/decode cost
+  outweighs wire savings).
+- The model is sensitive enough that even sub-1% activation error
+  shows up in eval metrics — measure first.
+
+### Format
+
+We track the OCP MX-FP8 / NVIDIA E4M3 convention:
+
+- 1 sign bit, 4 exponent bits, 3 mantissa bits
+- exponent bias = 7
+- max normal = 448 (`exp=15, mant=6`)
+- NaN encoding: `exp=15, mant=7` only — no Inf
+- subnormal min = 2^-9
+
+The encoder is pure C++17 scalar code in `include/fp8.h`; no
+NVIDIA intrinsics are required and the dist-node binary stays
+CPU-portable.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output
