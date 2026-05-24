@@ -469,6 +469,13 @@ type agentHello struct {
 	// indexes these in rig_shards so the planner can prefer P2P fetch.
 	// Empty / omitted on legacy rigs.
 	CachedShards []cachedShardEntry `json:"cached_shards,omitempty"`
+
+	// SPIFFEToken is the JWT-SVID a SPIFFE-enabled rig fetched from its
+	// local workload API socket.  Empty on legacy rigs.  When present,
+	// the server verifies it against the configured trust bundle and
+	// uses the SPIFFE ID as the rig's identity instead of (or in
+	// addition to) the paired agent_key.  See server/spiffe.go.
+	SPIFFEToken string `json:"spiffe_token,omitempty"`
 }
 
 // cachedShardEntry is one row of CachedShards.  Wire-only; we project it
@@ -783,6 +790,25 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("rig upsert: %v", err)
+	}
+
+	// SPIFFE workload identity (P6).  Additive in this revision: we
+	// verify the SVID + record the resulting SPIFFE ID on the rig row,
+	// but agent_key remains the load-bearing credential.  A follow-up
+	// can flip the dependency so a valid SVID replaces agent_key
+	// entirely — for now we just persist the binding so operators can
+	// roll out SPIRE without breaking the existing fleet.
+	if s.cfg.spiffe != nil {
+		if id, ok := s.spiffeFromAgentHello(r, &hello); ok {
+			if _, derr := s.db.Exec(
+				`UPDATE rigs SET spiffe_id = ? WHERE user_id = ? AND agent_id = ?`,
+				id.String(), uid, hello.AgentID,
+			); derr != nil {
+				log.Printf("rig %s: spiffe_id write: %v", hello.AgentID, derr)
+			} else {
+				log.Printf("agent %s: bound to SPIFFE ID %s", hello.AgentID, id)
+			}
+		}
 	}
 
 	// Auto-attach this rig to the pool the browser pre-selected during

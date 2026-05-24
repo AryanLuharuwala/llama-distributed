@@ -214,6 +214,7 @@ func helloToMap(h *ctrlpb.AgentHello) map[string]any {
 		"pubkey":           h.GetPubkeyB64(),
 		"protocol_version": float64(h.GetProtocolVersion()),
 		"client_build":     h.GetClientBuild(),
+		"spiffe_token":     h.GetSpiffeToken(),
 	}
 	if shards := h.GetCachedShards(); len(shards) > 0 {
 		out := make([]any, 0, len(shards))

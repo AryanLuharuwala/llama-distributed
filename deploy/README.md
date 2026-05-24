@@ -225,6 +225,63 @@ The `users` table gets two columns from the
 GitHub/Google rows leave both columns NULL; the partial index skips
 NULL pairs so the dual-mode table doesn't collide.
 
+## DIST_SPIFFE_* — workload identity for rigs
+
+When set, rigs can authenticate via a SPIFFE SVID instead of (or in
+addition to) the paired `agent_key`. Two SVID flavours are accepted:
+
+| Flavour | Path | What you wire |
+| --- | --- | --- |
+| JWT-SVID | `/ws/agent` hello frame, `spiffe_token` field | `DIST_SPIFFE_JWKS_URL` points at your SPIRE server's OIDC discovery provider; dist-server verifies + refreshes the bundle every 10 min. |
+| X.509-SVID | envoy XFCC header | Envoy terminates mTLS, validates the client cert against the SPIRE bundle, then forwards the verified cert metadata in `x-forwarded-client-cert`. Dist-server only trusts XFCC when the TCP peer is in `DIST_TRUSTED_PROXIES`. |
+
+Env vars:
+
+| Var | What it is |
+| --- | --- |
+| `DIST_SPIFFE_TRUST_DOMAIN` | Required to enable. The trust domain the server accepts SVIDs for, e.g. `prod.example.com`. SVIDs from other trust domains are rejected (no federation in this revision). |
+| `DIST_SPIFFE_JWKS_URL` | The SPIRE OIDC discovery provider's JWKS endpoint, e.g. `https://spire-oidc.example.com/keys`. Required for JWT-SVID; X.509-SVID via XFCC works without it. |
+| `DIST_SPIFFE_AUDIENCE` | Expected `aud` claim on JWT-SVIDs. Defaults to `DIST_PUBLIC_URL`. |
+
+Current revision is **additive**: a verified SVID gets recorded on the
+rig row (`rigs.spiffe_id`) alongside the existing `agent_key`. The
+agent_key path is unchanged; it remains the load-bearing credential
+during the SPIRE rollout. A follow-up commit can flip the dependency so
+SVID alone is sufficient once the fleet has rotated through.
+
+The `rigs` table gets a `spiffe_id TEXT` column from
+`20260524000003_rig_spiffe.sql` with a partial UNIQUE index — same
+pattern as the OIDC users table.
+
+### Envoy mTLS pass-through (X.509-SVID)
+
+To use the X.509 path, point envoy at your SPIRE trust bundle and have
+it forward the verified cert metadata:
+
+```yaml
+# envoy.yaml, inside the https listener's downstream TLS context:
+require_client_certificate: true
+common_tls_context:
+  validation_context:
+    trusted_ca: { filename: /etc/envoy/spire-bundle.pem }
+
+# inside http_connection_manager:
+forward_client_cert_details: SANITIZE_SET
+set_current_client_cert_details:
+  uri: true
+  subject: true
+```
+
+That config makes envoy:
+
+1. Require a client cert on the mTLS handshake.
+2. Validate it against the SPIRE bundle.
+3. Sanitize any inbound XFCC, then append its own `x-forwarded-client-cert`
+   with `URI=spiffe://...` populated from the cert's SAN.
+
+`SANITIZE_SET` (not `APPEND_FORWARD`) is important — it stops an
+upstream proxy from injecting a forged XFCC and laundering it through us.
+
 ## WebSocket + SSE caveats
 
 The dashboard and every rig hold long-lived connections:
@@ -263,7 +320,8 @@ Items deferred to later prod-branch commits, in rough priority order:
 - **Helm chart** — package the (envoy + dist-server + redis + postgres)
   topology for k8s with proper PDBs, HPA, and a sidecar Redis or
   Memorystore reference.
-- **SPIFFE/SPIRE workload identity** (P6) — rig identity via SVID
-  instead of paired agent keys.
+- **Macaroons** (P7) — replace HMAC URL signing with attenuable
+  third-party caveats so a leaked URL can be scoped down by the
+  bearer without server round-trips.
 
 See the `Pn` tasks in the project board for the full plan.

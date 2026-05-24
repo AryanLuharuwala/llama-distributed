@@ -119,8 +119,12 @@ type AgentHello struct {
 	ProtocolVersion int32                  `protobuf:"varint,9,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	ClientBuild     string                 `protobuf:"bytes,10,opt,name=client_build,json=clientBuild,proto3" json:"client_build,omitempty"`
 	CachedShards    []*CachedShardEntry    `protobuf:"bytes,11,rep,name=cached_shards,json=cachedShards,proto3" json:"cached_shards,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// P6: SPIFFE JWT-SVID minted by the rig's local workload API socket.
+	// Optional; legacy rigs omit it.  Server verifies via the configured
+	// JWKS bundle and binds the SPIFFE ID to the rig row.
+	SpiffeToken   string `protobuf:"bytes,12,opt,name=spiffe_token,json=spiffeToken,proto3" json:"spiffe_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentHello) Reset() {
@@ -228,6 +232,13 @@ func (x *AgentHello) GetCachedShards() []*CachedShardEntry {
 		return x.CachedShards
 	}
 	return nil
+}
+
+func (x *AgentHello) GetSpiffeToken() string {
+	if x != nil {
+		return x.SpiffeToken
+	}
+	return ""
 }
 
 // AgentStatus — periodic telemetry.  See server/ws.go agentStatus.
@@ -1049,7 +1060,7 @@ const file_distpool_ctrl_v1_ctrl_proto_rawDesc = "" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x12\n" +
 	"\x04file\x18\x02 \x01(\tR\x04file\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\"\xf6\x02\n" +
+	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\"\x99\x03\n" +
 	"\n" +
 	"AgentHello\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
@@ -1065,7 +1076,8 @@ const file_distpool_ctrl_v1_ctrl_proto_rawDesc = "" +
 	"\x10protocol_version\x18\t \x01(\x05R\x0fprotocolVersion\x12!\n" +
 	"\fclient_build\x18\n" +
 	" \x01(\tR\vclientBuild\x12G\n" +
-	"\rcached_shards\x18\v \x03(\v2\".distpool.ctrl.v1.CachedShardEntryR\fcachedShards\"\xe9\x04\n" +
+	"\rcached_shards\x18\v \x03(\v2\".distpool.ctrl.v1.CachedShardEntryR\fcachedShards\x12!\n" +
+	"\fspiffe_token\x18\f \x01(\tR\vspiffeToken\"\xe9\x04\n" +
 	"\vAgentStatus\x12\x1d\n" +
 	"\n" +
 	"tokens_sec\x18\x01 \x01(\x01R\ttokensSec\x12\x19\n" +

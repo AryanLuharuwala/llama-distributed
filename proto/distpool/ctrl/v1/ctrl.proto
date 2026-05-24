@@ -47,6 +47,10 @@ message AgentHello {
   int32 protocol_version = 9;
   string client_build = 10;
   repeated CachedShardEntry cached_shards = 11;
+  // P6: SPIFFE JWT-SVID minted by the rig's local workload API socket.
+  // Optional; legacy rigs omit it.  Server verifies via the configured
+  // JWKS bundle and binds the SPIFFE ID to the rig row.
+  string spiffe_token = 12;
 }
 
 // AgentStatus — periodic telemetry.  See server/ws.go agentStatus.

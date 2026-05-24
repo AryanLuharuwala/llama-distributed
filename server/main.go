@@ -119,6 +119,25 @@ type config struct {
 	oidcBearerAudience string
 	oidcLabel          string // human-readable label rendered on /auth (defaults to "SSO")
 	oidc               *oidcProvider
+
+	// SPIFFE / SPIRE workload identity (P6).  Set spiffeTrustDomain to
+	// enable.  Two SVID flavours are accepted:
+	//
+	//   1. JWT-SVID over the /ws/agent hello — rig fetches it from
+	//      its local SPIRE workload API socket and ships it as
+	//      `spiffe_token`.  Verified against DIST_SPIFFE_JWKS_URL.
+	//   2. X.509-SVID via envoy XFCC — envoy terminates mTLS, validates
+	//      the client cert against the SPIRE trust bundle, then
+	//      forwards the verified cert metadata in
+	//      `x-forwarded-client-cert`.  Honoured only when the immediate
+	//      TCP peer is in DIST_TRUSTED_PROXIES.
+	//
+	// At runtime the live provider sits on cfg.spiffe; nil when
+	// disabled.  Legacy agent_key auth is untouched in either case.
+	spiffeTrustDomain string
+	spiffeJWKSURL     string
+	spiffeAudience    string
+	spiffe            *spiffeProvider
 }
 
 func loadConfig() config {
@@ -157,6 +176,10 @@ func loadConfig() config {
 		oidcClientSecret:   os.Getenv("DIST_OIDC_CLIENT_SECRET"),
 		oidcBearerAudience: os.Getenv("DIST_OIDC_BEARER_AUDIENCE"),
 		oidcLabel:          envOr("DIST_OIDC_LABEL", "SSO"),
+
+		spiffeTrustDomain: os.Getenv("DIST_SPIFFE_TRUST_DOMAIN"),
+		spiffeJWKSURL:     os.Getenv("DIST_SPIFFE_JWKS_URL"),
+		spiffeAudience:    os.Getenv("DIST_SPIFFE_AUDIENCE"),
 	}
 	tp, bad := parseTrustedProxies(c.trustedProxiesRaw)
 	c.trustedProxies = tp
@@ -413,6 +436,22 @@ func main() {
 			cfg.oidc = op
 			log.Printf("oidc: federation enabled (issuer=%s, audience=%s)",
 				op.issuer, op.audience)
+		}
+	}
+
+	// SPIFFE workload identity (P6).  Same best-effort posture as OIDC:
+	// a SPIRE outage at boot logs and continues — legacy agent_key
+	// auth keeps the fleet online.  The background refresher will
+	// pick the bundle up on its next tick.
+	if cfg.spiffeTrustDomain != "" {
+		sp, err := newSPIFFEProvider(context.Background(), &cfg)
+		if err != nil {
+			log.Printf("spiffe: setup failed for %s: %v — SVID auth disabled", cfg.spiffeTrustDomain, err)
+		} else {
+			cfg.spiffe = sp
+			sp.startRefreshLoop(context.Background())
+			log.Printf("spiffe: workload identity enabled (trust_domain=%s, audience=%s)",
+				sp.td, sp.audience)
 		}
 	}
 
