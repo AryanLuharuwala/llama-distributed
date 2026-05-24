@@ -2946,18 +2946,29 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                                     on_frame);
                             }
 
+                            // Snapshot trivially-copyable fields BEFORE the
+                            // move below so the trailing diagnostic doesn't
+                            // read from a moved-from object (struct holds a
+                            // unique_ptr, so its non-trivial members may be
+                            // left in an unspecified state after std::move).
+                            const auto log_seq   = r.seq_id;
+                            const auto log_lo    = r.layer_lo;
+                            const auto log_hi    = r.layer_hi;
+                            const bool log_first = r.is_first;
+                            const bool log_last  = r.is_last;
                             // unique_ptr inside pp_req → must move-insert.
                             reqs[r.req_id] = std::move(r);
+
+                            std::cout << "[pair] pp_route accepted req=" << rid
+                                      << " stage=" << si
+                                      << "/" << sc
+                                      << " seq=" << log_seq
+                                      << " layers=[" << log_lo << "," << log_hi << ")"
+                                      << " first=" << log_first
+                                      << " last=" << log_last
+                                      << " engine=" << (engine_ok ? "ready" : "FAILED")
+                                      << "\n";
                         }
-                        std::cout << "[pair] pp_route accepted req=" << rid
-                                  << " stage=" << si
-                                  << "/" << sc
-                                  << " seq=" << r.seq_id
-                                  << " layers=[" << r.layer_lo << "," << r.layer_hi << ")"
-                                  << " first=" << r.is_first
-                                  << " last=" << r.is_last
-                                  << " engine=" << (engine_ok ? "ready" : "FAILED")
-                                  << "\n";
                     }
                 }
                 // ── ComfyUI run dispatch ──────────────────────────────────

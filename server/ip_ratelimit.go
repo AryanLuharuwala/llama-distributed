@@ -191,15 +191,37 @@ func newIPRateLimiterSet(backend rateBackend) *ipRateLimiterSet {
 // operators behind envoy/nginx set DIST_TRUSTED_PROXIES to the proxy's
 // inbound CIDR(s).
 func (s *server) remoteIPForRateLimit(r *http.Request) string {
+	var raw string
 	if s == nil || s.cfg.trustedProxies == nil {
 		// Defensive: pre-init / test harness with a partial server.
 		// Match the pre-trust-set behavior so the rate limiter still
 		// has a key to bucket on.
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
-			return r.RemoteAddr
+			raw = r.RemoteAddr
+		} else {
+			raw = host
 		}
-		return host
+	} else {
+		raw = trustedClientIP(r, s.cfg.trustedProxies)
 	}
-	return trustedClientIP(r, s.cfg.trustedProxies)
+	return rateLimitBucketKey(raw)
+}
+
+// rateLimitBucketKey collapses IPv6 addresses to the /64 prefix so a
+// single residential allocation can't rotate addresses to dodge the
+// limiter.  IPv4 and unparseable values are returned unchanged.
+func rateLimitBucketKey(ip string) string {
+	if ip == "" {
+		return ip
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	mask := net.CIDRMask(64, 128)
+	return parsed.Mask(mask).String() + "/64"
 }

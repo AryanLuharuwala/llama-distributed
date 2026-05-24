@@ -425,7 +425,11 @@ VllmAdapter::VllmAdapter(VllmAdapterConfig cfg)
 }
 
 VllmAdapter::~VllmAdapter() {
-    close();
+    // Calling the override-virtual `close()` from a base/derived dtor would
+    // resolve to *this* class's implementation only (vtable points at the
+    // current class during destruction). To avoid surprises if a subclass
+    // ever appears, invoke our own close() explicitly via qualified name.
+    VllmAdapter::close();
 }
 
 bool VllmAdapter::parse_base_url() {

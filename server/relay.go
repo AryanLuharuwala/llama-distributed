@@ -181,6 +181,7 @@ func (s *server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 
 	// Reader: text frames are treated as control (only close on unknown);
 	// binary frames are forwarded to the agent.
+readLoop:
 	for {
 		mt, data, err := conn.Read(ctx)
 		if err != nil {
@@ -192,7 +193,7 @@ func (s *server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 			var msg map[string]any
 			_ = json.Unmarshal(data, &msg)
 			if k, _ := msg["kind"].(string); k == "close" {
-				break
+				break readLoop
 			}
 		case websocket.MessageBinary:
 			buf := make([]byte, len(data))
