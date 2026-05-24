@@ -1,0 +1,601 @@
+Checking src/actv_p2p.cpp ...
+Checking src/agent_identity.cpp ...
+Checking src/auth.cpp ...
+Checking src/cli_common.cpp ...
+Checking src/actv_p2p.cpp: DIST_HAVE_P2P...
+src/cli_common.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+1/39 files checked 0% done
+src/auth.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/cluster_monitor.cpp ...
+src/actv_p2p.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/cluster_monitor.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+2/39 files checked 2% done
+Checking src/comfy_adapter.cpp ...
+Checking src/cli_common.cpp: _WIN32...
+src/auth.cpp:66:25: style: C-style pointer casting [cstyleCast]
+    const uint8_t* p = (const uint8_t*)data;
+                        ^
+src/auth.cpp:313:29: style: C-style pointer casting [cstyleCast]
+        const uint8_t* b = (const uint8_t*)p;
+                            ^
+src/auth.cpp:327:38: style: Parameter 'r' can be declared as reference to const [constParameterReference]
+void sign_receipt(MsgContribReceipt& r,
+                                     ^
+3/39 files checked 3% done
+src/comfy_adapter.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/coordinator.cpp ...
+src/coordinator.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/coordinator.cpp:558:15: style: The scope of the variable 'first_node' can be reduced. [variableScope]
+    NodeInfo* first_node;
+              ^
+src/coordinator.cpp:429:16: style: Variable 'c' can be declared as reference to const [constVariableReference]
+    for (auto& c : candidates) total_vram += c.vram;
+               ^
+src/coordinator.cpp:460:16: style: Variable 'nid' can be declared as reference to const [constVariableReference]
+    for (auto& nid : plan.pipeline_order) {
+               ^
+src/coordinator.cpp:461:20: style: Variable 'r' can be declared as reference to const [constVariableReference]
+        for (auto& r : plan.assignment[nid]) {
+                   ^
+src/coordinator.cpp:742:16: style: Variable 'rng' can be declared as reference to const [constVariableReference]
+    for (auto& rng : n.assigned_ranges)
+               ^
+src/coordinator.cpp:429:43: style: Consider using std::accumulate algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : candidates) total_vram += c.vram;
+                                          ^
+src/coordinator.cpp:743:25: style: Consider using std::accumulate algorithm instead of a raw loop. [useStlAlgorithm]
+        layers_assigned += (rng.layer_last - rng.layer_first + 1);
+                        ^
+Checking src/actv_p2p.cpp: __unix__...
+4/39 files checked 7% done
+src/coordinator.cpp:374:28: style: Unused variable: mpath [unusedVariable]
+        std::string mname, mpath;
+                           ^
+5/39 files checked 11% done
+Checking src/dashboard_server.cpp ...
+Checking src/diffusion_pp_adapter.cpp ...
+src/dashboard_server.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/cli_common.cpp: __APPLE__...
+src/diffusion_pp_adapter.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dashboard_server.cpp:47:50: style: C-style pointer casting [cstyleCast]
+    ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof(yes));
+                                                 ^
+src/dashboard_server.cpp:54:21: style: C-style pointer casting [cstyleCast]
+    if (::bind(srv, (sockaddr*)&sa, sizeof(sa)) < 0) {
+                    ^
+src/dashboard_server.cpp:68:36: style: C-style pointer casting [cstyleCast]
+            int fd = ::accept(srv, (sockaddr*)&ca, &clen);
+                                   ^
+src/dashboard_server.cpp:111:43: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use resize() or pop_back() instead. [uselessCallsSubstr]
+    if (qpos != std::string::npos) path = path.substr(0, qpos);
+                                          ^
+6/39 files checked 13% done
+Checking src/dist_cli_main.cpp ...
+src/comfy_adapter.cpp:566:27: style: Condition 'start==0' is always false [knownConditionTrueFalse]
+                if (start == 0) break;
+                          ^
+src/comfy_adapter.cpp:562:26: note: Assuming that condition 'start>0' is not redundant
+            while (start > 0) {
+                         ^
+src/comfy_adapter.cpp:566:27: note: Condition 'start==0' is always false
+                if (start == 0) break;
+                          ^
+src/comfy_adapter.cpp:257:54: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use resize() or pop_back() instead. [uselessCallsSubstr]
+            if (semi != std::string::npos) sz_line = sz_line.substr(0, semi);
+                                                     ^
+src/comfy_adapter.cpp:64:25: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                        ^
+src/comfy_adapter.cpp:632:29: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+        for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                            ^
+7/39 files checked 15% done
+Checking src/dist_cli_split.cpp ...
+Checking src/comfy_adapter.cpp: _WIN32...
+src/dist_cli_split.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dist_cli_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/diffusion_pp_adapter.cpp:311:23: style: C-style pointer casting [cstyleCast]
+    if (::connect(sk, (sockaddr*)&addr, sizeof(addr)) != 0) {
+                      ^
+src/diffusion_pp_adapter.cpp:225:24: style: Variable 'kv' can be declared as reference to const [constVariableReference]
+            for (auto& kv : req_to_runtime_) {
+                       ^
+8/39 files checked 17% done
+Checking src/dist_cli_top.cpp ...
+src/dist_cli_split.cpp:231:30: style: Local variable 'r' shadows outer variable [shadowVariable]
+            for (const auto& r : rigs) {
+                             ^
+src/dist_cli_split.cpp:198:22: note: Shadowed declaration
+        dc::HttpResp r; std::string e;
+                     ^
+src/dist_cli_split.cpp:231:30: note: Shadow variable
+            for (const auto& r : rigs) {
+                             ^
+src/dist_cli_split.cpp:160:0: style: Consider using std::find_if algorithm instead of a raw loop. [useStlAlgorithm]
+        if (!st.hostname.empty() && r.hostname == st.hostname) return &r;
+^
+src/dist_cli_split.cpp:162:0: style: Consider using std::find_if algorithm instead of a raw loop. [useStlAlgorithm]
+        if (!st.agent_id.empty() && r.agent_id == st.agent_id) return &r;
+^
+src/dist_cli_split.cpp:232:47: style: Consider using std::find_if algorithm instead of a raw loop. [useStlAlgorithm]
+                if (r.hostname == s.hostname) { s.agent_id = r.agent_id; break; }
+                                              ^
+src/dist_cli_split.cpp:246:70: style: Consider using std::find_if algorithm instead of a raw loop. [useStlAlgorithm]
+                if (dc::json_peek_string(obj, "name") == pool.model) {
+                                                                     ^
+Checking src/dist_cli_top.cpp: DIST_HAVE_FTXUI...
+Checking src/dist_cli_split.cpp: DIST_HAVE_FTXUI...
+src/dist_cli_top.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dist_cli_top.cpp:106:5: style: Class 'Poller' has a constructor with 1 argument that is not explicit. [noExplicitConstructor]
+    Poller(const dc::AuthCtx& ctx) : ctx_(ctx) {}
+    ^
+9/39 files checked 19% done
+Checking src/dist_client_main.cpp ...
+src/dist_client_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/comfy_adapter.cpp:118:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/comfy_adapter.cpp:144:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/comfy_adapter.cpp:175:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/comfy_adapter.cpp:176:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+10/39 files checked 22% done
+Checking src/dist_coordinator_main.cpp ...
+src/dist_client_main.cpp:54:38: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (unsigned char c : text) ids.push_back((int32_t)c);
+                                     ^
+11/39 files checked 23% done
+src/dist_coordinator_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/dist_join_main.cpp ...
+12/39 files checked 24% done
+src/dist_join_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/dist_node_main.cpp ...
+src/dist_join_main.cpp:67:23: style: C-style pointer casting [cstyleCast]
+    if (::connect(fd, (sockaddr*)&sa, sizeof(sa)) < 0) { dist::close_sock(fd); return ""; }
+                      ^
+src/dist_join_main.cpp:63:21: style: Variable 'he' can be declared as pointer to const [constVariablePointer]
+    struct hostent* he = gethostbyname(host.c_str());
+                    ^
+src/dist_join_main.cpp:218:29: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use replace() instead. [uselessCallsSubstr]
+                self_path = self_path.substr(0, slash + 1) + parts[0];
+                            ^
+src/dist_join_main.cpp:195:33: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& p : parts) cargv.push_back(const_cast<char*>(p.c_str()));
+                                ^
+Checking src/dist_join_main.cpp: _WIN32...
+src/dist_cli_split.cpp:612:47: style: Consider using std::any_of algorithm instead of a raw loop. [useStlAlgorithm]
+                if (s.hostname == r.hostname) { in_plan = true; break; }
+                                              ^
+src/dist_cli_split.cpp:445:22: style: Variable 'totl' is assigned a value that is never used. [unreadVariable]
+    std::string totl = rg ? human_bytes(rg->vram_total) : std::string("—");
+                     ^
+13/39 files checked 28% done
+Checking src/dist_vm_coordinator_main.cpp ...
+src/dist_vm_coordinator_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dist_join_main.cpp:209:29: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use replace() instead. [uselessCallsSubstr]
+                self_path = self_path.substr(0, slash + 1) + parts[0] + ".exe";
+                            ^
+14/39 files checked 29% done
+Checking src/dist_vm_node_main.cpp ...
+15/39 files checked 30% done
+src/dist_vm_node_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/dist_ws_client.cpp ...
+16/39 files checked 30% done
+src/dist_ws_client.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/gpu_lock.cpp ...
+Checking src/gpu_lock.cpp: _WIN32...
+src/dist_cli_main.cpp:84:44: style: The statement 'if (!started) started=true' is logically equivalent to 'started=true'. [duplicateConditionalAssign]
+        if (c == '[') { ++array_depth; if (!started) started = true; continue; }
+                                           ^
+src/dist_cli_main.cpp:84:62: note: Assignment 'started=true'
+        if (c == '[') { ++array_depth; if (!started) started = true; continue; }
+                                                             ^
+src/dist_cli_main.cpp:84:44: note: Condition '!started' is redundant
+        if (c == '[') { ++array_depth; if (!started) started = true; continue; }
+                                           ^
+17/39 files checked 30% done
+Checking src/nat_pingpong.cpp ...
+src/dist_node_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dist_cli_main.cpp:518:63: performance: Function parameter 'args' should be passed by const reference. [passedByValue]
+int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
+                                                              ^
+src/dist_cli_main.cpp:642:63: performance: Function parameter 'args' should be passed by const reference. [passedByValue]
+int cmd_logs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
+                                                              ^
+src/dist_cli_main.cpp:706:40: performance: Function parameter 'args' should be passed by const reference. [passedByValue]
+int cmd_login(std::vector<std::string> args) {
+                                       ^
+src/dist_cli_main.cpp:563:40: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use replace() instead. [uselessCallsSubstr]
+            if (gpu.size() > 12) gpu = gpu.substr(0, 11) + "…";
+                                       ^
+src/dist_cli_main.cpp:154:5: style: Consider using std::any_of algorithm instead of a raw loop. [useStlAlgorithm]
+    for (const auto& a : args) if (a == f) return true;
+    ^
+src/dist_cli_main.cpp:475:42: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+                    for (auto& c : id) c = static_cast<char>(std::tolower(c));
+                                         ^
+src/dist_cli_main.cpp:501:37: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+            for (auto& c : lower) c = static_cast<char>(std::tolower(c));
+                                    ^
+Checking src/dist_cli_main.cpp: _WIN32...
+src/nat_pingpong.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/dist_ws_client.cpp:85:18: style: C-style pointer casting [cstyleCast]
+                (struct sockaddr_in*)res->ai_addr,
+                 ^
+src/dist_ws_client.cpp:94:50: style: C-style pointer casting [cstyleCast]
+    ::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
+                                                 ^
+src/dist_ws_client.cpp:96:24: style: C-style pointer casting [cstyleCast]
+    if (::connect(fd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
+                       ^
+src/dist_ws_client.cpp:150:26: style: C-style pointer casting [cstyleCast]
+            n = SSL_read((SSL*)ssl_, buf, sizeof(buf));
+                         ^
+src/dist_ws_client.cpp:172:18: style: C-style pointer casting [cstyleCast]
+                (const uint8_t*)resp.data() + body_off,
+                 ^
+src/dist_ws_client.cpp:173:18: style: C-style pointer casting [cstyleCast]
+                (const uint8_t*)resp.data() + resp.size());
+                 ^
+src/dist_ws_client.cpp:234:26: style: C-style pointer casting [cstyleCast]
+            SSL_shutdown((SSL*)ssl_);
+                         ^
+src/dist_ws_client.cpp:235:22: style: C-style pointer casting [cstyleCast]
+            SSL_free((SSL*)ssl_);
+                     ^
+src/dist_ws_client.cpp:239:26: style: C-style pointer casting [cstyleCast]
+            SSL_CTX_free((SSL_CTX*)ssl_ctx_);
+                         ^
+src/dist_ws_client.cpp:277:22: style: C-style pointer casting [cstyleCast]
+    const char* p = (const char*)buf;
+                     ^
+src/dist_ws_client.cpp:281:27: style: C-style pointer casting [cstyleCast]
+            k = SSL_write((SSL*)ssl_, p, (int)n);
+                          ^
+src/dist_ws_client.cpp:283:45: style: C-style pointer casting [cstyleCast]
+                int ssl_err = SSL_get_error((SSL*)ssl_, k);
+                                            ^
+src/dist_ws_client.cpp:321:15: style: C-style pointer casting [cstyleCast]
+    char* p = (char*)buf;
+              ^
+src/dist_ws_client.cpp:342:26: style: C-style pointer casting [cstyleCast]
+            k = SSL_read((SSL*)ssl_, p, (int)n);
+                         ^
+src/dist_ws_client.cpp:344:45: style: C-style pointer casting [cstyleCast]
+                int ssl_err = SSL_get_error((SSL*)ssl_, k);
+                                            ^
+src/dist_ws_client.cpp:464:33: style: C-style pointer casting [cstyleCast]
+    return send_frame(OP_TEXT, (const uint8_t*)data.data(), data.size());
+                                ^
+src/dist_ws_client.cpp:526:29: style: C-style pointer casting [cstyleCast]
+                out.assign((const char*)buf.data(), buf.size());
+                            ^
+Checking src/dist_ws_client.cpp: _WIN32...
+src/dist_ws_client.cpp:256:26: style: C-style pointer casting [cstyleCast]
+                        (const char*)&tv, sizeof(tv)) == 0;
+                         ^
+18/39 files checked 33% done
+Checking src/nat_pmp.cpp ...
+19/39 files checked 35% done
+src/nat_pmp.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/nat_pmp.cpp:281:5: error: Using object that points to local variable 'buf' that is out of scope. [invalidLifetime]
+    m.external_port = ext_port;
+    ^
+src/nat_pmp.cpp:277:79: note: Array decayed to pointer here.
+                if (inet_ntop(AF_INET, &a, buf, sizeof(buf))) m.external_ip = buf;
+                                                                              ^
+src/nat_pmp.cpp:274:22: note: Variable created here.
+                char buf[INET_ADDRSTRLEN];
+                     ^
+src/nat_pmp.cpp:281:5: note: Using object that points to local variable 'buf' that is out of scope.
+    m.external_port = ext_port;
+    ^
+Checking src/nat_portmap_main.cpp ...
+src/nat_pmp.cpp:109:29: style: C-style pointer casting [cstyleCast]
+    ssize_t k = sendto(fd, (const char*)buf, (int)n, 0,
+                            ^
+src/nat_pmp.cpp:110:24: style: C-style pointer casting [cstyleCast]
+                       (sockaddr*)&sa, sizeof(sa));
+                       ^
+src/nat_pmp.cpp:117:25: style: C-style pointer casting [cstyleCast]
+    return recvfrom(fd, (char*)buf, (int)cap, 0, (sockaddr*)&sa, &sl);
+                        ^
+src/nat_portmap_main.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/nat_pmp.cpp: _WIN32...
+20/39 files checked 35% done
+Checking src/node_agent.cpp ...
+src/nat_pmp.cpp:94:24: style: C-style pointer casting [cstyleCast]
+                      (const char*)&t, sizeof(t)) == 0;
+                       ^
+Checking src/nat_pmp.cpp: __linux__...
+src/node_agent.cpp:319:16: style: Variable 'r' can be declared as reference to const [constVariableReference]
+    for (auto& r : ranges) std::cout << r.layer_first << "-" << r.layer_last << " ";
+               ^
+Checking src/node_agent.cpp: _WIN32...
+21/39 files checked 37% done
+Checking src/pipeline.cpp ...
+22/39 files checked 41% done
+Checking src/pp_engine.cpp ...
+23/39 files checked 42% done
+Checking src/runtime_adapter.cpp ...
+src/runtime_adapter.cpp:24:25: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                        ^
+24/39 files checked 43% done
+Checking src/sglang_adapter.cpp ...
+Checking src/dist_cli_main.cpp: __APPLE__...
+src/pp_engine.cpp:263:17: style: Variable 's' can be declared as reference to const [constVariableReference]
+    for (auto & s : seqs) total += s.n;
+                ^
+src/pp_engine.cpp:272:16: style: Variable 's' can be declared as reference to const [constVariableReference]
+        auto & s = seqs[si];
+               ^
+src/pp_engine.cpp:320:17: style: Variable 's' can be declared as reference to const [constVariableReference]
+    for (auto & s : seqs) total += s.n;
+                ^
+src/pp_engine.cpp:329:16: style: Variable 's' can be declared as reference to const [constVariableReference]
+        auto & s = seqs[si];
+               ^
+src/pp_engine.cpp:263:33: style: Consider using std::accumulate algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto & s : seqs) total += s.n;
+                                ^
+src/pp_engine.cpp:320:33: style: Consider using std::accumulate algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto & s : seqs) total += s.n;
+                                ^
+25/39 files checked 44% done
+src/sglang_adapter.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/shard_download.cpp ...
+src/shard_download.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+26/39 files checked 45% done
+Checking src/topology.cpp ...
+src/sglang_adapter.cpp:284:54: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use resize() or pop_back() instead. [uselessCallsSubstr]
+                if (semi != std::string::npos) raw = raw.substr(0, semi);
+                                                     ^
+src/sglang_adapter.cpp:52:25: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                        ^
+Checking src/sglang_adapter.cpp: _WIN32...
+27/39 files checked 46% done
+Checking src/trtllm_adapter.cpp ...
+28/39 files checked 52% done
+src/trtllm_adapter.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/vllm_adapter.cpp ...
+src/vllm_adapter.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+src/sglang_adapter.cpp:110:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/sglang_adapter.cpp:111:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/sglang_adapter.cpp:493:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/sglang_adapter.cpp:527:46: style: C-style pointer casting [cstyleCast]
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv0, sizeof(tv0));
+                                             ^
+29/39 files checked 55% done
+Checking src/vm_collective.cpp ...
+src/dist_node_main.cpp:2823:29: style: The if condition is the same as the previous if condition [duplicateCondition]
+                        if (engine_ok) {
+                            ^
+src/dist_node_main.cpp:2820:29: note: First condition
+                        if (engine_ok) {
+                            ^
+src/dist_node_main.cpp:2823:29: note: Second condition
+                        if (engine_ok) {
+                            ^
+src/dist_node_main.cpp:815:31: style: C-style pointer casting [cstyleCast]
+            if (::connect(sk, (sockaddr*)&sa, sizeof(sa)) == 0) {
+                              ^
+src/dist_node_main.cpp:1604:28: style: C-style pointer casting [cstyleCast]
+        pa.payload.assign((const char*)(data + hdr + 4), payload_len);
+                           ^
+src/dist_node_main.cpp:1739:35: style: C-style pointer casting [cstyleCast]
+            std::string hpayload((const char*) seq.out.data(),
+                                  ^
+src/dist_node_main.cpp:1757:35: style: C-style pointer casting [cstyleCast]
+            std::string hpayload((const char*) seq.out.data(),
+                                  ^
+src/dist_node_main.cpp:2009:41: style: C-style pointer casting [cstyleCast]
+                        payload.assign((const char*)(msg.data() + 16), payload_len);
+                                        ^
+src/dist_node_main.cpp:2452:34: style: C-style pointer casting [cstyleCast]
+                std::string txt((const char*)msg.data(), msg.size());
+                                 ^
+src/dist_node_main.cpp:3127:40: style: C-style pointer casting [cstyleCast]
+                    pa.payload.assign((const char*)(m2.data() + hdr + 4), payload_len);
+                                       ^
+src/dist_node_main.cpp:3139:34: style: C-style pointer casting [cstyleCast]
+                std::string txt((const char*)m2.data(), m2.size());
+                                 ^
+src/dist_node_main.cpp:1678:33: portability: Casting between const signed char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+                s.embd        = reinterpret_cast<const float*>(pa.payload.data());
+                                ^
+30/39 files checked 57% done
+Checking src/vm_context.cpp ...
+src/vllm_adapter.cpp:652:13: style: Condition '!fr.empty()' is always false [knownConditionTrueFalse]
+        if (!fr.empty()) sse.finish_reason = fr;
+            ^
+src/vllm_adapter.cpp:654:25: style: Condition '!text_esc.empty()' is always false [knownConditionTrueFalse]
+        if (has_text && !text_esc.empty()) {
+                        ^
+src/trtllm_adapter.cpp:240:54: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use resize() or pop_back() instead. [uselessCallsSubstr]
+                if (semi != std::string::npos) raw = raw.substr(0, semi);
+                                                     ^
+src/trtllm_adapter.cpp:46:25: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                        ^
+src/vllm_adapter.cpp:394:54: performance: Ineffective call of function 'substr' because a prefix of the string is assigned to itself. Use resize() or pop_back() instead. [uselessCallsSubstr]
+                if (semi != std::string::npos) raw = raw.substr(0, semi);
+                                                     ^
+src/vllm_adapter.cpp:68:25: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+    for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+                        ^
+Checking src/trtllm_adapter.cpp: _WIN32...
+src/vllm_adapter.cpp:623:17: style: Unused variable: raw [unusedVariable]
+    std::string raw;         // unchunked body buffer
+                ^
+Checking src/vllm_adapter.cpp: _WIN32...
+src/dist_node_main.cpp:1416:17: style: The scope of the variable 'engine_path' can be reduced. [variableScope]
+    std::string engine_path;  // local path of the downloaded shard
+                ^
+src/dist_node_main.cpp:1423:17: style: The scope of the variable 'infer_engine_path' can be reduced. [variableScope]
+    std::string infer_engine_path;
+                ^
+src/dist_node_main.cpp:1996:30: style: Local variable 'msg' shadows outer variable [shadowVariable]
+        std::vector<uint8_t> msg;
+                             ^
+src/dist_node_main.cpp:999:17: note: Shadowed declaration
+    std::string msg;
+                ^
+src/dist_node_main.cpp:1996:30: note: Shadow variable
+        std::vector<uint8_t> msg;
+                             ^
+src/dist_node_main.cpp:753:20: style: Variable 'a' can be declared as reference to const [constVariableReference]
+        for (auto& a : args) argv.push_back(a.data());
+                   ^
+31/39 files checked 60% done
+src/dist_node_main.cpp:753:35: style: Consider using std::transform algorithm instead of a raw loop. [useStlAlgorithm]
+        for (auto& a : args) argv.push_back(a.data());
+                                  ^
+Checking src/vm_coordinator.cpp ...
+src/dist_node_main.cpp:1441:33: style: Consider using std::find_if algorithm instead of a raw loop. [useStlAlgorithm]
+            if (h.file == file) {
+                                ^
+src/dist_node_main.cpp:2399:63: style: Consider using std::accumulate algorithm instead of a raw loop. [useStlAlgorithm]
+                    for (const auto & s : stops) max_stop_len = std::max(max_stop_len, s.size());
+                                                              ^
+src/dist_node_main.cpp:2421:99: style: Consider using std::any_of algorithm instead of a raw loop. [useStlAlgorithm]
+                                if (!s.empty() && out_text.find(s, tail_lo) != std::string::npos) {
+                                                                                                  ^
+32/39 files checked 62% done
+Checking src/vm_fault.cpp ...
+src/vm_fault.cpp:162:16: style: Variable 'nid' can be declared as reference to const [constVariableReference]
+    for (auto& nid : live) {
+               ^
+33/39 files checked 63% done
+Checking src/vm_node.cpp ...
+Checking src/dist_node_main.cpp: _WIN32...
+src/vllm_adapter.cpp:128:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/vllm_adapter.cpp:129:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/vllm_adapter.cpp:569:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/vllm_adapter.cpp:616:46: style: C-style pointer casting [cstyleCast]
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv0, sizeof(tv0));
+                                             ^
+34/39 files checked 67% done
+Checking src/vm_scheduler.cpp ...
+src/trtllm_adapter.cpp:96:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/trtllm_adapter.cpp:97:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/trtllm_adapter.cpp:379:50: style: C-style pointer casting [cstyleCast]
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+                                                 ^
+src/trtllm_adapter.cpp:411:46: style: C-style pointer casting [cstyleCast]
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv0, sizeof(tv0));
+                                             ^
+35/39 files checked 70% done
+src/vm_scheduler.cpp:0:0: information: Limiting analysis of branches. Use --check-level=exhaustive to analyze all branches. [normalCheckLevelMaxBranches]
+
+^
+Checking src/vm_tensor_registry.cpp ...
+src/vm_node.cpp:329:26: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* a = reinterpret_cast<const float*>(inputs[0].data());
+                         ^
+src/vm_node.cpp:330:26: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* b = reinterpret_cast<const float*>(inputs[1].data());
+                         ^
+src/vm_node.cpp:331:26: portability: Casting between unsigned char * and float * which have an incompatible binary data representation. [invalidPointerCast]
+        float*       c = reinterpret_cast<float*>(out.data());
+                         ^
+src/vm_node.cpp:342:26: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* a = reinterpret_cast<const float*>(inputs[0].data());
+                         ^
+src/vm_node.cpp:343:26: portability: Casting between unsigned char * and float * which have an incompatible binary data representation. [invalidPointerCast]
+        float*       c = reinterpret_cast<float*>(out.data());
+                         ^
+src/vm_node.cpp:352:26: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* x = reinterpret_cast<const float*>(inputs[0].data());
+                         ^
+src/vm_node.cpp:353:26: portability: Casting between unsigned char * and float * which have an incompatible binary data representation. [invalidPointerCast]
+        float*       y = reinterpret_cast<float*>(out.data());
+                         ^
+src/vm_node.cpp:366:29: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* gate = reinterpret_cast<const float*>(inputs[0].data());
+                            ^
+src/vm_node.cpp:367:29: portability: Casting between unsigned char * and const float * which have an incompatible binary data representation. [invalidPointerCast]
+        const float* up   = reinterpret_cast<const float*>(inputs[1].data());
+                            ^
+src/vm_node.cpp:368:29: portability: Casting between unsigned char * and float * which have an incompatible binary data representation. [invalidPointerCast]
+        float*       dst  = reinterpret_cast<float*>(out.data());
+                            ^
+Checking src/vm_node.cpp: GGML_USE_CUDA;GGML_USE_METAL...
+36/39 files checked 71% done
+37/39 files checked 72% done
+38/39 files checked 75% done
+Checking src/dist_node_main.cpp: __APPLE__...
+Checking src/dist_node_main.cpp: __linux__...
+39/39 files checked 100% done

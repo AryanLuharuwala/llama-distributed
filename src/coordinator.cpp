@@ -223,8 +223,14 @@ void Coordinator::client_thread_fn(std::shared_ptr<Connection> client_conn) {
             if (payload.size() < sizeof(MsgInferRequest)) continue;
             const auto& req = *reinterpret_cast<const MsgInferRequest*>(payload.data());
 
-            size_t tokens_offset = sizeof(MsgInferRequest);
-            size_t n_token_bytes = req.n_prompt_tokens * sizeof(int32_t);
+            // F-WIRE-02: cap peer-controlled count before resize() to bound
+            // the allocation, and do the multiplication in size_t so it
+            // cannot wrap into a tiny value that passes the bounds check.
+            if (req.n_prompt_tokens > MAX_PROMPT_TOKENS) continue;
+
+            const size_t tokens_offset = sizeof(MsgInferRequest);
+            const size_t n_token_bytes = static_cast<size_t>(req.n_prompt_tokens)
+                                         * sizeof(int32_t);
             if (payload.size() < tokens_offset + n_token_bytes) continue;
 
             std::vector<int32_t> token_ids(req.n_prompt_tokens);

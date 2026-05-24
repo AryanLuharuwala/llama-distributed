@@ -35,6 +35,19 @@ static constexpr uint32_t MAX_NODE_ID_LEN  = 64;
 static constexpr uint32_t HEARTBEAT_MS     = 2000;
 static constexpr uint32_t DEAD_NODE_MS     = 8000;
 
+// ─── Wire-bounds hardening (audit S1, F-WIRE-01..04) ────────────────────────
+// A peer may put any 32-bit number in a length field. Without caps, a single
+// crafted header can trigger 4 GiB+ allocations or wrap a size computation.
+// MAX_PAYLOAD_BYTES caps the framed Connection::recv_msg path (live, base
+// pipeline). MAX_TENSOR_BYTES caps individual tensor chunks (data plane).
+// MAX_PROMPT_TOKENS, MAX_LAYER_RANGES, MAX_OP_INPUTS are per-message item
+// caps that bound vector::resize() inputs from peer-supplied n_* counts.
+static constexpr size_t   MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;   //  64 MiB
+static constexpr size_t   MAX_TENSOR_BYTES  =  8 * 1024 * 1024;   //   8 MiB per chunk
+static constexpr uint32_t MAX_PROMPT_TOKENS = 65536;              //  64 K tokens
+static constexpr uint32_t MAX_LAYER_RANGES  = 1024;
+static constexpr uint32_t MAX_OP_INPUTS     = 64;
+
 // ─── Message types ──────────────────────────────────────────────────────────
 
 enum class MsgType : uint16_t {

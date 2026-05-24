@@ -1,0 +1,10 @@
+./tools/oci.bzl:15: module-docstring: The file has no module docstring.
+A module docstring is a string literal (not a comment) which should be the first statement of a file (it may follow comment lines). (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#module-docstring)
+./tools/oci.bzl:29: function-docstring-args: Arguments "name", "visibility" are not documented. (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#function-docstring-args)
+./cmd/dist-turn/BUILD.bazel:40: duplicated-name: A rule with name "dist-turn" was already found on line 25. Even if it's valid for Blaze, this may confuse other tools. Please rename it and use different names. (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#duplicated-name)
+./deploy/sign/BUILD.bazel:1: load: Loaded symbol "pkg_attributes" is unused. Please remove it.
+To disable the warning, add '@unused' in a comment. (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#load)
+./deploy/sign/BUILD.bazel:1: load: Loaded symbol "pkg_files" is unused. Please remove it.
+To disable the warning, add '@unused' in a comment. (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#load)
+./deploy/sign/BUILD.bazel:2: load: Loaded symbol "pkg_tar" is unused. Please remove it.
+To disable the warning, add '@unused' in a comment. (https://github.com/bazelbuild/buildtools/blob/main/WARNINGS.md#load)

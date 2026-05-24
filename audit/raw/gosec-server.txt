@@ -1,0 +1,701 @@
+[gosec] 2026/05/25 02:39:05 Including rules: default
+[gosec] 2026/05/25 02:39:05 Excluding rules: default
+[gosec] 2026/05/25 02:39:05 Including analyzers: default
+[gosec] 2026/05/25 02:39:05 Excluding analyzers: default
+[gosec] 2026/05/25 02:39:05 Import directory: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server
+[gosec] 2026/05/25 02:39:05 Import directory: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb
+[gosec] 2026/05/25 02:39:05 Checking package: ctrlpb
+[gosec] 2026/05/25 02:39:05 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb/ctrl.pb.go
+[gosec] 2026/05/25 02:39:07 Checking package: main
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/activation.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/agent_identity.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/agent_key.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/analytics_sink.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/chat_augment.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/chat_tools.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/comfy.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/conv_memory.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/cost_cache.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/cost_planner.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/counter_store.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/db.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/device_code.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dialect.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dialect_wrap.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/display_name.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dpp_route.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_search.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ip_ratelimit.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/macaroon.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/main.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/mcp.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/mcp_api.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/mcp_broker.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/metrics.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/models.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/otel_metrics.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/p2p_signal.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/plan_override.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/planner.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/pools.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/pp_route.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/prefix_affinity.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/protocol_version.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_api.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_bm25.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_chunker.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_embed.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_embed_fleet.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_ingest.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_rerank.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_retrieve.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/rag_sqlite.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ratelimit.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/redis_ratelimit.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/relay.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/reputation.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/router_otel.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/schema_migrations.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/server.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/shard_fetch_plan.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/shard_index.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/signal.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/singleflight_hf.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/spec_caps.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/spiffe.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/swarm.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/telemetry.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/tokenization.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/trusted_proxy.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/validation.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ws.go
+[gosec] 2026/05/25 02:39:07 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ws_codec.go
+Results:
+
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ws_codec.go:373[0m] - G115 (CWE-190): integer overflow conversion int64 -> int32 (Confidence: MEDIUM, Severity: HIGH)
+    372: func getInt32(m map[string]any, k string) int32 {
+  > 373: 	return int32(getInt64(m, k))
+    374: }
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/activation.go:94[0m] - G115 (CWE-190): integer overflow conversion int -> uint8 (Confidence: MEDIUM, Severity: HIGH)
+    93: 	out[14] = f.DType
+  > 94: 	out[15] = uint8(len(f.Dims))
+    95: 	out[16] = f.Flags
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:664[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    663: 	slotBilled = true
+  > 664: 	inTok, outTok = uint32(inSafe), uint32(outSafe)
+    665: 	if body.Memory != nil && body.Memory.SummarizeAfter {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:664[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    663: 	slotBilled = true
+  > 664: 	inTok, outTok = uint32(inSafe), uint32(outSafe)
+    665: 	if body.Memory != nil && body.Memory.SummarizeAfter {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:539[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    538: 	})
+  > 539: 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(prompt)), payloadJSON)
+    540: 	if !ac.sendBin(reqFrame) {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go:346[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    345: 	payloadJSON, _ := json.Marshal(pl)
+  > 346: 	reqFrame := encodeInferRequest(ip.reqID, uint32(estimateTokens(body.Prompt)), payloadJSON)
+    347: 	if !ac.sendBin(reqFrame) {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go:131[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    130: 	plen := binary.BigEndian.Uint32(b[20:24])
+  > 131: 	if uint32(len(b)) < 24+plen {
+    132: 		return nil, fmt.Errorf("truncated payload: got %d want %d", len(b)-24, plen)
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go:111[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    110: 	binary.BigEndian.PutUint32(hdr[16:20], tokOut)
+  > 111: 	binary.BigEndian.PutUint32(hdr[20:24], uint32(len(payload)))
+    112: 	buf = append(buf, hdr[:]...)
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go:72[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    71: 	binary.BigEndian.PutUint32(hdr[8:12], inputTokens)
+  > 72: 	binary.BigEndian.PutUint32(hdr[12:16], uint32(len(jsonPayload)))
+    73: 	buf = append(buf, hdr[:]...)
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/activation.go:102[0m] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    101: 	// payload_len right after dims, at offset 20 + 4*rank.
+  > 102: 	binary.BigEndian.PutUint32(out[fixedHdr+dimsSize:], uint32(len(f.Payload)))
+    103: 	copy(out[totalHdr:], f.Payload)
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/reputation.go:284[0m] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    283: 	seed := time.Now().UnixNano() ^ relayRngCounter.Add(1)
+  > 284: 	return mrand.New(mrand.NewSource(seed))
+    285: }
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:465[0m] - G704 (CWE-918): SSRF via taint analysis (Confidence: HIGH, Severity: HIGH)
+    464: 	githubAuth(req)
+  > 465: 	resp, err := c.Do(req)
+    466: 	if err != nil {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:459[0m] - G704 (CWE-918): SSRF via taint analysis (Confidence: HIGH, Severity: HIGH)
+    458: func fetchJSON(c *http.Client, url string, v any) bool {
+  > 459: 	req, err := http.NewRequest("GET", url, nil)
+    460: 	if err != nil {
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go:24[0m] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    23: 	googleAuthURL     = "https://accounts.google.com/o/oauth2/v2/auth"
+  > 24: 	googleTokenURL    = "https://oauth2.googleapis.com/token"
+    25: 	googleUserinfoURL = "https://openidconnect.googleapis.com/v1/userinfo"
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go:133[0m] - G101 (CWE-798): Potential hardcoded credentials (Confidence: LOW, Severity: HIGH)
+    132: const githubAuthorizeURL = "https://github.com/login/oauth/authorize"
+  > 133: const githubTokenURL = "https://github.com/login/oauth/access_token"
+    134: const githubUserURL = "https://api.github.com/user"
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/shard_fetch_plan.go:118[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    117: 		if shardsDir != "" {
+  > 118: 			if fi, err := os.Stat(filepath.Join(shardsDir, file)); err == nil {
+    119: 				sizeBytes = fi.Size()
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/models.go:282[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    281: 	}
+  > 282: 	http.ServeFile(w, r, filepath.Join(dir, file))
+    283: }
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:719[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    718: 	w.Header().Set("Cache-Control", "public, max-age=300")
+  > 719: 	http.ServeFile(w, r, path)
+    720: }
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:713[0m] - G703 (CWE-22): Path traversal via taint analysis (Confidence: HIGH, Severity: HIGH)
+    712: 	path := filepath.Join(s.cfg.releasesDir, "surd", cleaned)
+  > 713: 	if fi, err := os.Stat(path); err != nil || fi.IsDir() || fi.Size() == 0 {
+    714: 		writeErr(w, 404, "binary not published: "+cleaned)
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:666[0m] - G118 (CWE-400): Goroutine uses context.Background/TODO while request-scoped context is available (Confidence: MEDIUM, Severity: HIGH)
+    665: 	if body.Memory != nil && body.Memory.SummarizeAfter {
+  > 666: 		go s.summarizeChatTurnSafely(u.ID, body.Memory.ConversationID, origUserTurn, builder.String())
+    667: 	}
+
+Autofix: 
+
+[[97;41m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:605[0m] - G118 (CWE-400): Goroutine uses context.Background/TODO while request-scoped context is available (Confidence: MEDIUM, Severity: HIGH)
+    604: 					if body.Memory != nil && body.Memory.SummarizeAfter {
+  > 605: 						go s.summarizeChatTurnSafely(u.ID, body.Memory.ConversationID, origUserTurn, streamBuf.String())
+    606: 					}
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/server.go:617[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    616: func (s *server) clearSessionCookie(w http.ResponseWriter) {
+  > 617: 	http.SetCookie(w, &http.Cookie{
+    618: 		Name:     sessionCookieName,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/server.go:605[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    604: func (s *server) setSessionCookie(w http.ResponseWriter, sid string, expires time.Time) {
+  > 605: 	http.SetCookie(w, &http.Cookie{
+    606: 		Name:     sessionCookieName,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go:246[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    245: 		dest = c.Value
+  > 246: 		http.SetCookie(w, &http.Cookie{
+    247: 			Name: "oauth_next", Value: "", Path: "/auth", HttpOnly: true,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go:154[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    153: 	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+  > 154: 		http.SetCookie(w, &http.Cookie{
+    155: 			Name: "oauth_next", Value: next, Path: "/auth", HttpOnly: true,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go:149[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    148: 	})
+  > 149: 	http.SetCookie(w, &http.Cookie{
+    150: 		Name: "oidc_verifier", Value: verifier, Path: "/auth", HttpOnly: true,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go:145[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    144: 	secure := s.secureCookies()
+  > 145: 	http.SetCookie(w, &http.Cookie{
+    146: 		Name: "oidc_state", Value: state, Path: "/auth", HttpOnly: true,
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go:142[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    141: 		dest = c.Value
+  > 142: 		http.SetCookie(w, &http.Cookie{
+    143: 			Name:     "oauth_next",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go:52[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    51: 	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+  > 52: 		http.SetCookie(w, &http.Cookie{
+    53: 			Name:     "oauth_next",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go:42[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    41: 	secure := s.secureCookies()
+  > 42: 	http.SetCookie(w, &http.Cookie{
+    43: 		Name:     "oauth_state",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go:256[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    255: 		// Clear the cookie so it doesn't sticky across logins.
+  > 256: 		http.SetCookie(w, &http.Cookie{
+    257: 			Name:     "oauth_next",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go:155[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    154: 	if next := r.URL.Query().Get("next"); next != "" && strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+  > 155: 		http.SetCookie(w, &http.Cookie{
+    156: 			Name:     "oauth_next",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go:143[0m] - G124 (CWE-614): http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute (Confidence: HIGH, Severity: MEDIUM)
+    142: 	secure := s.secureCookies()
+  > 143: 	http.SetCookie(w, &http.Cookie{
+    144: 		Name:     "oauth_state",
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/models.go:130[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    129: 	}
+  > 130: 	cmd := exec.Command(splitter, body.SrcPath, shardsDir, strconv.Itoa(body.NStages))
+    131: 	out, err := cmd.CombinedOutput()
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:1276[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    1275: 	}
+  > 1276: 	out, err := exec.Command(splitter, src, dst, strconv.Itoa(n)).CombinedOutput()
+    1277: 	if err != nil {
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go:160[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    159: 	}
+  > 160: 	cmd := exec.Command(pythonBin, args...)
+    161: 	// Plumb stderr to our own so a stuck converter is debuggable from the
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/models.go:331[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    330: func readShardManifest(dir string) (*shardManifest, error) {
+  > 331: 	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+    332: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:646[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    645: 	}
+  > 646: 	f, err := os.Create(part)
+    647: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:381[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    380: 	}
+  > 381: 	f, err := os.Open(dst)
+    382: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:343[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    342: 		}
+  > 343: 		f, err := os.OpenFile(dst, flag, 0o644)
+    344: 		if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oidc.go:251[0m] - G710 (CWE): Open redirect via taint analysis (Confidence: HIGH, Severity: MEDIUM)
+    250: 	}
+  > 251: 	http.Redirect(w, r, dest, http.StatusFound)
+    252: }
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth_google.go:151[0m] - G710 (CWE): Open redirect via taint analysis (Confidence: HIGH, Severity: MEDIUM)
+    150: 	}
+  > 151: 	http.Redirect(w, r, dest, http.StatusFound)
+    152: }
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/oauth.go:265[0m] - G710 (CWE): Open redirect via taint analysis (Confidence: HIGH, Severity: MEDIUM)
+    264: 	}
+  > 265: 	http.Redirect(w, r, dest, http.StatusFound)
+    266: }
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:343[0m] - G302 (CWE-276): Expect file permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    342: 		}
+  > 343: 		f, err := os.OpenFile(dst, flag, 0o644)
+    344: 		if err != nil {
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/models.go:121[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    120: 	shardsDir := filepath.Join(s.cfg.modelsDir, sanitizeModelName(body.Name))
+  > 121: 	if err := os.MkdirAll(shardsDir, 0o755); err != nil {
+    122: 		writeErr(w, 500, "mkdir: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/install.go:565[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    564: 
+  > 565: 	if err := os.MkdirAll(s.cfg.releasesDir, 0o755); err != nil {
+    566: 		return "", err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:1126[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    1125: 	shardsDir := filepath.Join(s.cfg.modelsDir, sanitizeModelName(modelName))
+  > 1126: 	if err := os.MkdirAll(shardsDir, 0o755); err != nil {
+    1127: 		s.hfFail(jobID, uid, "mkdir shards: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:1043[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    1042: 		sanitizeModelName(repoID)+"-"+strconv.FormatInt(jobID, 10))
+  > 1043: 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+    1044: 		s.hfFail(jobID, uid, "mkdir staging: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:473[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    472: 		}
+  > 473: 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+    474: 			return fmt.Errorf("mkdir: %w", err)
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go:267[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    266: 	shardsDir := filepath.Join(s.cfg.modelsDir, sanitizeModelName(modelName))
+  > 267: 	if err := os.MkdirAll(shardsDir, 0o755); err != nil {
+    268: 		s.hfFail(jobID, uid, "mkdir shards: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go:223[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    222: 		dst := filepath.Join(stagingDir, filepath.FromSlash(f.Path))
+  > 223: 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+    224: 			s.hfFail(jobID, uid, "mkdir: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go:201[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    200: 	stagingDir := filepath.Join(s.cfg.modelsDir, ".hf-staging", fmt.Sprintf("%d", jobID))
+  > 201: 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+    202: 		s.hfFail(jobID, uid, "staging mkdir: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_convert.go:151[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    150: 	}
+  > 151: 	if err := os.MkdirAll(outDir, 0o755); err != nil {
+    152: 		return "", err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dpp_route.go:610[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    609: 	dir := filepath.Join(s.cfg.comfyOutDir, strconv.FormatInt(jobID, 10))
+  > 610: 	if err := os.MkdirAll(dir, 0o755); err != nil {
+    611: 		return "", err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/comfy.go:867[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    866: 	outDir := filepath.Join(s.cfg.comfyOutDir, strconv.FormatInt(jobID, 10))
+  > 867: 	if err := os.MkdirAll(outDir, 0o755); err != nil {
+    868: 		s.comfyFail(jobID, uid, "mkdir out: "+err.Error())
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dpp_route.go:613[0m] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    612: 	}
+  > 613: 	if err := os.WriteFile(filepath.Join(dir, file), data, 0o644); err != nil {
+    614: 		return "", err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/comfy.go:988[0m] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    987: 			dst := filepath.Join(outDir, name)
+  > 988: 			if err := os.WriteFile(dst, msg.Data, 0o644); err != nil {
+    989: 				return written, err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/signal.go:24[0m] - G505 (CWE-327): Blocklisted import crypto/sha1: weak cryptographic primitive (Confidence: HIGH, Severity: MEDIUM)
+    23: 	"crypto/hmac"
+  > 24: 	"crypto/sha1"
+    25: 	"crypto/sha256"
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb/ctrl.pb.go:1224[0m] - G103 (CWE-242): Use of unsafe calls should be audited (Confidence: HIGH, Severity: LOW)
+    1223: 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
+  > 1224: 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_distpool_ctrl_v1_ctrl_proto_rawDesc), len(file_distpool_ctrl_v1_ctrl_proto_rawDesc)),
+    1225: 			NumEnums:      0,
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb/ctrl.pb.go:1224[0m] - G103 (CWE-242): Use of unsafe calls should be audited (Confidence: HIGH, Severity: LOW)
+    1223: 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
+  > 1224: 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_distpool_ctrl_v1_ctrl_proto_rawDesc), len(file_distpool_ctrl_v1_ctrl_proto_rawDesc)),
+    1225: 			NumEnums:      0,
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb/ctrl.pb.go:1160[0m] - G103 (CWE-242): Use of unsafe calls should be audited (Confidence: HIGH, Severity: LOW)
+    1159: 	file_distpool_ctrl_v1_ctrl_proto_rawDescOnce.Do(func() {
+  > 1160: 		file_distpool_ctrl_v1_ctrl_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_distpool_ctrl_v1_ctrl_proto_rawDesc), len(file_distpool_ctrl_v1_ctrl_proto_rawDesc)))
+    1161: 	})
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ctrlpb/ctrl.pb.go:1160[0m] - G103 (CWE-242): Use of unsafe calls should be audited (Confidence: HIGH, Severity: LOW)
+    1159: 	file_distpool_ctrl_v1_ctrl_proto_rawDescOnce.Do(func() {
+  > 1160: 		file_distpool_ctrl_v1_ctrl_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_distpool_ctrl_v1_ctrl_proto_rawDesc), len(file_distpool_ctrl_v1_ctrl_proto_rawDesc)))
+    1161: 	})
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/ws.go:809[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    808: 			} else {
+  > 809: 				log.Printf("agent %s: bound to SPIFFE ID %s", hello.AgentID, id)
+    810: 			}
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/server.go:469[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    468: 		}
+  > 469: 		log.Printf("[%s] %s %s -> %d in %s",
+    470: 			rid, r.Method, r.URL.Path, sr.status, dur)
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/relay.go:205[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    204: 				// a corrupted stream.
+  > 205: 				log.Printf("relay: agent buffer full (%d bytes), closing relay to surface back-pressure", len(buf))
+    206: 				_ = wsjsonWrite(ctx, conn, map[string]any{
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/main.go:502[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    501: 			srv.counters = store
+  > 502: 			log.Printf("bigtable counters: enabled (project=%s instance=%s table=%s)",
+    503: 				btCfg.ProjectID, btCfg.InstanceID, btCfg.TableID)
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/main.go:480[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    479: 			srv.analytics = sink
+  > 480: 			log.Printf("bigquery sink: enabled (%s.%s.%s)",
+    481: 				bqCfg.ProjectID, bqCfg.DatasetID, bqCfg.TableID)
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/inference.go:628[0m] - G706 (CWE-117): Log injection via taint analysis (Confidence: HIGH, Severity: LOW)
+    627: 		if !rp.sendBin(buf) {
+  > 628: 			log.Printf("relay: client buffer full, dropping %d bytes", len(buf))
+    629: 		}
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/swarm.go:156[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    155: 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  > 156: 	w.Write([]byte(swarmHTML))
+    157: }
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/server.go:340[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    339: 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+  > 340: 		w.Write([]byte("ok"))
+    341: 	})
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/pools.go:334[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    333: 	}
+  > 334: 	rrows.Close()
+    335: 
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/pools.go:313[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    312: 	}
+  > 313: 	mrows.Close()
+    314: 
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/plan_override.go:171[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    170: 	}
+  > 171: 	rows.Close()
+    172: 
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/openai.go:123[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    122: 	}
+  > 123: 	rows.Close()
+    124: 	for _, r := range todo {
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:351[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    350: 		_ = f.Close()
+  > 351: 		resp.Body.Close()
+    352: 		if err == nil {
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:345[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    344: 		if err != nil {
+  > 345: 			resp.Body.Close()
+    346: 			return err
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:329[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    328: 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+  > 329: 			resp.Body.Close()
+    330: 			lastErr = fmt.Errorf("hf download status %d: %s", resp.StatusCode, string(body))
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:324[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    323: 		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+  > 324: 			resp.Body.Close()
+    325: 			return fmt.Errorf("hf auth rejected (status %d) — check your HF token", resp.StatusCode)
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/hf_download.go:320[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    319: 			// Already complete from a prior attempt.
+  > 320: 			resp.Body.Close()
+    321: 			return nil
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go:746[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    745: 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  > 746: 	w.Write(nexusHTML)
+    747: }
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go:730[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    729: 	w.Header().Set("Cache-Control", "no-store")
+  > 730: 	w.Write(playgroundHTML)
+    731: }
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go:712[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    711: 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  > 712: 	w.Write(observatoryHTML)
+    713: }
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go:700[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    699: 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  > 700: 	w.Write(consoleHTML)
+    701: }
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/dashboard_api.go:635[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    634: 		}
+  > 635: 		rrows.Close()
+    636: 	}
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/agent_key.go:131[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    130: 	}
+  > 131: 	rows.Close()
+    132: 	if len(todo) == 0 {
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/agent_key.go:128[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    127: 	if err := rows.Err(); err != nil {
+  > 128: 		rows.Close()
+    129: 		return err
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/server/agent_key.go:122[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    121: 		if err := rows.Scan(&id, &key); err != nil {
+  > 122: 			rows.Close()
+    123: 			return err
+
+Autofix: 
+
+[1;36mSummary:[0m
+  Gosec  : dev
+  Files  : 74
+  Lines  : 26640
+  Nosec  : 0
+  Issues : [1;31m87[0m
+

@@ -1,0 +1,157 @@
+[gosec] 2026/05/25 02:39:05 Including rules: default
+[gosec] 2026/05/25 02:39:05 Excluding rules: default
+[gosec] 2026/05/25 02:39:05 Including analyzers: default
+[gosec] 2026/05/25 02:39:05 Excluding analyzers: default
+[gosec] 2026/05/25 02:39:05 Import directory: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd
+[gosec] 2026/05/25 02:39:05 Checking package: main
+[gosec] 2026/05/25 02:39:05 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go
+Results:
+
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:1025[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    1024: 	default:
+  > 1025: 		cmd = exec.Command("xdg-open", url)
+    1026: 	}
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:1023[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    1022: 	case "windows":
+  > 1023: 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+    1024: 	default:
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:1021[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    1020: 	case "darwin":
+  > 1021: 		cmd = exec.Command("open", url)
+    1022: 	case "windows":
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:846[0m] - G204 (CWE-78): Subprocess launched with variable (Confidence: HIGH, Severity: MEDIUM)
+    845: func runStream(name string, args ...string) error {
+  > 846: 	cmd := exec.Command(name, args...)
+    847: 	cmd.Stdout = os.Stdout
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:363[0m] - G204 (CWE-78): Subprocess launched with a potential tainted input or cmd arguments (Confidence: HIGH, Severity: MEDIUM)
+    362: 	defer cancel()
+  > 363: 	cmd := exec.CommandContext(ctx, *binary, argv...)
+    364: 	cmd.Stdout = os.Stdout
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:589[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    588: 
+  > 589: 	raw, err := os.ReadFile(pidPath)
+    590: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:81[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    80: 	p := credsPath()
+  > 81: 	b, err := os.ReadFile(p)
+    82: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:938[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    937: 	p := launchdPlistPath()
+  > 938: 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+    939: 		return err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:917[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    916: 	logDir := filepath.Join(home, "Library", "Logs", "surd")
+  > 917: 	_ = os.MkdirAll(logDir, 0o755)
+    918: 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:879[0m] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    878: 	p := systemdUnitPath()
+  > 879: 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+    880: 		return err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:941[0m] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    940: 	}
+  > 941: 	if err := os.WriteFile(p, []byte(plist), 0o644); err != nil {
+    942: 		return err
+
+Autofix: 
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:882[0m] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    881: 	}
+  > 882: 	if err := os.WriteFile(p, []byte(unit), 0o644); err != nil {
+    883: 		return err
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:683[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    682: 	jsonOut := fs.Bool("json", false, "machine-readable output")
+  > 683: 	fs.Parse(args)
+    684: 	if *pool == "" {
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:653[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    652: 	if *jsonOut {
+  > 653: 		os.Stdout.Write(raw)
+    654: 		return nil
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:635[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    634: 	jsonOut := fs.Bool("json", false, "machine-readable output")
+  > 635: 	fs.Parse(args)
+    636: 	creds, err := loadCreds()
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:575[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    574: 	jsonOut := fs.Bool("json", false, "machine-readable output")
+  > 575: 	fs.Parse(args)
+    576: 
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:495[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    494: 		if *jsonOut {
+  > 495: 			os.Stdout.Write(raw)
+    496: 			return nil
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:464[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    463: 	remote := fs.Bool("remote", false, "fetch live state from /api/widget/state")
+  > 464: 	fs.Parse(args)
+    465: 	creds, err := loadCreds()
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:300[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    299: 	dryRun := fs.Bool("dry-run", false, "print the dist-node command and exit")
+  > 300: 	fs.Parse(args)
+    301: 
+
+Autofix: 
+
+[[37;40m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/surd/main.go:160[0m] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    159: 	openBrowser := fs.Bool("open", true, "try to open the verification URL in a browser")
+  > 160: 	fs.Parse(args)
+    161: 	if *server == "" {
+
+Autofix: 
+
+[1;36mSummary:[0m
+  Gosec  : dev
+  Files  : 1
+  Lines  : 1028
+  Nosec  : 0
+  Issues : [1;31m20[0m
+

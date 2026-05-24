@@ -1,0 +1,31 @@
+[gosec] 2026/05/25 02:39:05 Including rules: default
+[gosec] 2026/05/25 02:39:05 Excluding rules: default
+[gosec] 2026/05/25 02:39:05 Including analyzers: default
+[gosec] 2026/05/25 02:39:05 Excluding analyzers: default
+[gosec] 2026/05/25 02:39:05 Import directory: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/dist-turn
+[gosec] 2026/05/25 02:39:05 Checking package: main
+[gosec] 2026/05/25 02:39:05 Checking file: /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/dist-turn/main.go
+Results:
+
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/dist-turn/main.go:517[0m] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    516: func readState(dir, name string) (string, error) {
+  > 517: 	b, err := os.ReadFile(filepath.Join(dir, name))
+    518: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[[30;43m/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/cmd/dist-turn/main.go:45[0m] - G505 (CWE-327): Blocklisted import crypto/sha1: weak cryptographic primitive (Confidence: HIGH, Severity: MEDIUM)
+    44: 	"crypto/rand"
+  > 45: 	"crypto/sha1"
+    46: 	"encoding/base64"
+
+Autofix: 
+
+[1;36mSummary:[0m
+  Gosec  : dev
+  Files  : 1
+  Lines  : 652
+  Nosec  : 0
+  Issues : [1;31m2[0m
+

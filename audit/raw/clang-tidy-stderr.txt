@@ -1,0 +1,10 @@
+[1/5] Processing file /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp.
+84199 warnings generated.
+[2/5] Processing file /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp.
+170573 warnings generated.
+[3/5] Processing file /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp.
+272700 warnings generated.
+[4/5] Processing file /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp.
+348157 warnings generated.
+[5/5] Processing file /home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp.
+415076 warnings generated.

@@ -1,0 +1,1889 @@
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:47:28: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+   47 |     out.reserve(s.size() + 8);
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:57:53: warning: 0x20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+   57 |                 if (static_cast<unsigned char>(c) < 0x20) {
+      |                                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:58:30: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+   58 |                     char buf[8];
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:59:21: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+   59 |                     std::snprintf(buf, sizeof(buf), "\\u%04x", c & 0xFF);
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:59:21: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:59:68: warning: 0xFF is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+   59 |                     std::snprintf(buf, sizeof(buf), "\\u%04x", c & 0xFF);
+      |                                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:72:38: warning: 2 adjacent parameters of 'json_string_field' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+   72 | static std::string json_string_field(const std::string& js, const std::string& key) {
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:72:57: note: the first parameter in the range is 'js'
+   72 | static std::string json_string_field(const std::string& js, const std::string& key) {
+      |                                                         ^~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:72:80: note: the last parameter in the range is 'key'
+   72 | static std::string json_string_field(const std::string& js, const std::string& key) {
+      |                                                                                ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:157:39: warning: 2 adjacent parameters of 'build_signal_frame' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  157 |                                       const std::string& sessionID,
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  158 |                                       const std::string& extraFields) {
+      |                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:157:58: note: the first parameter in the range is 'sessionID'
+  157 |                                       const std::string& sessionID,
+      |                                                          ^~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:158:58: note: the last parameter in the range is 'extraFields'
+  158 |                                       const std::string& extraFields) {
+      |                                                          ^~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:171:81: warning: the parameter 'dc' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  171 | static void wire_data_channel(ActvPeer* self, std::shared_ptr<rtc::DataChannel> dc) {
+      |                                                                                 ^
+      |                                               const                            &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:232:57: warning: the parameter 'desc' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  232 |     self->pc->onLocalDescription([raw](rtc::Description desc) {
+      |                                                         ^
+      |                                        const           &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:245:53: warning: the parameter 'cand' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  245 |     self->pc->onLocalCandidate([raw](rtc::Candidate cand) {
+      |                                                     ^
+      |                                      const         &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:256:32: warning: parameter 'incoming' is passed by value and only copied once; consider moving it to avoid unnecessary copies [performance-unnecessary-value-param]
+   33 |         wire_data_channel(raw, incoming);
+      |                                ^       
+      |                                std::move( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:269:36: warning: 2 adjacent parameters of 'handle_signal' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  269 | void handle_signal(ActvPeer& peer, const std::string& kind,
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~~~
+  270 |                    const std::string& payload_json) {
+      |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:269:55: note: the first parameter in the range is 'kind'
+  269 | void handle_signal(ActvPeer& peer, const std::string& kind,
+      |                                                       ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:270:39: note: the last parameter in the range is 'payload_json'
+  270 |                    const std::string& payload_json) {
+      |                                       ^~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:324:7: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  324 |     } catch (...) {}
+      |       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:345:17: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  345 |     uint8_t req[20];
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:352:18: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  352 |     for (int i = 8; i < 20; ++i) req[i] = static_cast<uint8_t>(rng() & 0xff);
+      |                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:352:25: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  352 |     for (int i = 8; i < 20; ++i) req[i] = static_cast<uint8_t>(rng() & 0xff);
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:352:72: warning: 0xff is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  352 |     for (int i = 8; i < 20; ++i) req[i] = static_cast<uint8_t>(rng() & 0xff);
+      |                                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:359:25: warning: 2500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  359 |     if (::poll(&pfd, 1, 2500) <= 0) return false;
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:361:17: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  361 |     uint8_t buf[1024];
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:366:13: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  366 |     if (n < 20 || buf[0] != 0x01 || buf[1] != 0x01) return false;
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:368:18: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  368 |     size_t off = 20;
+      |                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:370:48: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  370 |         uint16_t type = (uint16_t(buf[off]) << 8) | buf[off + 1];
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:371:52: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  371 |         uint16_t alen = (uint16_t(buf[off + 2]) << 8) | buf[off + 3];
+      |                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:374:22: warning: 0x0020 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  374 |         if ((type == 0x0020 || type == 0x0001) && alen >= 8 && buf[off + 1] == 0x01) {
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:374:59: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  374 |         if ((type == 0x0020 || type == 0x0001) && alen >= 8 && buf[off + 1] == 0x01) {
+      |                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:375:53: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  375 |             uint16_t p = (uint16_t(buf[off + 2]) << 8) | buf[off + 3];
+      |                                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:378:25: warning: 0x0020 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  378 |             if (type == 0x0020) {
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:379:64: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  379 |                 p ^= static_cast<uint16_t>(kStunMagicCookie >> 16);
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:398:13: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  398 |     char pb[8];
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:399:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  399 |     std::snprintf(pb, sizeof(pb), "%u", port);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:399:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:431:46: warning: 19302 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  431 |     if (!resolve_udp_v4("stun.l.google.com", 19302, stun)) {
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:451:29: warning: 600 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  451 |         if (::poll(&pfd, 1, 600) > 0) {
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:452:25: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  452 |             uint8_t buf[256];
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:509:11: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  509 |         } catch (...) { /* ignore — bad URL */ }
+      |           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:522:11: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  522 |         } catch (...) {}
+      |           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:550:29: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  550 |                 sec = sec * 10 + (ip[p] - '0');
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:553:24: warning: 64 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  553 |             if (sec >= 64 && sec <= 127) return true;
+      |                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:553:37: warning: 127 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  553 |             if (sec >= 64 && sec <= 127) return true;
+      |                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:559:29: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  559 |                 sec = sec * 10 + (ip[p] - '0');
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:562:24: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  562 |             if (sec >= 16 && sec <= 31) return true;
+      |                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:562:37: warning: 31 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  562 |             if (sec >= 16 && sec <= 31) return true;
+      |                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:577:49: warning: the parameter 'cand' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  577 |         pc->onLocalCandidate([&](rtc::Candidate cand) {
+      |                                                 ^
+      |                                  const         &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:597:30: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  597 |             if (tok.size() < 8) return;
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:600:29: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  600 |             for (size_t i = 5; i + 1 < tok.size(); ++i) {
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:618:34: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  618 |                 if (tok.size() > 5) {
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:621:39: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  621 |                         port = port * 10 + (c - '0');
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/actv_p2p.cpp:651:30: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  651 |         try { pc->close(); } catch (...) {}
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:127:46: warning: the parameter 'node_id' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  127 | void Coordinator::node_thread_fn(std::string node_id) {
+      |                                              ^
+      |                                  const      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:215:64: warning: the parameter 'client_conn' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  215 | void Coordinator::client_thread_fn(std::shared_ptr<Connection> client_conn) {
+      |                                                                ^
+      |                                    const                      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:242:63: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  242 |         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      |                                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:271:41: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  271 |                     uint32_t n_layers = 32; // TODO: read from model file
+      |                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:348:55: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  348 |         for (uint32_t i = 0; i < n->cap.n_gpus && i < 8; ++i)
+      |                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:374:28: warning: unused local variable 'mpath' of type 'std::string' (aka 'basic_string<char>') [bugprone-unused-local-non-trivial-variable]
+  374 |         std::string mname, mpath;
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:403:35: warning: 2 adjacent parameters of 'make_plan' of similar type ('uint32_t') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  403 |                                   uint32_t n_layers,
+      |                                   ^~~~~~~~~~~~~~~~~~
+  404 |                                   uint32_t n_ctx) {
+      |                                   ~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:403:44: note: the first parameter in the range is 'n_layers'
+  403 |                                   uint32_t n_layers,
+      |                                            ^~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:404:44: note: the last parameter in the range is 'n_ctx'
+  404 |                                   uint32_t n_ctx) {
+      |                                            ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:442:61: warning: narrowing conversion from 'uint64_t' (aka 'unsigned long') to 'double' [bugprone-narrowing-conversions]
+  442 |             share = (uint32_t)((double)candidates[i].vram / total_vram * n_layers);
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:519:67: warning: the parameter 'client' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  519 | void Coordinator::route_infer_request(std::shared_ptr<Connection> client,
+      |                                                                   ^
+      |                                       const                      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:38: warning: 3 adjacent parameters of 'on_token_generated' of convertible types are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  584 |                                       uint32_t pos, bool is_last) {
+      |                                       ~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:47: note: the first parameter in the range is 'req_id'
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                               ^~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:584:48: note: the last parameter in the range is 'pos'
+  584 |                                       uint32_t pos, bool is_last) {
+      |                                                ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:38: note: 
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:55: note: 'uint64_t' and 'int32_t' may be implicitly converted: 'uint64_t' (as 'unsigned long') -> 'int32_t' (as 'int'), 'int32_t' (as 'int') -> 'uint64_t' (as 'unsigned long')
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:38: note: 
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:584:39: note: 'uint64_t' and 'uint32_t' may be implicitly converted: 'uint64_t' (as 'unsigned long') -> 'uint32_t' (as 'unsigned int'), 'uint32_t' (as 'unsigned int') -> 'uint64_t' (as 'unsigned long')
+  584 |                                       uint32_t pos, bool is_last) {
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:583:55: note: 
+  583 | void Coordinator::on_token_generated(uint64_t req_id, int32_t token_id,
+      |                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:584:39: note: 'int32_t' and 'uint32_t' may be implicitly converted: 'int32_t' (as 'int') -> 'uint32_t' (as 'unsigned int'), 'uint32_t' (as 'unsigned int') -> 'int32_t' (as 'int')
+  584 |                                       uint32_t pos, bool is_last) {
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:659:37: warning: 3600ull is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  659 |     result.expires_at_us = now_us + 3600ull * 1000000ull; // 1h session
+      |                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:659:47: warning: 1000000ull is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  659 |     result.expires_at_us = now_us + 3600ull * 1000000ull; // 1h session
+      |                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:708:31: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  708 |             if (raw.size() == 32) {
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:709:64: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  709 |                 std::memcpy(issuer_secret_.data(), raw.data(), 32);
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:730:46: warning: 3 adjacent parameters of 'make_receipt' of similar type ('uint64_t') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  730 |                                              uint64_t window_end_us,
+      |                                              ^~~~~~~~~~~~~~~~~~~~~~~
+  731 |                                              uint64_t tokens,
+      |                                              ~~~~~~~~~~~~~~~~
+  732 |                                              uint64_t bytes) {
+      |                                              ~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:730:55: note: the first parameter in the range is 'window_end_us'
+  730 |                                              uint64_t window_end_us,
+      |                                                       ^~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:732:55: note: the last parameter in the range is 'bytes'
+  732 |                                              uint64_t bytes) {
+      |                                                       ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/coordinator.cpp:745:60: warning: 1000000ull is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  745 |                       ((window_end_us - window_start_us) / 1000000ull);
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:101:21: warning: 2 adjacent parameters of 'find_top_array' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  101 | bool find_top_array(const std::string& body, const std::string& key,
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:101:40: note: the first parameter in the range is 'body'
+  101 | bool find_top_array(const std::string& body, const std::string& key,
+      |                                        ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:101:65: note: the last parameter in the range is 'key'
+  101 | bool find_top_array(const std::string& body, const std::string& key,
+      |                                                                 ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:141:53: warning: 0x20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  141 |                 if (static_cast<unsigned char>(c) < 0x20) {
+      |                                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:142:30: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  142 |                     char buf[8];
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:143:21: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  143 |                     std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:143:21: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:158:55: warning: 2 adjacent parameters of 'opt' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  158 | std::string opt(const std::vector<std::string>& args, const std::string& key,
+      |                                                       ^~~~~~~~~~~~~~~~~~~~~~~
+  159 |                 const std::string& dflt = "") {
+      |                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:158:74: note: the first parameter in the range is 'key'
+  158 | std::string opt(const std::vector<std::string>& args, const std::string& key,
+      |                                                                          ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:159:36: note: the last parameter in the range is 'dflt'
+  159 |                 const std::string& dflt = "") {
+      |                                    ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:177:21: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  177 |         r.status == 200) {
+      |                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:211:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  211 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:230:21: warning: the variable 'name' is copy-constructed from a const reference but is only used as const reference; consider making it a const reference [performance-unnecessary-copy-initialization]
+  230 |         std::string name = args[0];
+      |                     ^
+      |         const      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:236:64: warning: 300 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  236 |                               {bearer}, r, err) || r.status >= 300) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:254:64: warning: 300 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  254 |                               {bearer}, r, err) || r.status >= 300) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:272:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  272 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:298:64: warning: 300 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  298 |                               {bearer}, r, err) || r.status >= 300) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:317:64: warning: 300 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  317 |                               {bearer}, r, err) || r.status >= 300) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:342:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  342 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:355:25: warning: 1024.0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  355 |             while (v >= 1024.0 && u < 5) { v /= 1024.0; ++u; }
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:355:39: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  355 |             while (v >= 1024.0 && u < 5) { v /= 1024.0; ++u; }
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:355:49: warning: 1024.0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  355 |             while (v >= 1024.0 && u < 5) { v /= 1024.0; ++u; }
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:356:22: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  356 |             char buf[32];
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:357:25: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  357 |             if (u == 0) std::snprintf(buf, sizeof(buf), "%lld %s", n, units[u]);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:357:25: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:358:25: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  358 |             else        std::snprintf(buf, sizeof(buf), "%.1f %s", v, units[u]);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:358:25: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:365:76: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  365 |             try { sz = std::stoll(dc::json_peek_int(obj, "size_bytes")); } catch (...) {}
+      |                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:384:64: warning: 300 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  384 |                               {bearer}, r, err) || r.status >= 300) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:400:21: warning: the variable 'q' is copy-constructed from a const reference but is only used as const reference; consider making it a const reference [performance-unnecessary-copy-initialization]
+  400 |         std::string q = args[0];
+      |                     ^
+      |         const      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:411:32: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  411 |                     char b[4]; std::snprintf(b, sizeof(b), "%%%02X", c);
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:411:32: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:423:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  423 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:457:32: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  457 |                     char b[4]; std::snprintf(b, sizeof(b), "%%%02X", c);
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:457:32: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:469:70: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  469 |                                  {bearer}, lr, lerr) && lr.status == 200) {
+      |                                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:488:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  488 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:527:66: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  527 |                                 {bearer}, r, err) && r.status == 200;
+      |                                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:538:25: warning: 1024.0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  538 |             while (v >= 1024.0 && u < 4) { v /= 1024.0; ++u; }
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:538:49: warning: 1024.0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  538 |             while (v >= 1024.0 && u < 4) { v /= 1024.0; ++u; }
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:539:22: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  539 |             char buf[32];
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:540:25: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  540 |             if (u == 0) std::snprintf(buf, sizeof(buf), "%lld%s", n, units[u]);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:540:25: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:541:25: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  541 |             else        std::snprintf(buf, sizeof(buf), "%.1f%s", v, units[u]);
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:541:25: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:558:48: warning: string concatenation results in allocation of unnecessary temporary strings; consider using 'operator+=' or 'string::append()' instead [performance-inefficient-string-concatenation]
+  558 |             std::string slots = inflight + "/" + maxconc;
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:560:78: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  560 |             try { vram = std::stoll(dc::json_peek_int(obj, "vram_total")); } catch (...) {}
+      |                                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:563:30: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  563 |             if (gpu.size() > 12) gpu = gpu.substr(0, 11) + "…";
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:563:54: warning: 11 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  563 |             if (gpu.size() > 12) gpu = gpu.substr(0, 11) + "…";
+      |                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:590:9: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  590 |         std::signal(SIGINT, on_sigint);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:590:9: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:597:17: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  597 |                 std::fflush(stdout);
+      |                 ^~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:597:17: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:601:33: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  601 |             for (int i = 0; i < 20 && !g_quit.load(); ++i)
+      |                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:602:71: warning: 100 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  602 |                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      |                                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:613:27: warning: the const qualified variable 'agent_id' is copy-constructed from a const reference; consider making it a const reference [performance-unnecessary-copy-initialization]
+  613 |         const std::string agent_id = args[1];
+      |                           ^
+      |                          &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:621:25: warning: 409 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  621 |         if (r.status == 409) {
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:626:25: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  626 |         if (r.status != 200) {
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:651:64: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  651 |                               {bearer}, r, err) || r.status != 200) {
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:674:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  674 |     std::signal(SIGINT, on_sigint);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:674:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:677:29: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  677 |         for (int i = 0; i < 20 && !g_quit.load(); ++i)
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:678:67: warning: 100 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  678 |             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      |                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:703:11: warning: calling 'system' uses a command processor [cert-env33-c]
+  703 |     (void)std::system(cmd.c_str());
+      |           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:706:40: warning: the parameter 'args' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param]
+  706 | int cmd_login(std::vector<std::string> args) {
+      |                                        ^
+      |               const                   &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:711:19: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  711 |     char hostname[256] = {};
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:729:58: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  729 |                           {}, rsp, err) || rsp.status != 200) {
+      |                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:745:47: warning: 41 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  745 |               << std::string(std::max<int>(0, 41 - (int)verif.size()), ' ') << " │\n"
+      |                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:747:47: warning: 41 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  747 |               << std::string(std::max<int>(0, 41 - (int)user_code.size()), ' ') << " │\n"
+      |                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:764:26: warning: 428 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  764 |         if (pr.status == 428) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:770:26: warning: 410 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  770 |         if (pr.status == 410) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:774:26: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  774 |         if (pr.status != 200) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:807:22: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  807 |         mr.status == 200) {
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:831:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  831 |     std::fprintf(stderr,
+      |     ^~~~~~~~~~~~~~~~~~~~
+  832 |         "%s — operator CLI for distpool\n\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  833 |         "  %s login [--server URL]            Browser device-code login.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  834 |         "  %s logout                          Wipe local credentials.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  835 |         "  %s status                          Pairing + auth info.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  836 |         "  %s pools list|create|join|members|invite|kick ...\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  837 |         "  %s models list|import|search|discover ...\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  838 |         "  %s rigs list|watch|forget <AGENT_ID>\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  839 |         "  %s logs [--follow] [--tail N]\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  840 |         "  %s top                             Live TUI dashboard.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  841 |         "  %s split <pool-id>                 Visual layer/VRAM splitter.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  842 |         "\n"
+      |         ~~~~
+  843 |         "All commands accept --json to dump the raw server response.\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  844 |         "If dist-node is installed on the same box it shares this auth.\n",
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  845 |         prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:831:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:851:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  851 |     std::setvbuf(stdout, nullptr, _IOLBF, 0);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:851:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:870:9: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  870 |         std::fprintf(stderr, "auth: %s\n", err.c_str());
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:870:9: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:871:9: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  871 |         std::fprintf(stderr, "hint: run `%s login` to authenticate.\n", argv[0]);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:871:9: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:883:13: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  883 |             std::fprintf(stderr, "usage: dist-cli split <pool-id>\n");
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:883:13: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:886:40: warning: 'atoll' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtoll' instead [cert-err34-c]
+  886 |         return dist_cli_run_split(ctx, std::atoll(args[0].c_str()));
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:889:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  889 |     std::fprintf(stderr, "unknown subcommand: %s\n\n", sub.c_str());
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_cli_main.cpp:889:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:71:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+   71 |     fprintf(stderr,
+      |     ^~~~~~~~~~~~~~~
+   72 |         "Usage: %s <command> [options]\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   73 |         "\n"
+      |         ~~~~
+   74 |         "Commands:\n"
+      |         ~~~~~~~~~~~~~
+   75 |         "  login [--server URL]       Browser device-code login (recommended)\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   76 |         "  connect                    Run the agent using the saved login\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   77 |         "  disconnect                 Stop the background agent started by connect\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   78 |         "  logout                     Forget the saved login\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   79 |         "  url [--openai|--anthropic|--env|--json]\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   80 |         "                             Print API endpoint + bearer for this account\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   81 |         "\n"
+      |         ~~~~
+   82 |         "Legacy / advanced flags (no subcommand):\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   83 |         "  -s, --server HOST         Coordinator host (direct-join mode)\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   84 |         "  -p, --control-port PORT   Coordinator control port (default: 7700)\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   85 |         "  -d, --data-port PORT      This node's data listen port (default: 7701)\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   86 |         "  -g, --n-gpu-layers N      GPU layers to offload (default: 999=all)\n"
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:71:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:133:40: warning: 0x20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  133 |                 if ((unsigned char)c < 0x20) { char buf[8];
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:133:57: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  133 |                 if ((unsigned char)c < 0x20) { char buf[8];
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:134:21: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  134 |                     std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:134:21: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:145:15: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  145 |     char host[256] = {};
+      |               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:165:16: warning: calling 'popen' uses a command processor [cert-env33-c]
+  165 |     FILE* fp = ::popen(
+      |                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:169:14: warning: 512 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  169 |     char buf[512];
+      |              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:187:61: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  187 |                 gi.vram_total = (int64_t) std::stoll(tot) * 1024 * 1024;
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:187:68: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  187 |                 gi.vram_total = (int64_t) std::stoll(tot) * 1024 * 1024;
+      |                                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:188:61: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  188 |                 gi.vram_free  = (int64_t) std::stoll(fre) * 1024 * 1024;
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:188:68: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  188 |                 gi.vram_free  = (int64_t) std::stoll(fre) * 1024 * 1024;
+      |                                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:190:15: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  190 |             } catch (...) {}
+      |               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:242:25: warning: 2 adjacent parameters of 'state_write' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  242 | static bool state_write(const std::string& name, const std::string& value) {
+      |                         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:242:44: note: the first parameter in the range is 'name'
+  242 | static bool state_write(const std::string& name, const std::string& value) {
+      |                                            ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:242:69: note: the last parameter in the range is 'value'
+  242 | static bool state_write(const std::string& name, const std::string& value) {
+      |                                                                     ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:288:27: warning: 0600 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  288 |     ::chmod(dest.c_str(), 0600);
+      |                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:317:71: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  317 |     if      (u.rfind("https://", 0) == 0) { tls = true;  u = u.substr(8); port = 443; }
+      |                                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:317:82: warning: 443 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  317 |     if      (u.rfind("https://", 0) == 0) { tls = true;  u = u.substr(8); port = 443; }
+      |                                                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:318:71: warning: 7 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  318 |     else if (u.rfind("http://",  0) == 0) { tls = false; u = u.substr(7); port = 80;  }
+      |                                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:318:82: warning: 80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  318 |     else if (u.rfind("http://",  0) == 0) { tls = false; u = u.substr(7); port = 80;  }
+      |                                                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:329:26: warning: 2 adjacent parameters of 'http_request' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  329 | static bool http_request(const std::string& base_url, const std::string& path,
+      |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:329:45: note: the first parameter in the range is 'base_url'
+  329 | static bool http_request(const std::string& base_url, const std::string& path,
+      |                                             ^~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:329:74: note: the last parameter in the range is 'path'
+  329 | static bool http_request(const std::string& base_url, const std::string& path,
+      |                                                                          ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:343:13: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  343 |     char ps[16]; std::snprintf(ps, sizeof(ps), "%u", (unsigned)port);
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:343:18: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  343 |     char ps[16]; std::snprintf(ps, sizeof(ps), "%u", (unsigned)port);
+      |                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:343:18: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:368:57: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  368 |             unsigned long e = ERR_get_error(); char buf[256] = {0};
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:405:17: warning: 4096 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  405 |         char rb[4096];
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:416:22: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+  416 |         out.status = std::atoi(resp.substr(sp1 + 1, sp2 - sp1 - 1).c_str());
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:431:89: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  431 |                 size_t len = std::strtoul(body_raw.substr(i, eol - i).c_str(), nullptr, 16);
+      |                                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:457:37: warning: 2 adjacent parameters of 'json_peek_string' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  457 | static std::string json_peek_string(const std::string& msg, const std::string& key) {
+      |                                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:457:56: note: the first parameter in the range is 'msg'
+  457 | static std::string json_peek_string(const std::string& msg, const std::string& key) {
+      |                                                        ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:457:80: note: the last parameter in the range is 'key'
+  457 | static std::string json_peek_string(const std::string& msg, const std::string& key) {
+      |                                                                                ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:473:34: warning: 2 adjacent parameters of 'json_peek_int' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  473 | static std::string json_peek_int(const std::string& msg, const std::string& key) {
+      |                                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:473:53: note: the first parameter in the range is 'msg'
+  473 | static std::string json_peek_int(const std::string& msg, const std::string& key) {
+      |                                                     ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:473:77: note: the last parameter in the range is 'key'
+  473 | static std::string json_peek_int(const std::string& msg, const std::string& key) {
+      |                                                                             ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:496:14: warning: 4096 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  496 |     char buf[4096];
+      |              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:555:29: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  555 |         for (int i = 0; i < 20; ++i) {
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:557:67: warning: 50 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  557 |             std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      |                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:629:28: warning: 2 adjacent parameters of 'do_spawn_turn' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  629 |                            const std::string& realm,
+      |                            ^~~~~~~~~~~~~~~~~~~~~~~~~
+  630 |                            const std::string& ext_ip) {
+      |                            ~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:629:47: note: the first parameter in the range is 'realm'
+  629 |                            const std::string& realm,
+      |                                               ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:630:47: note: the last parameter in the range is 'ext_ip'
+  630 |                            const std::string& ext_ip) {
+      |                                               ^~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:761:15: warning: 127 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  761 |         _exit(127);
+      |               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:775:27: warning: 512 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  775 |         char        chunk[512];
+      |                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:795:47: warning: 1500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  795 |                   + std::chrono::milliseconds(1500);
+      |                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:826:28: warning: An undefined value may be read from 'errno' [clang-analyzer-unix.Errno]
+  826 |                 } else if (errno != ECONNREFUSED) {
+      |                            ^
+/usr/include/errno.h:38:16: note: expanded from macro 'errno'
+   38 | # define errno (*__errno_location ())
+      |                ^~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:704:9: note: Assuming the condition is false
+  704 |     if (secret.empty()) return 0;
+      |         ^~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:704:5: note: Taking false branch
+  704 |     if (secret.empty()) return 0;
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:708:5: note: Taking false branch
+  708 |     if (::pipe(err_pipe) != 0) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:714:9: note: Assuming 'pid' is >= 0
+  714 |     if (pid < 0) {
+      |         ^~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:714:5: note: Taking false branch
+  714 |     if (pid < 0) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:719:9: note: Assuming 'pid' is not equal to 0
+  719 |     if (pid == 0) {
+      |         ^~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:719:5: note: Taking false branch
+  719 |     if (pid == 0) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:769:9: note: Assuming 'g_turn_log_fd' is < 0
+  769 |     if (g_turn_log_fd >= 0) { ::close(g_turn_log_fd); g_turn_log_fd = -1; }
+      |         ^~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:769:5: note: Taking false branch
+  769 |     if (g_turn_log_fd >= 0) { ::close(g_turn_log_fd); g_turn_log_fd = -1; }
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:770:5: note: Taking false branch
+  770 |     if (g_turn_log_thread.joinable()) g_turn_log_thread.detach();
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:796:5: note: Loop condition is true.  Entering loop body
+  796 |     while (std::chrono::steady_clock::now() < deadline) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:799:13: note: Assuming 'r' is not equal to 'pid'
+  799 |         if (r == pid) {
+      |             ^~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:799:9: note: Taking false branch
+  799 |         if (r == pid) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:810:13: note: 'sk' is >= 0
+  810 |         if (sk >= 0) {
+      |             ^~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:810:9: note: Taking true branch
+  810 |         if (sk >= 0) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:815:13: note: Taking true branch
+  815 |             if (::connect(sk, (sockaddr*)&sa, sizeof(sa)) == 0) {
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:822:30: note: Assuming that 'recv' is successful; 'errno' becomes undefined after the call
+  822 |                 ssize_t rr = ::recv(sk, &rb, 1, MSG_DONTWAIT);
+      |                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:823:21: note: 'rr' is >= 0
+  823 |                 if (rr < 0 && errno != ECONNREFUSED && errno != EAGAIN &&
+      |                     ^~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:823:28: note: Left side of '&&' is false
+  823 |                 if (rr < 0 && errno != ECONNREFUSED && errno != EAGAIN &&
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:826:28: note: An undefined value may be read from 'errno'
+  826 |                 } else if (errno != ECONNREFUSED) {
+      |                            ^
+/usr/include/errno.h:38:16: note: expanded from macro 'errno'
+   38 | # define errno (*__errno_location ())
+      |                ^~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:835:63: warning: 100 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  835 |         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      |                                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:891:38: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  891 |         std::call_once(s_atexit, []{ std::atexit(kill_turn_sidecar); });
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:891:38: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:908:26: warning: 3 adjacent parameters of 'run_pair_mode' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  908 | static int run_pair_mode(const std::string& token, const std::string& server,
+      |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  909 |                          const std::string& agent_id_override,
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:908:45: note: the first parameter in the range is 'token'
+  908 | static int run_pair_mode(const std::string& token, const std::string& server,
+      |                                             ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:909:45: note: the last parameter in the range is 'agent_id_override'
+  909 |                          const std::string& agent_id_override,
+      |                                             ^~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:927:19: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  927 |     char hostname[256] = {};
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1105:54: warning: 3000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1105 |         dist::ComfyProbe probe = comfy.probe(force ? 3000 : 1500);
+      |                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1105:61: warning: 1500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1105 |         dist::ComfyProbe probe = comfy.probe(force ? 3000 : 1500);
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1137:9: warning: The parameter must not be null [clang-analyzer-cplusplus.StringChecker]
+ 1137 |         std::getenv("DIST_PYTHON") ? std::getenv("DIST_PYTHON") : "python3";
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:912:9: note: Assuming the condition is false
+  912 |     if (!ws.connect(server)) {
+      |         ^~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:912:5: note: Taking false branch
+  912 |     if (!ws.connect(server)) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:923:35: note: Assuming the condition is false
+  923 |     std::string agent_id        = !agent_id_override.empty() ? agent_id_override
+      |                                   ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:923:35: note: '?' condition is false
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:924:38: note: Assuming the condition is false
+  924 |                                    : !saved_agent_id.empty()  ? saved_agent_id
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:924:38: note: '?' condition is false
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:930:30: note: Assuming the condition is false
+  930 |     const bool have_resume = !saved_agent_key.empty() && !saved_agent_id.empty()
+      |                              ^~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:930:55: note: Left side of '&&' is false
+  930 |     const bool have_resume = !saved_agent_key.empty() && !saved_agent_id.empty()
+      |                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:941:9: note: Assuming the condition is false
+  941 |     if (agent_priv.size() == dist::ED25519_PRIV_SIZE) {
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:941:5: note: Taking false branch
+  941 |     if (agent_priv.size() == dist::ED25519_PRIV_SIZE) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:949:10: note: 'have_keypair' is false
+  949 |     if (!have_keypair) {
+      |          ^~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:949:5: note: Taking true branch
+  949 |     if (!have_keypair) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:950:13: note: Assuming the condition is false
+  950 |         if (dist::ed25519_generate(agent_priv, agent_pub)) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:950:9: note: Taking false branch
+  950 |         if (dist::ed25519_generate(agent_priv, agent_pub)) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:961:33: note: 'have_keypair' is false
+  961 |     std::string agent_pub_b64 = have_keypair
+      |                                 ^~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:961:33: note: '?' condition is false
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:972:9: note: 'have_resume' is false
+  972 |     if (have_resume) {
+      |         ^~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:972:5: note: Taking false branch
+  972 |     if (have_resume) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:988:13: note: Assuming the condition is false
+  988 |         if (!agent_pub_b64.empty()) {
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:988:9: note: Taking false branch
+  988 |         if (!agent_pub_b64.empty()) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:994:9: note: Assuming the condition is false
+  994 |     if (!ws.send_text(hello.str())) {
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:994:5: note: Taking false branch
+  994 |     if (!ws.send_text(hello.str())) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1000:9: note: Assuming the condition is false
+ 1000 |     if (!ws.recv_text(msg)) {
+      |         ^~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1000:5: note: Taking false branch
+ 1000 |     if (!ws.recv_text(msg)) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1006:9: note: Assuming the condition is false
+ 1006 |     if (msg.find("\"kind\":\"challenge\"") != std::string::npos) {
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1006:5: note: Taking false branch
+ 1006 |     if (msg.find("\"kind\":\"challenge\"") != std::string::npos) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1036:9: note: Assuming the condition is false
+ 1036 |     if (msg.find("\"kind\":\"welcome\"") == std::string::npos) {
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1036:5: note: Taking false branch
+ 1036 |     if (msg.find("\"kind\":\"welcome\"") == std::string::npos) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1071:9: note: Assuming the condition is false
+ 1071 |     if (turn_realm_from_srv.empty()) turn_realm_from_srv = "dist";
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1071:5: note: Taking false branch
+ 1071 |     if (turn_realm_from_srv.empty()) turn_realm_from_srv = "dist";
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1078:10: note: 'have_resume' is false
+ 1078 |     if (!have_resume) {
+      |          ^~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1078:5: note: Taking true branch
+ 1078 |     if (!have_resume) {
+      |     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1080:13: note: Assuming the condition is false
+ 1080 |         if (!fresh_key.empty()) {
+      |             ^~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1080:9: note: Taking false branch
+ 1080 |         if (!fresh_key.empty()) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1105:46: note: Assuming 'force' is false
+ 1105 |         dist::ComfyProbe probe = comfy.probe(force ? 3000 : 1500);
+      |                                              ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1105:46: note: '?' condition is false
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1106:13: note: Assuming field 'ok' is false
+ 1106 |         if (probe.ok || force) {
+      |             ^~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1106:13: note: Left side of '||' is false
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1106:25: note: 'force' is false
+ 1106 |         if (probe.ok || force) {
+      |                         ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1106:9: note: Taking false branch
+ 1106 |         if (probe.ok || force) {
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1137:9: note: '?' condition is true
+ 1137 |         std::getenv("DIST_PYTHON") ? std::getenv("DIST_PYTHON") : "python3";
+      |         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1137:9: note: The parameter must not be null
+ 1137 |         std::getenv("DIST_PYTHON") ? std::getenv("DIST_PYTHON") : "python3";
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1181:39: warning: 1500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1181 |             bool ok = va && va->probe(1500);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1211:39: warning: 1500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1211 |             bool ok = sa && sa->probe(1500);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1241:39: warning: 1500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1241 |             bool ok = ta && ta->probe(1500);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1274:25: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 1274 |                 int v = std::atoi(k);
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1275:36: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1275 |                 if (v >= 1 && v <= 32) draft_k = v;
+      |                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1279:34: warning: 'atof' used to convert a string to a floating-point value, but function will not report conversion errors; consider using 'strtod' instead [cert-err34-c]
+ 1279 |                 float v = (float)std::atof(h);
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1307:46: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1307 |             uint32_t v = ((uint32_t)in[i] << 16) |
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1308:48: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1308 |                          ((uint32_t)in[i+1] << 8) |
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1310:39: warning: 18 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1310 |             out.push_back(alpha[(v >> 18) & 0x3F]);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1310:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1310 |             out.push_back(alpha[(v >> 18) & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1311:39: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1311 |             out.push_back(alpha[(v >> 12) & 0x3F]);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1311:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1311 |             out.push_back(alpha[(v >> 12) & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1312:40: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1312 |             out.push_back(alpha[(v >>  6) & 0x3F]);
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1312:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1312 |             out.push_back(alpha[(v >>  6) & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1313:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1313 |             out.push_back(alpha[ v        & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1317:45: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1317 |             uint32_t v = (uint32_t)in[i] << 16;
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1318:62: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1318 |             if (i + 1 < in.size()) v |= (uint32_t)in[i+1] << 8;
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1319:39: warning: 18 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1319 |             out.push_back(alpha[(v >> 18) & 0x3F]);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1319:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1319 |             out.push_back(alpha[(v >> 18) & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1320:39: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1320 |             out.push_back(alpha[(v >> 12) & 0x3F]);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1320:45: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1320 |             out.push_back(alpha[(v >> 12) & 0x3F]);
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1321:59: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1321 |             out.push_back(i + 1 < in.size() ? alpha[(v >> 6) & 0x3F] : '=');
+      |                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1321:64: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1321 |             out.push_back(i + 1 < in.size() ? alpha[(v >> 6) & 0x3F] : '=');
+      |                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1460:17: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 1460 |         int v = std::atoi(mc);
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1461:27: warning: 64 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1461 |         if (v > 0 && v <= 64) advertised_max_concurrent = v;
+      |                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1480:35: warning: 24 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1480 |         return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1480:60: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1480 |         return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1481:35: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1481 |                ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1484:46: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1484 |         return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1487:31: warning: 24 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1487 |         p[0] = (uint8_t)(v >> 24);
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1488:31: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1488 |         p[1] = (uint8_t)(v >> 16);
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1489:31: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1489 |         p[2] = (uint8_t)(v >> 8);
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1493:31: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1493 |         p[0] = (uint8_t)(v >> 8);
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:26: warning: 2 adjacent parameters of 'operator()' of convertible types are easily swapped by mistake [bugprone-easily-swappable-parameters]
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:34: note: the first parameter in the range is 'type'
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                  ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:49: note: the last parameter in the range is 'req_id'
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                                 ^~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:26: note: 
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:40: note: 'uint8_t' and 'uint16_t' may be implicitly converted: 'uint8_t' (as 'unsigned char') -> 'uint16_t' (as 'unsigned short'), 'uint16_t' (as 'unsigned short') -> 'uint8_t' (as 'unsigned char')
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:57: warning: 4 adjacent parameters of 'operator()' of convertible types are easily swapped by mistake [bugprone-easily-swappable-parameters]
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                                         ^~~~~~~~~~~~~~~
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:66: note: the first parameter in the range is 'stage'
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                                                  ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1497:67: note: the last parameter in the range is 'flags'
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                                                                   ^~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:57: note: 
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1497:26: note: 'uint16_t' and 'uint32_t' may be implicitly converted: 'uint16_t' (as 'unsigned short') -> 'uint32_t' (as 'unsigned int'), 'uint32_t' (as 'unsigned int') -> 'uint16_t' (as 'unsigned short')
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1496:57: note: 
+ 1496 |     auto send_actv = [&](uint8_t type, uint16_t req_id, uint16_t stage,
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1497:44: note: 'uint16_t' and 'uint8_t' may be implicitly converted: 'uint16_t' (as 'unsigned short') -> 'uint8_t' (as 'unsigned char'), 'uint8_t' (as 'unsigned char') -> 'uint16_t' (as 'unsigned short')
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1497:26: note: 
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1497:44: note: 'uint32_t' and 'uint8_t' may be implicitly converted: 'uint32_t' (as 'unsigned int') -> 'uint8_t' (as 'unsigned char'), 'uint8_t' (as 'unsigned char') -> 'uint32_t' (as 'unsigned int')
+ 1497 |                          uint32_t tok_seq, uint8_t dtype, uint8_t flags,
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1506:13: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1506 |         out[5] = type;
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1507:28: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1507 |         put16(out.data() + 6, req_id);
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1508:28: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1508 |         put16(out.data() + 8, stage);
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1509:28: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1509 |         put32(out.data() + 10, tok_seq);
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1510:13: warning: 14 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1510 |         out[14] = dtype;
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1511:13: warning: 15 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1511 |         out[15] = (uint8_t)dims.size();
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1512:13: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1512 |         out[16] = flags;
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1513:13: warning: 17 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1513 |         out[17] = 0;
+      |             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1577:17: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1577 |         if (n < 20 || be32(data) != MAGIC_ACTV || data[4] != 0x01) return false;
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1581:19: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1581 |         if ((data[16] & DPP_FLAGS) != 0) {
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1583:73: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1583 |                 std::cerr << "[dpp] no runtime for req=" << be16(data + 6)
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1589:28: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1589 |         pa.type     = data[5];
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1590:35: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1590 |         pa.req_id   = be16(data + 6);
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1591:35: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1591 |         pa.stage_in = be16(data + 8);
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1592:35: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1592 |         pa.tok_seq  = be32(data + 10);
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1593:28: warning: 14 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1593 |         pa.dtype    = data[14];
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1594:29: warning: 15 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1594 |         uint8_t rank = data[15];
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1595:28: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1595 |         pa.flags    = data[16];
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1596:23: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1596 |         size_t hdr  = 20 + 4 * (size_t)rank;
+      |                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1600:31: warning: result of multiplication in type 'int' is used as a pointer offset after an implicit widening conversion to type 'ptrdiff_t' [bugprone-implicit-widening-of-multiplication-result]
+ 1600 |             pa.dims[i] = be32(data + 20 + 4*i);
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1600:43: note: make conversion explicit to silence this warning
+   40 |             pa.dims[i] = be32(data + 20 + 4*i);
+      |                                           ^~~
+      |                                           static_cast<ptrdiff_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1600:43: note: perform multiplication in a wider type
+ 1600 |             pa.dims[i] = be32(data + 20 + 4*i);
+      |                                           ^  
+      |                                           static_cast<ptrdiff_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1600:38: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1600 |             pa.dims[i] = be32(data + 20 + 4*i);
+      |                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1780:40: warning: 0xFFFF is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1780 |             send_actv(0x02, pa.req_id, 0xFFFF, r.out_tokens, 0x04, 0, {}, piece);
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1785:44: warning: 0xFFFF is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1785 |                 send_actv(0x03, pa.req_id, 0xFFFF, r.out_tokens, 0, 0, {}, "");
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1819:51: warning: 4000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1819 |         auto np = dist::probe_nat_type(probe_ice, 4000);
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1838:20: warning: 3478 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1838 |         int port = 3478;
+      |                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1840:21: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 1840 |             int v = std::atoi(env);
+      |                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1841:30: warning: 65536 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1841 |             if (v > 0 && v < 65536) port = v;
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1910:51: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1910 |                     now - gpu_info_at).count() >= 10) {
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1992:52: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1992 |             next_beat = now + std::chrono::seconds(5);
+      |                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:1995:32: warning: 500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 1995 |         ws.set_recv_timeout_ms(500);
+      |                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2001:35: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2001 |                 if (msg.size() >= 16 && be32(msg.data()) == MAGIC
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2002:50: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2002 |                         && msg[4] == 0x01 && msg[5] == 0x01) {
+      |                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2004:61: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2004 |                     uint16_t req_id     = be16(msg.data() + 6);
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2005:61: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2005 |                     uint32_t in_tokens  = be32(msg.data() + 8);
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2006:62: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2006 |                     uint32_t payload_len = be32(msg.data() + 12);
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2008:39: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2008 |                     if (msg.size() >= 16 + payload_len) {
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2009:67: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2009 |                         payload.assign((const char*)(msg.data() + 16), payload_len);
+      |                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2015:43: warning: 2 adjacent parameters of 'operator()' of convertible types are easily swapped by mistake [bugprone-easily-swappable-parameters]
+ 2015 |                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
+      |                                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2015:51: note: the first parameter in the range is 'kind'
+ 2015 |                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
+      |                                                   ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2015:66: note: the last parameter in the range is 'tok_in'
+ 2015 |                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
+      |                                                                  ^~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2015:43: note: 
+ 2015 |                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
+      |                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2015:57: note: 'uint8_t' and 'uint32_t' may be implicitly converted: 'uint8_t' (as 'unsigned char') -> 'uint32_t' (as 'unsigned int'), 'uint32_t' (as 'unsigned int') -> 'uint8_t' (as 'unsigned char')
+ 2015 |                     auto send_chunk = [&](uint8_t kind, uint32_t tok_in,
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2017:50: warning: 24 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2017 |                         std::vector<uint8_t> out(24 + text.size());
+      |                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2018:32: warning: 0x49 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2018 |                         out[0]=0x49; out[1]=0x4E; out[2]=0x46; out[3]=0x52;
+      |                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2018:45: warning: 0x4E is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2018 |                         out[0]=0x49; out[1]=0x4E; out[2]=0x46; out[3]=0x52;
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2018:58: warning: 0x46 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2018 |                         out[0]=0x49; out[1]=0x4E; out[2]=0x46; out[3]=0x52;
+      |                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2018:71: warning: 0x52 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2018 |                         out[0]=0x49; out[1]=0x4E; out[2]=0x46; out[3]=0x52;
+      |                                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2020:29: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2020 |                         out[5] = 0x02;
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2021:29: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2021 |                         out[6] = (uint8_t)(req_id >> 8);
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2021:54: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2021 |                         out[6] = (uint8_t)(req_id >> 8);
+      |                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2022:29: warning: 7 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2022 |                         out[7] = (uint8_t)(req_id & 0xFF);
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2022:53: warning: 0xFF is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2022 |                         out[7] = (uint8_t)(req_id & 0xFF);
+      |                                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2023:29: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2023 |                         out[8] = kind;
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2024:29: warning: 9 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2024 |                         out[9]=out[10]=out[11]=0;
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2024:36: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2024 |                         out[9]=out[10]=out[11]=0;
+      |                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2024:44: warning: 11 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2024 |                         out[9]=out[10]=out[11]=0;
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2026:57: warning: 24 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2026 |                             out[off  ] = (uint8_t)(v >> 24);
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2027:57: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2027 |                             out[off+1] = (uint8_t)(v >> 16);
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2028:58: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2028 |                             out[off+2] = (uint8_t)(v >>  8);
+      |                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2031:33: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2031 |                         put32lc(12, tok_in);
+      |                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2032:33: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2032 |                         put32lc(16, tok_out);
+      |                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2033:33: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2033 |                         put32lc(20, (uint32_t)text.size());
+      |                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2034:50: warning: 24 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2034 |                         std::memcpy(out.data() + 24, text.data(), text.size());
+      |                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2056:62: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2056 |                             if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2057:62: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2057 |                             if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2063:72: warning: repeated branch body in conditional chain [bugprone-branch-clone]
+ 2063 |                                 if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2063:90: note: end of the original
+ 2063 |                                 if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2089:38: note: clone 1 starts here
+ 2089 |                                 else { out += c; ++i; }
+      |                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2067:58: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2067 |                                 else if (c == 'u' && i + 5 < raw.size()) {
+      |                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2071:57: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2071 |                                     int h3 = hexv(raw[i+5]);
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2073:62: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2073 |                                         unsigned cp = (h0 << 12) | (h1 << 8) | (h2 << 4) | h3;
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2073:75: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2073 |                                         unsigned cp = (h0 << 12) | (h1 << 8) | (h2 << 4) | h3;
+      |                                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2074:50: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2074 |                                         if (cp < 0x80) {
+      |                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2076:57: warning: 0x800 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2076 |                                         } else if (cp < 0x800) {
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2077:60: warning: 0xC0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2077 |                                             out += (char) (0xC0 | (cp >> 6));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2077:74: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2077 |                                             out += (char) (0xC0 | (cp >> 6));
+      |                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2078:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2078 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2078:73: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2078 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2080:60: warning: 0xE0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2080 |                                             out += (char) (0xE0 | (cp >> 12));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2080:74: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2080 |                                             out += (char) (0xE0 | (cp >> 12));
+      |                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2081:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2081 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2081:75: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2081 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2081:80: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2081 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2082:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2082 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2082:73: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2082 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2084:46: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2084 |                                         i += 5;
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2127:73: warning: 128 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2127 |                     uint32_t    max_tokens = (mt > 0) ? (uint32_t) mt : 128;
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2158:45: warning: 4096 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2158 |                         ecfg.n_ctx        = 4096;
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2159:45: warning: 512 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2159 |                         ecfg.n_batch      = 512;
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2216:48: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2216 |                         if (payload.compare(s, 5, "false") == 0) return false;
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2274:31: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+ 2274 |                             } catch (...) {}
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2280:92: warning: 0.95 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2280 |                     float    top_p              = (float)  json_double("top_p",            0.95);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2282:45: warning: 40 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2282 |                     if (top_k <= 0) top_k = 40;
+      |                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2283:92: warning: 0.05 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2283 |                     float    min_p              = (float)  json_double("min_p",            0.05);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2286:92: warning: 64 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2286 |                     int      repeat_last_n      = (int)    json_double("repeat_last_n",    64);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2290:92: warning: 1.75 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2290 |                     float    dry_base           = (float)  json_double("dry_base",         1.75);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2294:92: warning: 0.1 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2294 |                     float    xtc_thr            = (float)  json_double("xtc_threshold",    0.1);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2296:92: warning: 5.0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2296 |                     float    mirostat_tau       = (float)  json_double("mirostat_tau",     5.0);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2297:92: warning: 0.1 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2297 |                     float    mirostat_eta       = (float)  json_double("mirostat_eta",     0.1);
+      |                                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2371:88: warning: 100 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2371 |                                 n_vocab_local, seed, mirostat_tau, mirostat_eta, /*m=*/100));
+      |                                                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2408:29: warning: Value stored to 'done' is never read [clang-analyzer-deadcode.DeadStores]
+ 2408 |                             done = true;
+      |                             ^      ~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2408:29: note: Value stored to 'done' is never read
+ 2408 |                             done = true;
+      |                             ^      ~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2433:29: warning: Value stored to 'done' is never read [clang-analyzer-deadcode.DeadStores]
+ 2433 |                             done = true;
+      |                             ^      ~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2433:29: note: Value stored to 'done' is never read
+ 2433 |                             done = true;
+      |                             ^      ~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2441:42: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2441 |                 } else if (msg.size() >= 20 && be32(msg.data()) == MAGIC_ACTV
+      |                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2543:33: warning: local copy 'sess_key' of the variable 'sess_id' is never modified; consider avoiding the copy [performance-unnecessary-copy-initialization]
+ 2543 |                     std::string sess_key = sess_id;
+      |                                 ^
+      |                     const      &
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2686:44: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2686 |                         if (txt.compare(s, 5, "false") == 0) return 0;
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2703:62: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2703 |                             if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2704:62: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2704 |                             if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2710:72: warning: repeated branch body in conditional chain [bugprone-branch-clone]
+ 2710 |                                 if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2710:90: note: end of the original
+ 2710 |                                 if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2732:40: note: clone 1 starts here
+ 2732 |                                 } else { out += c; ++i; }
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2714:58: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2714 |                                 else if (c == 'u' && i + 5 < raw.size()) {
+      |                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2716:76: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2716 |                                     int h2 = hex(raw[i+4]), h3 = hex(raw[i+5]);
+      |                                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2720:60: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2720 |                                         unsigned cp = (h0<<12)|(h1<<8)|(h2<<4)|h3;
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2720:69: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2720 |                                         unsigned cp = (h0<<12)|(h1<<8)|(h2<<4)|h3;
+      |                                                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2721:50: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2721 |                                         if (cp < 0x80) out += (char) cp;
+      |                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2722:55: warning: 0x800 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2722 |                                         else if (cp < 0x800) {
+      |                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2723:60: warning: 0xC0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2723 |                                             out += (char) (0xC0 | (cp >> 6));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2723:74: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2723 |                                             out += (char) (0xC0 | (cp >> 6));
+      |                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2724:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2724 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2724:73: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2724 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2726:60: warning: 0xE0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2726 |                                             out += (char) (0xE0 | (cp >> 12));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2726:74: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2726 |                                             out += (char) (0xE0 | (cp >> 12));
+      |                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2727:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2727 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2727:75: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2727 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2727:80: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2727 |                                             out += (char) (0x80 | ((cp >> 6) & 0x3F));
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2728:60: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2728 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2728:73: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2728 |                                             out += (char) (0x80 | (cp & 0x3F));
+      |                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2730:46: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2730 |                                         i += 5;
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2760:67: warning: 128 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2760 |                         r.max_tokens = (mt > 0) ? (uint32_t) mt : 128;
+      |                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2766:60: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2766 |                         next_seq_id  = (next_seq_id + 1) % 8;
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2796:51: warning: 2048 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2796 |                                 ecfg.n_ctx      = 2048;
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2797:51: warning: 512 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2797 |                                 ecfg.n_batch    = 512;
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2798:51: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 2798 |                                 ecfg.n_seq_max  = 8;
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2865:80: warning: repeated branch body in conditional chain [bugprone-branch-clone]
+ 2865 |                                         if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2865:98: note: end of the original
+ 2865 |                                         if (c == '"' || c == '\\' || c == '/') { out += c; ++i; }
+      |                                                                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2869:46: note: clone 1 starts here
+ 2869 |                                         else { out += c; ++i; }
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2955:49: warning: 'r' used after it was moved [bugprone-use-after-move]
+ 2955 |                                   << " seq=" << r.seq_id
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2950:44: note: move occurred here
+ 2950 |                             reqs[r.req_id] = std::move(r);
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:2955:49: note: the use happens in a later loop iteration than the move
+ 2955 |                                   << " seq=" << r.seq_id
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3051:60: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3051 |                         std::string err = comfy.run(graph, 10 * 60 * 1000,
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3051:65: warning: 60 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3051 |                         std::string err = comfy.run(graph, 10 * 60 * 1000,
+      |                                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3051:70: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3051 |                         std::string err = comfy.run(graph, 10 * 60 * 1000,
+      |                                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3084:44: warning: 9 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3084 |                         size_t start = p + 9;
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3105:36: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3105 |             if (b2 && m2.size() >= 20 && be32(m2.data()) == MAGIC_ACTV && m2[4] == 0x01) {
+      |                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3107:25: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3107 |                 if ((m2[16] & DPP_FLAGS) != 0) {
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3112:34: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3112 |                 pa.type     = m2[5];
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3113:48: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3113 |                 pa.req_id   = be16(m2.data() + 6);
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3114:48: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3114 |                 pa.stage_in = be16(m2.data() + 8);
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3115:48: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3115 |                 pa.tok_seq  = be32(m2.data() + 10);
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3116:34: warning: 14 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3116 |                 pa.dtype    = m2[14];
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3117:35: warning: 15 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3117 |                 uint8_t rank = m2[15];
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3118:34: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3118 |                 pa.flags    = m2[16];
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3119:31: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3119 |                 size_t hdr  = 20 + 4 * (size_t)rank;
+      |                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3122:39: warning: result of multiplication in type 'int' is used as a pointer offset after an implicit widening conversion to type 'ptrdiff_t' [bugprone-implicit-widening-of-multiplication-result]
+ 3122 |                     pa.dims[i] = be32(m2.data() + 20 + 4*i);
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3122:56: note: make conversion explicit to silence this warning
+ 3122 |                     pa.dims[i] = be32(m2.data() + 20 + 4*i);
+      |                                                        ^~~
+      |                                                        static_cast<ptrdiff_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3122:56: note: perform multiplication in a wider type
+ 3122 |                     pa.dims[i] = be32(m2.data() + 20 + 4*i);
+      |                                                        ^  
+      |                                                        static_cast<ptrdiff_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3122:51: warning: 20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3122 |                     pa.dims[i] = be32(m2.data() + 20 + 4*i);
+      |                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3187:77: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3187 |     if (api_url.rfind("https://", 0) == 0) return "wss://" + api_url.substr(8) + "/ws/agent";
+      |                                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3188:77: warning: 7 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3188 |     if (api_url.rfind("http://",  0) == 0) return "ws://"  + api_url.substr(7) + "/ws/agent";
+      |                                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3201:11: warning: calling 'system' uses a command processor [cert-env33-c]
+ 3201 |     (void)std::system(cmd.c_str());
+      |           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3212:70: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 3212 |         else if (a == "--n-gpus" && i + 1 < argc)           n_gpus = std::atoi(argv[++i]);
+      |                                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3213:74: warning: 'atoll' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtoll' instead [cert-err34-c]
+ 3213 |         else if (a == "--vram"   && i + 1 < argc)           vram_bytes = std::atoll(argv[++i]);
+      |                                                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3217:19: warning: 256 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3217 |     char hostname[256] = {};
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3227:54: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3227 |                       {}, rsp, err) || rsp.status != 200) {
+      |                                                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3242:82: warning: 41 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3242 |               << "  │  Visit:  " << verif      << std::string(std::max<int>(0, 41 - (int)verif.size()), ' ') << " │\n"
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3243:82: warning: 41 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3243 |               << "  │  Code:   " << user_code  << std::string(std::max<int>(0, 41 - (int)user_code.size()), ' ') << " │\n"
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3260:26: warning: 428 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3260 |         if (pr.status == 428) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3266:26: warning: 410 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3266 |         if (pr.status == 410) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3270:26: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3270 |         if (pr.status != 200) {
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3299:24: warning: 999 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3299 |     int n_gpu_layers = 999;
+      |                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3304:71: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 3304 |         else if (a == "-g" && i + 1 < argc)            n_gpu_layers = std::atoi(argv[++i]);
+      |                                                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3372:10: warning: enum 'Fmt' uses a larger base type ('unsigned int', size: 4 bytes) than necessary for its value set, consider using 'std::uint8_t' (1 byte) as the base type to reduce its size [performance-enum-size]
+ 3372 |     enum Fmt { F_PLAIN, F_OPENAI, F_ANTHROPIC, F_ENV, F_JSON };
+      |          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3381:59: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 3381 |         else if (a == "--pool" && i + 1 < argc) pool_id = std::atoi(argv[++i]);
+      |                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3394:89: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3394 |                       {"Authorization: Bearer " + agent_key}, pr, perr) || pr.status != 200) {
+      |                                                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3407:25: warning: 'atoi' used to convert a string to an integer value, but function will not report conversion errors; consider using 'strtol' instead [cert-err34-c]
+ 3407 |             int    id = std::atoi(s.c_str() + pa + 5);
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3407:52: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3407 |             int    id = std::atoi(s.c_str() + pa + 5);
+      |                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3410:19: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3410 |             bu += 12;
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3431:29: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+ 3431 |             || mr.status != 200) {
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3482:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3482 |     std::setvbuf(stdout, nullptr, _IOLBF, 0);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3482:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3483:5: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3483 |     std::setvbuf(stderr, nullptr, _IOLBF, 0);
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3483:5: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3502:32: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3502 |             if (++i >= argc) { fprintf(stderr, "Missing value for %s\n", arg.c_str()); exit(1); }
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3502:32: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3530:13: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3530 |             fprintf(stderr, "Unknown argument: %s\n", arg.c_str());
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3530:13: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3543:13: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3543 |             fprintf(stderr, "Error: invalid --pair URL (expected distpool://pair?token=...&server=...)\n");
+      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3543:13: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3564:9: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+ 3564 |         fprintf(stderr, "Error: --server is required (or pass --pair the first time)\n");
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/dist_node_main.cpp:3564:9: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:100:42: warning: 443 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  100 |         p.port = (p.scheme == "https") ? 443 : 80;
+      |                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:100:48: warning: 80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  100 |         p.port = (p.scheme == "https") ? 443 : 80;
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:104:56: warning: 443 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  104 |         catch (...) { p.port = (p.scheme == "https") ? 443 : 80; }
+      |                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:104:62: warning: 80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  104 |         catch (...) { p.port = (p.scheme == "https") ? 443 : 80; }
+      |                                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:111:42: warning: 2 adjacent parameters of 'open_socket' of convertible types are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  111 | int open_socket(const std::string& host, uint16_t port, int connect_ms) {
+      |                                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:111:51: note: the first parameter in the range is 'port'
+  111 | int open_socket(const std::string& host, uint16_t port, int connect_ms) {
+      |                                                   ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:111:61: note: the last parameter in the range is 'connect_ms'
+  111 | int open_socket(const std::string& host, uint16_t port, int connect_ms) {
+      |                                                             ^~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:111:42: note: 
+  111 | int open_socket(const std::string& host, uint16_t port, int connect_ms) {
+      |                                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:111:57: note: 'uint16_t' and 'int' may be implicitly converted: 'uint16_t' (as 'unsigned short') -> 'int', 'int' -> 'uint16_t' (as 'unsigned short')
+  111 | int open_socket(const std::string& host, uint16_t port, int connect_ms) {
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:119:18: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  119 |     char portbuf[16]; std::snprintf(portbuf, sizeof(portbuf), "%u", port);
+      |                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:119:23: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  119 |     char portbuf[16]; std::snprintf(portbuf, sizeof(portbuf), "%u", port);
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:119:23: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:132:35: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  132 |         tv.tv_sec  = connect_ms / 1000;
+      |                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:133:22: warning: performing an implicit widening conversion to type '__suseconds_t' (aka 'long') of a multiplication performed in type 'int' [bugprone-implicit-widening-of-multiplication-result]
+  133 |         tv.tv_usec = (connect_ms % 1000) * 1000;
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:133:22: note: make conversion explicit to silence this warning
+   33 |         tv.tv_usec = (connect_ms % 1000) * 1000;
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                      static_cast<__suseconds_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:133:22: note: perform multiplication in a wider type
+  133 |         tv.tv_usec = (connect_ms % 1000) * 1000;
+      |                      ^~~~~~~~~~~~~~~~~~
+      |                       static_cast<__suseconds_t>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:133:36: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  133 |         tv.tv_usec = (connect_ms % 1000) * 1000;
+      |                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:133:44: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  133 |         tv.tv_usec = (connect_ms % 1000) * 1000;
+      |                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:167:28: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  167 |     out.reserve(s.size() + 8);
+      |                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:178:40: warning: 0x20 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  178 |                 if ((unsigned char)c < 0x20) {
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:179:30: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  179 |                     char buf[8];
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:180:21: warning: the value returned by this function should not be disregarded; neglecting it may lead to errors [cert-err33-c]
+  180 |                     std::snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:180:21: note: cast the expression to void to silence this warning
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:209:25: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  209 |                 if (i + 5 < s.size()) {
+      |                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:215:83: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  215 |                         else if (h >= 'a' && h <= 'f') cp |= (unsigned)(h - 'a' + 10);
+      |                                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:216:83: warning: 10 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  216 |                         else if (h >= 'A' && h <= 'F') cp |= (unsigned)(h - 'A' + 10);
+      |                                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:218:26: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  218 |                     i += 5;
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:221:30: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  221 |                     if (cp < 0x80) {
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:223:37: warning: 0x800 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  223 |                     } else if (cp < 0x800) {
+      |                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:224:46: warning: 0xC0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  224 |                         out.push_back((char)(0xC0 | (cp >> 6)));
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:224:60: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  224 |                         out.push_back((char)(0xC0 | (cp >> 6)));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:225:46: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  225 |                         out.push_back((char)(0x80 | (cp & 0x3F)));
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:225:59: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  225 |                         out.push_back((char)(0x80 | (cp & 0x3F)));
+      |                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:227:46: warning: 0xE0 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  227 |                         out.push_back((char)(0xE0 | (cp >> 12)));
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:227:60: warning: 12 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  227 |                         out.push_back((char)(0xE0 | (cp >> 12)));
+      |                                                            ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:228:46: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  228 |                         out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:228:61: warning: 6 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  228 |                         out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+      |                                                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:228:66: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  228 |                         out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+      |                                                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:229:46: warning: 0x80 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  229 |                         out.push_back((char)(0x80 | (cp & 0x3F)));
+      |                                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:229:59: warning: 0x3F is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  229 |                         out.push_back((char)(0x80 | (cp & 0x3F)));
+      |                                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:244:20: warning: 2 adjacent parameters of 'json_find_str' of similar type ('const std::string &') are easily swapped by mistake [bugprone-easily-swappable-parameters]
+  244 | bool json_find_str(const std::string& json, const std::string& key, std::string* out) {
+      |                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:244:39: note: the first parameter in the range is 'json'
+  244 | bool json_find_str(const std::string& json, const std::string& key, std::string* out) {
+      |                                       ^~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:244:64: note: the last parameter in the range is 'key'
+  244 | bool json_find_str(const std::string& json, const std::string& key, std::string* out) {
+      |                                                                ^~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:334:14: warning: 4096 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  334 |     char buf[4096];
+      |              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:26: warning: performing an implicit widening conversion to type 'size_type' (aka 'unsigned long') of a multiplication performed in type 'int' [bugprone-implicit-widening-of-multiplication-result]
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:26: note: make conversion explicit to silence this warning
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                          ^~~~~~~~~~~~~~~
+      |                          static_cast<size_type>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:26: note: perform multiplication in a wider type
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                          ^~~~~~~~
+      |                          static_cast<long>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:26: warning: 8 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                          ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:30: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:341:37: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  341 |         if (acc.size() > 8 * 1024 * 1024) break;
+      |                                     ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:396:72: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  396 |                 try { st.remaining = (size_t)std::stoull(raw, nullptr, 16); }
+      |                                                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:402:43: warning: 32 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  402 |                 if (st.size_line.size() > 32) return false;
+      |                                           ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:428:5: warning: Call to virtual method 'VllmAdapter::close' during destruction bypasses virtual dispatch [clang-analyzer-optin.cplusplus.VirtualCall]
+  428 |     close();
+      |     ^~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:428:5: note: Call to virtual method 'VllmAdapter::close' during destruction bypasses virtual dispatch
+  428 |     close();
+      |     ^~~~~~~
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:446:24: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  446 |     return r.status == 200;
+      |                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:489:15: warning: 127 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  489 |         _exit(127);
+      |               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:499:19: warning: 500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  499 |         if (probe(500)) return "";
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:500:63: warning: 500 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  500 |         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      |                                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:525:29: warning: 50 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  525 |         for (int i = 0; i < 50; ++i) {
+      |                             ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:528:67: warning: 100 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  528 |             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      |                                                                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:572:48: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  572 |         tv.tv_sec  = cfg_.connect_timeout_ms / 1000;
+      |                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:573:22: warning: performing an implicit widening conversion to type '__suseconds_t' (aka 'long') of a multiplication performed in type 'int' [bugprone-implicit-widening-of-multiplication-result]
+  573 |         tv.tv_usec = (cfg_.connect_timeout_ms % 1000) * 1000;
+      |                      ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:573:22: note: make conversion explicit to silence this warning
+  573 |         tv.tv_usec = (cfg_.connect_timeout_ms % 1000) * 1000;
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                      static_cast<__suseconds_t>(            )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:573:22: note: perform multiplication in a wider type
+  573 |         tv.tv_usec = (cfg_.connect_timeout_ms % 1000) * 1000;
+      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                       static_cast<__suseconds_t>(   )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:573:49: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  573 |         tv.tv_usec = (cfg_.connect_timeout_ms % 1000) * 1000;
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:573:57: warning: 1000 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  573 |         tv.tv_usec = (cfg_.connect_timeout_ms % 1000) * 1000;
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:585:34: warning: performing an implicit widening conversion to type 'size_type' (aka 'unsigned long') of a multiplication performed in type 'int' [bugprone-implicit-widening-of-multiplication-result]
+  585 |             if (headbuf.size() > 16 * 1024) { DIST_CLOSESOCK(fd); return "error: vllm header bomb"; }
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:585:34: note: make conversion explicit to silence this warning
+  585 |             if (headbuf.size() > 16 * 1024) { DIST_CLOSESOCK(fd); return "error: vllm header bomb"; }
+      |                                  ^~~~~~~~~
+      |                                  static_cast<size_type>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:585:34: note: perform multiplication in a wider type
+  585 |             if (headbuf.size() > 16 * 1024) { DIST_CLOSESOCK(fd); return "error: vllm header bomb"; }
+      |                                  ^~
+      |                                  static_cast<long>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:585:34: warning: 16 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  585 |             if (headbuf.size() > 16 * 1024) { DIST_CLOSESOCK(fd); return "error: vllm header bomb"; }
+      |                                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:585:39: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  585 |             if (headbuf.size() > 16 * 1024) { DIST_CLOSESOCK(fd); return "error: vllm header bomb"; }
+      |                                       ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:597:19: warning: 200 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  597 |     if (status != 200) {
+      |                   ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:599:18: warning: 2048 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  599 |         char buf[2048]; ssize_t n = read_some(fd, buf, sizeof(buf));
+      |                  ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:623:17: warning: unused local variable 'raw' of type 'std::string' (aka 'basic_string<char>') [bugprone-unused-local-non-trivial-variable]
+  623 |     std::string raw;         // unchunked body buffer
+      |                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:639:49: warning: 5 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  639 |             std::string data_part = line.substr(5);
+      |                                                 ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:677:84: warning: repeated branch body in conditional chain [bugprone-branch-clone]
+  677 |             if (sz >= 2 && sse_event[sz - 1] == '\n' && sse_event[sz - 2] == '\n') {
+      |                                                                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:679:14: note: end of the original
+  679 |             } else if (sz >= 4 &&
+      |              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:681:80: note: clone 1 starts here
+  681 |                        sse_event[sz - 3] == '\n' && sse_event[sz - 4] == '\r') {
+      |                                                                                ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:689:36: warning: performing an implicit widening conversion to type 'size_type' (aka 'unsigned long') of a multiplication performed in type 'int' [bugprone-implicit-widening-of-multiplication-result]
+  689 |             if (sse_event.size() > 1 * 1024 * 1024) return false; // event bomb
+      |                                    ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:689:36: note: make conversion explicit to silence this warning
+  689 |             if (sse_event.size() > 1 * 1024 * 1024) return false; // event bomb
+      |                                    ^~~~~~~~~~~~~~~
+      |                                    static_cast<size_type>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:689:36: note: perform multiplication in a wider type
+  689 |             if (sse_event.size() > 1 * 1024 * 1024) return false; // event bomb
+      |                                    ^~~~~~~~
+      |                                    static_cast<long>( )
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:689:40: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  689 |             if (sse_event.size() > 1 * 1024 * 1024) return false; // event bomb
+      |                                        ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:689:47: warning: 1024 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  689 |             if (sse_event.size() > 1 * 1024 * 1024) return false; // event bomb
+      |                                               ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:694:14: warning: 4096 is a magic number; consider replacing it with a named constant [readability-magic-numbers]
+  694 |     char buf[4096];
+      |              ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:737:57: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  737 |         try { c.spawn_ready_timeout_s = std::stoi(v); } catch (...) {}
+      |                                                         ^
+/home/boom/Desktop/Startup/DistibutedInference/llama-distributed/src/vllm_adapter.cpp:740:54: warning: empty catch statements hide issues; to handle exceptions appropriately, consider re-throwing, handling, or avoiding catch altogether [bugprone-empty-catch]
+  740 |         try { c.connect_timeout_ms = std::stoi(v); } catch (...) {}
+      |                                                      ^

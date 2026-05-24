@@ -139,6 +139,12 @@ public:
             connected_.store(false);
             return false;
         }
+        // Cap payload before resize(): a peer-controlled 4 GiB allocation
+        // is an OOM kill, not a protocol error. Drop the connection.
+        if (hdr_out.payload_len > MAX_PAYLOAD_BYTES) {
+            connected_.store(false);
+            return false;
+        }
         payload_out.resize(hdr_out.payload_len);
         if (hdr_out.payload_len > 0) {
             if (!_recv_all(payload_out.data(), hdr_out.payload_len)) return false;

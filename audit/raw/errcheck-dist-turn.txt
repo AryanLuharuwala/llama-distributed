@@ -1,0 +1,2 @@
+main.go:257:21:	defer conn.CloseNow()
+main.go:572:18:	defer conn.Close()

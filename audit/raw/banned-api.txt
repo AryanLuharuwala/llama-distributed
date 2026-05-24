@@ -1,0 +1,1 @@
+src/dist_node_main.cpp:170:    if (::fgets(buf, sizeof(buf), fp)) {

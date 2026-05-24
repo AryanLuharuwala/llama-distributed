@@ -1,0 +1,2 @@
+ok  	github.com/llama-distributed/server	9.694s	coverage: 39.1% of statements
+	github.com/llama-distributed/server/ctrlpb		coverage: 0.0% of statements

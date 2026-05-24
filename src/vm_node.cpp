@@ -156,6 +156,9 @@ void VmNode::handle_tensor_alloc(const uint8_t* payload, uint32_t sz) {
     if (sz < sizeof(MsgVmTensorAlloc)) return;
     const auto& msg = *reinterpret_cast<const MsgVmTensorAlloc*>(payload);
 
+    // Peer-controlled allocation must be capped (F-WIRE-02).
+    if (msg.n_bytes > dist::MAX_TENSOR_BYTES) return;
+
     std::lock_guard<std::mutex> lk(tensor_mu_);
     tensors_.emplace(msg.vaddr, std::vector<uint8_t>(msg.n_bytes, 0));
 }
@@ -173,17 +176,24 @@ void VmNode::handle_tensor_write(const uint8_t* payload, uint32_t sz) {
     const auto& msg  = *reinterpret_cast<const MsgVmTensorWrite*>(payload);
     uint32_t data_sz = sz - sizeof(MsgVmTensorWrite);
 
+    // F-WIRE-01: msg.offset + data_sz are both uint32_t; their sum can wrap
+    // (e.g. offset=0xFFFFFFFF, data_sz=1) and produce a tiny buf that we
+    // then memcpy 4 GiB past. Promote to size_t and bound.
+    const size_t off  = static_cast<size_t>(msg.offset);
+    const size_t end  = off + static_cast<size_t>(data_sz);
+    if (end < off) return;                           // overflow guard
+    if (end > dist::MAX_TENSOR_BYTES) return;        // peer-controlled cap
+
     std::lock_guard<std::mutex> lk(tensor_mu_);
     auto it = tensors_.find(msg.vaddr);
     if (it == tensors_.end()) {
-        // Lazy alloc
-        tensors_.emplace(msg.vaddr, std::vector<uint8_t>(msg.offset + data_sz, 0));
+        tensors_.emplace(msg.vaddr, std::vector<uint8_t>(end, 0));
         it = tensors_.find(msg.vaddr);
     }
     auto& buf = it->second;
-    if (msg.offset + data_sz > buf.size()) buf.resize(msg.offset + data_sz, 0);
+    if (end > buf.size()) buf.resize(end, 0);
     if (data_sz > 0) {
-        std::memcpy(buf.data() + msg.offset,
+        std::memcpy(buf.data() + off,
                     payload + sizeof(MsgVmTensorWrite), data_sz);
     }
 }
@@ -230,9 +240,19 @@ void VmNode::handle_op_dispatch(const uint8_t* payload, uint32_t sz) {
     if (sz < sizeof(MsgVmOpDispatch)) return;
     const auto& hdr = *reinterpret_cast<const MsgVmOpDispatch*>(payload);
 
-    // Parse variable layout: MsgVmOpDispatch | vaddrs[n_inputs] | op_payload
-    uint32_t vaddr_bytes = hdr.n_inputs * sizeof(uint64_t);
+    // F-WIRE-02: hdr.n_inputs is peer-controlled; cap it before the resize,
+    // and do the size math in size_t so n_inputs*8 cannot wrap to a small
+    // value that passes the bounds check.
+    if (hdr.n_inputs > dist::MAX_OP_INPUTS) {
+        send_op_reject(hdr.op_id);
+        return;
+    }
+    const size_t vaddr_bytes = static_cast<size_t>(hdr.n_inputs) * sizeof(uint64_t);
     if (sz < sizeof(MsgVmOpDispatch) + vaddr_bytes) {
+        send_op_reject(hdr.op_id);
+        return;
+    }
+    if (hdr.n_output_bytes > dist::MAX_TENSOR_BYTES) {
         send_op_reject(hdr.op_id);
         return;
     }
@@ -248,7 +268,8 @@ void VmNode::handle_op_dispatch(const uint8_t* payload, uint32_t sz) {
     std::memcpy(task.input_vaddrs.data(), p, vaddr_bytes);
     p += vaddr_bytes;
 
-    uint32_t payload_bytes = sz - sizeof(MsgVmOpDispatch) - vaddr_bytes;
+    const size_t payload_bytes = static_cast<size_t>(sz)
+                                 - sizeof(MsgVmOpDispatch) - vaddr_bytes;
     task.op_payload.assign(p, p + payload_bytes);
 
     if (!exec_queue_.try_push(std::move(task))) {
@@ -283,10 +304,20 @@ void VmNode::handle_topo_update(const uint8_t* payload, uint32_t sz) {
     if (sz < sizeof(MsgVmTopoUpdate)) return;
     const auto& hdr = *reinterpret_cast<const MsgVmTopoUpdate*>(payload);
 
+    // F-WIRE-02: cap n_nodes and require the buffer to actually contain the
+    // claimed slots; otherwise the std::string(const char*) ctor below walks
+    // off the end of the message looking for a NUL.
+    if (hdr.n_nodes > dist::MAX_NODES) return;
+    const size_t needed = sizeof(MsgVmTopoUpdate) + static_cast<size_t>(hdr.n_nodes) * 64;
+    if (sz < needed) return;
+
     std::vector<std::string> new_ring;
+    new_ring.reserve(hdr.n_nodes);
     const char* p = reinterpret_cast<const char*>(payload + sizeof(MsgVmTopoUpdate));
     for (uint32_t i = 0; i < hdr.n_nodes; ++i) {
-        new_ring.emplace_back(p);
+        // strnlen-bound: id slot is fixed 64 bytes whether NUL-terminated or not.
+        size_t n = ::strnlen(p, 64);
+        new_ring.emplace_back(p, n);
         p += 64;
     }
 

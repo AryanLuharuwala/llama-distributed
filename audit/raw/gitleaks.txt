@@ -1,0 +1,27 @@
+Finding:     ...&server{cfg: config{sessionSecret: "[1;3;mREDACTED[0m"}}
+Secret:      [1;3;mREDACTED[0m
+RuleID:      generic-api-key
+Entropy:     3.845351
+File:        server/oauth_state_test.go
+Line:        15
+Commit:      879712971adc5330d75438b499a29d966f5b45c1
+Author:      AryanLuharuwala
+Email:       aryanluharuwala@gmail.com
+Date:        2026-05-23T15:30:11Z
+Fingerprint: 879712971adc5330d75438b499a29d966f5b45c1:server/oauth_state_test.go:generic-api-key:15
+
+Finding:     sessionSecret: "[1;3;mREDACTED[0m"
+Secret:      [1;3;mREDACTED[0m
+RuleID:      generic-api-key
+Entropy:     4.180833
+File:        server/failures_test.go
+Line:        98
+Commit:      06214b85d6a3428a4484d4158481b895e68eb54a
+Author:      AryanLuharuwala
+Email:       aryanluharuwala@gmail.com
+Date:        2026-05-23T13:14:39Z
+Fingerprint: 06214b85d6a3428a4484d4158481b895e68eb54a:server/failures_test.go:generic-api-key:98
+
+[90m2:39AM[0m [32mINF[0m 57 commits scanned.
+[90m2:39AM[0m [32mINF[0m scan completed in 928ms
+[90m2:39AM[0m [31mWRN[0m leaks found: 2

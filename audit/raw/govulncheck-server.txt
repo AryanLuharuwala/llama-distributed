@@ -1,0 +1,102 @@
+=== Symbol Results ===
+
+Vulnerability #1: GO-2026-4982
+    Bypass of meta content URL escaping causes XSS in html/template
+  More info: https://pkg.go.dev/vuln/GO-2026-4982
+  Standard library
+    Found in: html/template@go1.25.8
+    Fixed in: html/template@go1.25.10
+    Example traces found:
+      #1: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.Execute
+      #2: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.ExecuteTemplate
+
+Vulnerability #2: GO-2026-4980
+    Escaper bypass leads to XSS in html/template
+  More info: https://pkg.go.dev/vuln/GO-2026-4980
+  Standard library
+    Found in: html/template@go1.25.8
+    Fixed in: html/template@go1.25.10
+    Example traces found:
+      #1: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.Execute
+      #2: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.ExecuteTemplate
+
+Vulnerability #3: GO-2026-4971
+    Panic in Dial and LookupPort when handling NUL byte on Windows in net
+  More info: https://pkg.go.dev/vuln/GO-2026-4971
+  Standard library
+    Found in: net@go1.25.8
+    Fixed in: net@go1.25.10
+    Example traces found:
+      #1: main.go:644:28: server.firewallProbe calls net.DialTimeout
+      #2: install.go:465:19: server.fetchJSON calls http.Client.Do, which eventually calls net.Dialer.Dial
+      #3: redis_ratelimit.go:141:24: server.newRedisRateBackend calls redis.NewClient, which eventually calls net.Dialer.DialContext
+      #4: main.go:538:35: server.main calls http.Server.ListenAndServe, which calls net.Listen
+      #5: ctrlpb/ctrl.pb.go:1159:49: ctrlpb.file_distpool_ctrl_v1_ctrl_proto_rawDescGZIP calls sync.Once.Do, which eventually calls net.Resolver.LookupHost
+      #6: redis_ratelimit.go:141:24: server.newRedisRateBackend calls redis.NewClient, which eventually calls net.Resolver.LookupIPAddr
+
+Vulnerability #4: GO-2026-4947
+    Unexpected work during chain building in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2026-4947
+  Standard library
+    Found in: crypto/x509@go1.25.8
+    Fixed in: crypto/x509@go1.25.9
+    Example traces found:
+      #1: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls x509.Certificate.Verify
+
+Vulnerability #5: GO-2026-4946
+    Inefficient policy validation in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2026-4946
+  Standard library
+    Found in: crypto/x509@go1.25.8
+    Fixed in: crypto/x509@go1.25.9
+    Example traces found:
+      #1: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls x509.Certificate.Verify
+
+Vulnerability #6: GO-2026-4918
+    Infinite loop in HTTP/2 transport when given bad SETTINGS_MAX_FRAME_SIZE in
+    net/http/internal/http2 in golang.org/x/net
+  More info: https://pkg.go.dev/vuln/GO-2026-4918
+  Module: golang.org/x/net
+    Found in: golang.org/x/net@v0.52.0
+    Fixed in: golang.org/x/net@v0.53.0
+
+  Standard library
+    Found in: net/http@go1.25.8
+    Fixed in: net/http@go1.25.10
+    Example traces found:
+      #1: install.go:465:19: server.fetchJSON calls http.Client.Do
+      #2: analytics_sink.go:340:30: server.bigqueryAnalyticsSink.insertAll calls oauth2.reuseTokenSource.Token, which eventually calls http.Client.PostForm
+
+Vulnerability #7: GO-2026-4870
+    Unauthenticated TLS 1.3 KeyUpdate record can cause persistent connection
+    retention and DoS in crypto/tls
+  More info: https://pkg.go.dev/vuln/GO-2026-4870
+  Standard library
+    Found in: crypto/tls@go1.25.8
+    Fixed in: crypto/tls@go1.25.9
+    Example traces found:
+      #1: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls tls.Conn.HandshakeContext
+      #2: oidc.go:48:31: server.newOIDCProvider calls oidc.NewProvider, which eventually calls tls.Conn.Read
+      #3: redis_ratelimit.go:150:26: server.newRedisRateBackend calls redis.NewScript, which eventually calls tls.Conn.Write
+      #4: redis_ratelimit.go:141:24: server.newRedisRateBackend calls redis.NewClient, which eventually calls tls.DialWithDialer
+      #5: install.go:465:19: server.fetchJSON calls http.Client.Do, which eventually calls tls.Dialer.DialContext
+
+Vulnerability #8: GO-2026-4865
+    JsBraceDepth Context Tracking Bugs (XSS) in html/template
+  More info: https://pkg.go.dev/vuln/GO-2026-4865
+  Standard library
+    Found in: html/template@go1.25.8
+    Fixed in: html/template@go1.25.9
+    Example traces found:
+      #1: main.go:606:13: server.main calls fmt.Println, which eventually calls template.Error.Error
+      #2: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.Execute
+      #3: main.go:538:35: server.main calls http.Server.ListenAndServe, which eventually calls template.Template.ExecuteTemplate
+      #4: ctrlpb/ctrl.pb.go:1159:49: ctrlpb.file_distpool_ctrl_v1_ctrl_proto_rawDescGZIP calls sync.Once.Do, which eventually calls template.Template.Funcs
+      #5: ctrlpb/ctrl.pb.go:1159:49: ctrlpb.file_distpool_ctrl_v1_ctrl_proto_rawDescGZIP calls sync.Once.Do, which eventually calls template.Template.Parse
+      #6: main.go:606:13: server.main calls fmt.Println, which eventually calls template.context.String
+
+Your code is affected by 8 vulnerabilities from the Go standard library.
+This scan also found 4 vulnerabilities in packages you import and 22
+vulnerabilities in modules you require, but your code doesn't appear to call
+these vulnerabilities.
+Use '-show verbose' for more details.

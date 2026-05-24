@@ -143,13 +143,16 @@ void NodeAgent::control_thread_fn() {
         case MsgType::LAYER_ASSIGN: {
             if (payload.size() < sizeof(MsgLayerAssign)) break;
             const auto& msg = *reinterpret_cast<const MsgLayerAssign*>(payload.data());
-            size_t ranges_offset = sizeof(MsgLayerAssign);
+            // F-WIRE-02: bound peer-controlled count and use size_t math.
+            if (msg.n_ranges > MAX_LAYER_RANGES) break;
+            const size_t ranges_offset = sizeof(MsgLayerAssign);
+            const size_t ranges_bytes  = static_cast<size_t>(msg.n_ranges)
+                                         * sizeof(LayerRange);
+            if (payload.size() < ranges_offset + ranges_bytes) break;
             std::vector<LayerRange> ranges(msg.n_ranges);
-            if (payload.size() >= ranges_offset + msg.n_ranges * sizeof(LayerRange)) {
-                memcpy(ranges.data(),
-                       payload.data() + ranges_offset,
-                       msg.n_ranges * sizeof(LayerRange));
-            }
+            memcpy(ranges.data(),
+                   payload.data() + ranges_offset,
+                   ranges_bytes);
             handle_layer_assign(msg, ranges);
             break;
         }
