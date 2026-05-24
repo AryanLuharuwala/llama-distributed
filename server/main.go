@@ -347,6 +347,14 @@ func main() {
 	if err := runMigrationsWithRetry(db, dialect); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
+	// Versioned migrations (P3) run after the legacy baseline.  Anything
+	// new — ALTER TABLE, CREATE INDEX, new tables — lands in
+	// server/migrations/<ts>_<name>.sql and is applied here exactly once
+	// per DB.  Atlas-compatible naming so operators can generate diffs
+	// with the atlas CLI and drop files straight into the directory.
+	if err := applyVersionedMigrations(context.Background(), db, dialect); err != nil {
+		log.Fatalf("versioned migrate: %v", err)
+	}
 
 	// Cross-instance rate-limit backend (P9).  Without DIST_REDIS_URL the
 	// limiter is per-process — fine for single-replica deploys.  With it,

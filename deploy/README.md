@@ -98,6 +98,44 @@ envoy ─┬─> dist-server (replica 1) ─┐
                                     └─> redis      (rate-limit buckets)
 ```
 
+## Schema migrations — versioned files
+
+Two-layer migration story:
+
+1. **Legacy baseline** (`server/db.go` + the `migrate*()` siblings).
+   Idempotent `CREATE TABLE IF NOT EXISTS` statements; run on every
+   boot to handle the union of all tables that existed before
+   versioning. Existing deploys are already at the baseline.
+2. **Versioned files** (`server/migrations/*.sql`). All new schema
+   changes — `ALTER TABLE`, `CREATE INDEX`, new tables — go here as
+   atlas-named SQL files. Applied in lexical order, each once per DB,
+   tracked in the `schema_migrations` table.
+
+Authoring a new migration:
+
+```bash
+# Either hand-write it:
+cat > server/migrations/20260525120000_add_foo_index.sql <<EOF
+CREATE INDEX idx_rigs_pool_id ON rigs(pool_id);
+EOF
+
+# Or let atlas generate it from a schema diff:
+atlas migrate diff add_foo_index \
+  --env prod \
+  --to "postgres://reader:pw@host/dbname?sslmode=disable" \
+  --dev-url "docker://postgres/16/dev"
+```
+
+Either way, commit the file and redeploy. `dist-server` applies it on
+the next boot and refuses to start if the SQL fails — partial state is
+rolled back. Concurrent boots are safe: the `UNIQUE(version)` on
+`schema_migrations` breaks the race.
+
+The `atlas.hcl` at the repo root defines `prod` and `sqlite`
+environments for the operator's local atlas CLI. The runtime applier
+in `server/schema_migrations.go` is ~150 lines and ships in the binary
+— no atlas runtime dependency.
+
 ## OTEL_EXPORTER_OTLP_ENDPOINT — traces + metrics out
 
 dist-server ships an OpenTelemetry SDK that activates the moment

@@ -1,0 +1,14 @@
+-- Baseline marker.  Intentionally empty.
+--
+-- The schema as of this point in history was produced by the imperative
+-- migrate*() functions in db.go / comfy.go / conv_memory.go /
+-- hf_download.go / mcp.go / rag.go / reputation.go / tokenization.go,
+-- which still run on boot via runMigrationsWithRetry() before this
+-- versioned applier.  They are idempotent (CREATE TABLE IF NOT EXISTS),
+-- so existing deploys are already at this baseline whether or not they
+-- have the schema_migrations table.
+--
+-- All NEW schema changes — ALTER TABLE, CREATE INDEX, new tables — go
+-- in subsequent files (20260524000002_*.sql, 20260524000003_*.sql, …).
+-- Naming follows atlas's convention so `atlas migrate diff` against a
+-- production DB produces files that drop straight into this directory.
