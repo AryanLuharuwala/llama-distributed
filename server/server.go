@@ -90,7 +90,7 @@ func newServer(cfg config, db *sql.DB) *server {
 		comfyJobs: newComfyJobs(),
 		relays:    newActiveRelays(),
 		costCache: newRigCostCache(2 * time.Second),
-		ipRL:      newIPRateLimiterSet(),
+		ipRL:      newIPRateLimiterSet(cfg.rateBackend),
 		drift:     newRigDriftTable(),
 		startedAt: time.Now(),
 	}

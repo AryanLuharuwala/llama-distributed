@@ -32,15 +32,46 @@ services:
       # Optional: enable structured JSON logging so envoy + dist-server
       # both feed a log aggregator with parseable output.
       DIST_LOG_JSON: "1"
+      # Cross-instance rate-limit backend (P9).  With this set, every
+      # dist-server replica behind envoy shares one token-bucket per
+      # (endpoint, client-IP) instead of each replica having its own —
+      # the limiter actually means something when you scale horizontally.
+      # Single-replica deploys can leave this empty; the in-process
+      # sync.Map limiter is identical in behavior for one instance.
+      DIST_REDIS_URL: "redis://redis:6379/0"
     volumes:
       - dist-data:/var/lib/distpool
       - dist-models:/var/lib/distpool/models
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
       interval: 10s
       timeout: 2s
       retries: 3
       start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No published ports — only dist-server reaches it via the compose
+    # network.  AOF + appendfsync everysec gives us at-most-1s of state
+    # loss on a crash, which is fine for rate-limit buckets (a few extra
+    # allows after a Redis restart is not a security incident).
+    command: ["redis-server",
+              "--appendonly", "yes",
+              "--appendfsync", "everysec",
+              "--maxmemory", "256mb",
+              "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
 
   envoy:
     image: envoyproxy/envoy:v1.33-latest
@@ -64,3 +95,4 @@ services:
 volumes:
   dist-data:
   dist-models:
+  redis-data:

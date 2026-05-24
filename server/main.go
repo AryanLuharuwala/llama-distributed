@@ -88,6 +88,15 @@ type config struct {
 	// directly to the internet.
 	trustedProxiesRaw string
 	trustedProxies    *trustedProxySet
+
+	// Redis URL for the cross-instance rate-limit backend (P9).  Set
+	// DIST_REDIS_URL=redis://host:6379/0 to share token-bucket state
+	// across replicas behind envoy.  Empty ⇒ in-process limiter only
+	// (single-replica deploy).  The dialed client lives on
+	// cfg.rateBackend so the server can construct ipRateLimiterSet
+	// without a second connect at request time.
+	redisURL    string
+	rateBackend rateBackend
 }
 
 func loadConfig() config {
@@ -119,6 +128,7 @@ func loadConfig() config {
 		turnTTL:        parseDurationEnv("DIST_TURN_TTL", time.Hour),
 
 		trustedProxiesRaw: os.Getenv("DIST_TRUSTED_PROXIES"),
+		redisURL:          os.Getenv("DIST_REDIS_URL"),
 	}
 	tp, bad := parseTrustedProxies(c.trustedProxiesRaw)
 	c.trustedProxies = tp
@@ -322,6 +332,22 @@ func main() {
 	}
 	if err := runMigrationsWithRetry(db, dialect); err != nil {
 		log.Fatalf("migrate: %v", err)
+	}
+
+	// Cross-instance rate-limit backend (P9).  Without DIST_REDIS_URL the
+	// limiter is per-process — fine for single-replica deploys.  With it,
+	// every replica behind envoy shares one budget per (bucket, IP), so
+	// an attacker can't multiply their allowance by the replica count.
+	// Failure to dial is fatal here: an operator who set DIST_REDIS_URL
+	// wants the protection, and silently fail-opening to per-process
+	// limits would be a worse surprise than a crashloop they can fix.
+	if cfg.redisURL != "" {
+		be, err := newRedisRateBackend(context.Background(), cfg.redisURL)
+		if err != nil {
+			log.Fatalf("redis ratelimit backend: %v", err)
+		}
+		cfg.rateBackend = be
+		log.Printf("ratelimit: using redis backend at %s", cfg.redisURL)
 	}
 
 	srv := newServer(cfg, db)

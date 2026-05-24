@@ -17,7 +17,7 @@ ever appends to XFF, and dist-server enforces that with
 | Path | What it is |
 | --- | --- |
 | `envoy/envoy.yaml` | Production envoy config — TLS terminate on :443, h1/h2 ALPN, WebSocket + SSE upgrade support, h1 to upstream. |
-| `docker-compose.envoy.yaml` | Two-service stack (envoy + dist-server) with the right network isolation and trust set. |
+| `docker-compose.envoy.yaml` | Three-service stack (envoy + dist-server + redis) with the right network isolation and trust set. |
 | `README.md` | This file. |
 
 ## Five-minute deploy
@@ -64,6 +64,39 @@ Three topologies, three settings:
 audit logs key off `r.RemoteAddr`. Safe but useless once you're behind
 a real proxy.
 
+## DIST_REDIS_URL — the cross-instance rate-limit backend
+
+`DIST_REDIS_URL` (e.g. `redis://redis:6379/0`) makes the per-IP token
+buckets for device-code approve, device-code poll, OAuth start, and WS
+hello-fail retries shared across replicas. Without it each replica has
+its own in-memory `sync.Map` and an attacker behind a CDN gets N× the
+configured budget when you scale to N pods.
+
+The bundled compose file ships a sidecar Redis with AOF
+(`appendfsync everysec`, 256 MB cap, allkeys-LRU eviction). For real
+multi-region deploys, point `DIST_REDIS_URL` at a managed Redis cluster
+(Elasticache, Memorystore, Upstash) and drop the sidecar — the dialer
+honors `redis://`, `rediss://`, and `unix://` schemes via go-redis URL
+parsing.
+
+**On failure:** the limiter logs once per second and fails open (allows
+the request). The reasoning: a Redis outage shouldn't be a DoS
+amplifier. If you'd rather fail closed, that's a one-line change in
+`server/ip_ratelimit.go` (`allow()` would return `ok` from the backend
+directly without the err-suppression).
+
+Sessions and device codes are already DB-backed in `dist-server`
+(SQLite or Postgres via `DIST_DB_DRIVER=postgres`), so the only state
+that ever needed Redis is the rate-limit token buckets. A horizontally
+scaled deploy looks like:
+
+```
+envoy ─┬─> dist-server (replica 1) ─┐
+       ├─> dist-server (replica 2) ─┼─> postgres   (sessions, device codes, audit)
+       └─> dist-server (replica N) ─┤
+                                    └─> redis      (rate-limit buckets)
+```
+
 ## WebSocket + SSE caveats
 
 The dashboard and every rig hold long-lived connections:
@@ -97,14 +130,11 @@ authenticate with their stored agent keys, and resume serving.
 
 ## What's NOT here yet
 
-This is the first commit on the `prod` branch. Items deferred to
-later prod-branch commits, in rough priority order:
+Items deferred to later prod-branch commits, in rough priority order:
 
-- **Redis-backed sessions, device codes, and rate limits** (P9) —
-  required before you can horizontally scale dist-server to multiple
-  replicas behind envoy. Right now each dist-server instance has its
-  own in-memory rate-limit map; a multi-replica deploy is racy.
-- **Helm chart** — once Redis lands, package the topology for k8s.
+- **Helm chart** — package the (envoy + dist-server + redis + postgres)
+  topology for k8s with proper PDBs, HPA, and a sidecar Redis or
+  Memorystore reference.
 - **OIDC** (P5) — federation via dex/hydra, replacing the
   GitHub/Google OAuth pair.
 - **SPIFFE/SPIRE workload identity** (P6) — rig identity via SVID

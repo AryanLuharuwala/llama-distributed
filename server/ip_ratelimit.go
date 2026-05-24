@@ -19,6 +19,7 @@ package main
 // surfaced in config.go.
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -48,14 +49,31 @@ func (a *atomicInt64) get() int64  { a.v.Lock(); t := a.t; a.v.Unlock(); return 
 // ipRateBucket is one named per-IP rate limiter.  Each protected
 // endpoint takes its own bucket so noise on one doesn't cost budget on
 // another.
+//
+// When backend is non-nil the bucket delegates allow() to the shared
+// cross-instance store (Redis on the prod branch).  The in-process
+// sync.Map is still used for peek() and as a fallback if the backend
+// errors — single-replica behavior is unchanged when DIST_REDIS_URL is
+// unset.
 type ipRateBucket struct {
+	name    string // used to prefix Redis keys; empty for local-only buckets
 	r       rate.Limit
 	b       int
 	buckets sync.Map // map[string]*ipLimBucket
+	backend rateBackend
 }
 
 func newIPRateBucket(perSec rate.Limit, burst int) *ipRateBucket {
 	return &ipRateBucket{r: perSec, b: burst}
+}
+
+// withBackend attaches a cross-instance store and a name used to
+// namespace its keys.  Mutates and returns the receiver for chained
+// initialization in newIPRateLimiterSet.
+func (b *ipRateBucket) withBackend(name string, be rateBackend) *ipRateBucket {
+	b.name = name
+	b.backend = be
+	return b
 }
 
 // peek returns true if the limiter would currently allow a token, without
@@ -80,6 +98,17 @@ func (b *ipRateBucket) allow(ip string) bool {
 		// but the caller is responsible for ensuring the IP extraction
 		// path is correct.  Tests cover the happy path.
 		return true
+	}
+	// Cross-instance path: ask the shared backend.  On error the
+	// backend already logged + returned (true, err), so we honor its
+	// allow decision and skip the local bucket entirely — keeping the
+	// local sync.Map updated would only matter for peek() and the
+	// janitor, and both are best-effort.
+	if b.backend != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		ok, _ := b.backend.allow(ctx, b.name+":"+ip, float64(b.r), b.b)
+		return ok
 	}
 	now := time.Now().Unix()
 	v, ok := b.buckets.Load(ip)
@@ -123,12 +152,12 @@ type ipRateLimiterSet struct {
 //                     credential-stuffing without locking out genuine
 //                     bad-network reconnect storms.
 //   - oauth start:    1/sec per IP; burst 3.
-func newIPRateLimiterSet() *ipRateLimiterSet {
+func newIPRateLimiterSet(backend rateBackend) *ipRateLimiterSet {
 	set := &ipRateLimiterSet{
-		deviceApprove: newIPRateBucket(rate.Every(6*time.Second), 3),
-		devicePoll:    newIPRateBucket(rate.Every(2*time.Second), 10),
-		helloFail:     newIPRateBucket(rate.Every(12*time.Second), 3),
-		oauthStart:    newIPRateBucket(rate.Limit(1), 3),
+		deviceApprove: newIPRateBucket(rate.Every(6*time.Second), 3).withBackend("dev-approve", backend),
+		devicePoll:    newIPRateBucket(rate.Every(2*time.Second), 10).withBackend("dev-poll", backend),
+		helloFail:     newIPRateBucket(rate.Every(12*time.Second), 3).withBackend("hello-fail", backend),
+		oauthStart:    newIPRateBucket(rate.Limit(1), 3).withBackend("oauth-start", backend),
 	}
 	go func() {
 		t := time.NewTicker(5 * time.Minute)
