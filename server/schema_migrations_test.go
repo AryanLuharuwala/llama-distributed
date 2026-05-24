@@ -23,11 +23,11 @@ func memDB(t *testing.T) *sql.DB {
 func TestEnsureMigrationsTable(t *testing.T) {
 	db := memDB(t)
 	ctx := context.Background()
-	if err := ensureMigrationsTable(ctx, db); err != nil {
+	if err := ensureMigrationsTable(ctx, db, sqliteDialect{}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
 	// Idempotent — second call must not error.
-	if err := ensureMigrationsTable(ctx, db); err != nil {
+	if err := ensureMigrationsTable(ctx, db, sqliteDialect{}); err != nil {
 		t.Fatalf("second create: %v", err)
 	}
 	var n int
@@ -108,13 +108,13 @@ func countEmbeddedMigrations(t *testing.T) int {
 func TestApplyOneRecordsVersion(t *testing.T) {
 	db := memDB(t)
 	ctx := context.Background()
-	if err := ensureMigrationsTable(ctx, db); err != nil {
+	if err := ensureMigrationsTable(ctx, db, sqliteDialect{}); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	// Apply a tiny test migration that actually creates a table —
 	// verifies both the SQL execution and the version recording paths.
 	body := `CREATE TABLE _test_table (id INTEGER PRIMARY KEY)`
-	if err := applyOne(ctx, db, "20990101000001", "test.sql", body); err != nil {
+	if err := applyOne(ctx, db, sqliteDialect{}, "20990101000001", "test.sql", body); err != nil {
 		t.Fatalf("applyOne: %v", err)
 	}
 	// Table exists.
@@ -134,7 +134,7 @@ func TestApplyOneRecordsVersion(t *testing.T) {
 func TestApplyOneRollsBackOnSQLError(t *testing.T) {
 	db := memDB(t)
 	ctx := context.Background()
-	if err := ensureMigrationsTable(ctx, db); err != nil {
+	if err := ensureMigrationsTable(ctx, db, sqliteDialect{}); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
 	// Syntactically broken SQL.  applyOne must surface the error and
@@ -142,7 +142,7 @@ func TestApplyOneRollsBackOnSQLError(t *testing.T) {
 	// be skipped on the next boot, leaving the DB in an indeterminate
 	// state.
 	body := `CRATE TABLE this_is_not_sql`
-	if err := applyOne(ctx, db, "20990101000002", "broken.sql", body); err == nil {
+	if err := applyOne(ctx, db, sqliteDialect{}, "20990101000002", "broken.sql", body); err == nil {
 		t.Error("expected error from broken SQL, got nil")
 	}
 	var n int

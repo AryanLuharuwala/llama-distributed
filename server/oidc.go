@@ -257,7 +257,7 @@ func (s *server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 // but the user owns their own name once they're in our system.
 func (s *server) upsertOIDCUser(c oidcClaims) (int64, error) {
 	var uid int64
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id FROM users WHERE oidc_issuer = ? AND oidc_subject = ?`,
 		c.Issuer, c.Subject,
 	).Scan(&uid)
@@ -273,7 +273,7 @@ func (s *server) upsertOIDCUser(c oidcClaims) (int64, error) {
 	} else {
 		display = "user"
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO users (oidc_issuer, oidc_subject, display_name, created_at)
 		 VALUES (?, ?, ?, ?)`,
 		c.Issuer, c.Subject, display, nowUnix(),

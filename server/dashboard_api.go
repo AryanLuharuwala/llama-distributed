@@ -64,7 +64,7 @@ type meRig struct {
 }
 
 func (s *server) collectMeRigs(uid int64) []meRig {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT agent_id, hostname, n_gpus, vram_bytes, last_seen
 		 FROM rigs WHERE user_id = ? ORDER BY last_seen DESC`,
 		uid,
@@ -104,7 +104,7 @@ func (s *server) collectMeRigs(uid int64) []meRig {
 		r.Health = classifyRigHealth(r)
 		// First pool membership for this rig, if any.  Lets the console table
 		// show a "Pool" column without a second round-trip.
-		_ = s.db.QueryRow(`
+		_ = s.dbQueryRow(`
 			SELECT p.id, p.name
 			FROM pool_rigs pr
 			JOIN rigs r2 ON r2.id = pr.rig_id
@@ -221,7 +221,7 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 	// We bucket the last 30 days by UTC date string and additionally roll up
 	// per-rig totals.  Both are cheap; UI renders a sparkline + per-rig bars.
 	since := time.Now().Add(-30 * 24 * time.Hour).Unix()
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT strftime('%Y-%m-%d', started_at, 'unixepoch') AS day,
 		       COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0)
 		FROM inference_log
@@ -253,7 +253,7 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 		InputTokens  int64  `json:"input_tokens"`
 		OutputTokens int64  `json:"output_tokens"`
 	}
-	prows, err := s.db.Query(`
+	prows, err := s.dbQuery(`
 		SELECT il.agent_id, COALESCE(r.hostname, ''),
 		       COUNT(*), COALESCE(SUM(il.input_tokens),0), COALESCE(SUM(il.output_tokens),0)
 		FROM inference_log il
@@ -286,7 +286,7 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 		InputTokens  int64  `json:"input_tokens"`
 		OutputTokens int64  `json:"output_tokens"`
 	}
-	qrows, err := s.db.Query(`
+	qrows, err := s.dbQuery(`
 		SELECT il.pool_id, COALESCE(p.name, ''),
 		       COUNT(*), COALESCE(SUM(il.input_tokens),0), COALESCE(SUM(il.output_tokens),0)
 		FROM inference_log il
@@ -487,7 +487,7 @@ func (s *server) handlePoolSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.user_id, r.agent_id, r.hostname
 		FROM pool_rigs pr JOIN rigs r ON r.id = pr.rig_id
 		WHERE pr.pool_id = ?`, pid)
@@ -575,7 +575,7 @@ func (s *server) handleConsoleNetwork(w http.ResponseWriter, r *http.Request) {
 	// Pools this user can see (owned + member-of).  We use this as the
 	// edge fabric — two rigs are connected iff they're in the same visible
 	// pool.
-	prows, err := s.db.Query(`
+	prows, err := s.dbQuery(`
 		SELECT DISTINCT p.id
 		FROM pools p
 		LEFT JOIN pool_members m ON m.pool_id = p.id
@@ -597,7 +597,7 @@ func (s *server) handleConsoleNetwork(w http.ResponseWriter, r *http.Request) {
 	nodes := map[string]*netNode{}
 	rigPools := map[string]map[int64]bool{}
 	for _, pid := range poolIDs {
-		rrows, err := s.db.Query(`
+		rrows, err := s.dbQuery(`
 			SELECT r.user_id, r.agent_id, r.hostname
 			FROM pool_rigs pr JOIN rigs r ON r.id = pr.rig_id
 			WHERE pr.pool_id = ?`, pid)
@@ -767,7 +767,7 @@ func (s *server) handleWidgetState(w http.ResponseWriter, r *http.Request) {
 	} else if uidA, aid, ok := s.agentFromRequest(r); ok {
 		uid = uidA
 		agentID = aid
-		_ = s.db.QueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).Scan(&displayName)
+		_ = s.dbQueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).Scan(&displayName)
 	} else {
 		writeErr(w, 401, "session cookie or X-Agent-Key required")
 		return
@@ -787,7 +787,7 @@ func (s *server) handleWidgetState(w http.ResponseWriter, r *http.Request) {
 
 	// 24h tokens committed: sum input+output for finished jobs in window.
 	var tokens24h int64
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT COALESCE(SUM(input_tokens + output_tokens), 0)
 		   FROM inference_log
 		  WHERE agent_user_id = ?

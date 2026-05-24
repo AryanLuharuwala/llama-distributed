@@ -72,7 +72,7 @@ type poolParallelism struct {
 func (s *server) loadPoolParallelism(poolID int64) (poolParallelism, error) {
 	var p poolParallelism
 	var modelID *int64
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT parallelism, model_id, pp_stages, tp_size, COALESCE(tp_mode, 'intra')
 		 FROM pools WHERE id = ?`,
 		poolID,
@@ -85,7 +85,7 @@ func (s *server) loadPoolParallelism(poolID int64) (poolParallelism, error) {
 	}
 	if modelID != nil && *modelID > 0 {
 		p.ModelID = *modelID
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT name, n_layers FROM models WHERE id = ?`, *modelID,
 		).Scan(&p.ModelName, &p.NLayers)
 	}
@@ -112,7 +112,7 @@ type onlineRigInfo struct {
 // onlineRigsInPool returns all live, in-pool rigs in deterministic order
 // (by rig.id ascending).
 func (s *server) onlineRigsInPool(poolID int64) ([]onlineRigInfo, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.id, r.user_id, r.agent_id, r.hostname, r.n_gpus_available
 		FROM pool_rigs pr
 		JOIN rigs r ON r.id = pr.rig_id

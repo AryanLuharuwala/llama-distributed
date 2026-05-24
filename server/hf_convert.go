@@ -277,7 +277,7 @@ func (s *server) runHFConvertImport(ctx context.Context, uid, jobID int64,
 		s.hfFail(jobID, uid, "read manifest: "+err.Error())
 		return
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO models (name, n_layers, n_shards, shards_dir, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		modelName, man.NBlocks, man.NStages, shardsDir, nowUnix(),
@@ -293,7 +293,7 @@ func (s *server) runHFConvertImport(ctx context.Context, uid, jobID int64,
 	_ = os.RemoveAll(stagingDir)
 
 	now := nowUnix()
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = 'done', model_id = ?, updated_at = ?, error = ''
 		 WHERE id = ?`, modelID, now, jobID)
 	s.hub.broadcastToUser(uid, "hf_progress", map[string]any{

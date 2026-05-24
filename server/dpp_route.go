@@ -596,7 +596,7 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 // non-sharded path uses, so the existing /comfy/out/{id}/{file} signed-URL
 // machinery can serve it back to the client.
 func (s *server) persistDPPImage(uid int64, reqID uint16, data []byte) (string, error) {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO comfy_jobs (user_id, prompt, params_json, status, created_at, updated_at)
 		 VALUES (?, '', '{"dpp":true}', 'running', ?, ?)`,
 		uid, nowUnix(), nowUnix(),
@@ -614,7 +614,7 @@ func (s *server) persistDPPImage(uid int64, reqID uint16, data []byte) (string, 
 		return "", err
 	}
 	outFilesJSON, _ := json.Marshal([]string{file})
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE comfy_jobs SET status='done', out_files=?, updated_at=? WHERE id=?`,
 		string(outFilesJSON), nowUnix(), jobID,
 	)

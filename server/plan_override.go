@@ -46,7 +46,7 @@ type planOverride struct {
 // loadPlanOverride reads pools.plan_override.  Returns (nil, nil) if unset.
 func (s *server) loadPlanOverride(poolID int64) (*planOverride, error) {
 	var raw *string
-	if err := s.db.QueryRow(`SELECT plan_override FROM pools WHERE id = ?`, poolID).
+	if err := s.dbQueryRow(`SELECT plan_override FROM pools WHERE id = ?`, poolID).
 		Scan(&raw); err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *server) validateOverride(poolID int64, nLayers int, po *planOverride) e
 			return fmt.Errorf("stage %d has empty agent_id", st.StageIdx)
 		}
 		var n int
-		err := s.db.QueryRow(`
+		err := s.dbQueryRow(`
 			SELECT COUNT(*) FROM pool_rigs pr
 			JOIN rigs r ON r.id = pr.rig_id
 			WHERE pr.pool_id = ? AND r.agent_id = ?`,
@@ -154,7 +154,7 @@ func (s *server) applyPlanOverride(poolID int64, reqID uint32, cfg poolParalleli
 		hostname string
 	}
 	rigs := map[string]rigRec{}
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.user_id, r.agent_id, r.hostname FROM pool_rigs pr
 		JOIN rigs r ON r.id = pr.rig_id WHERE pr.pool_id = ?`, poolID)
 	if err != nil {
@@ -282,7 +282,7 @@ func (s *server) handlePoolPlanPut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	canonical, _ := json.Marshal(&po) // re-marshal so we store a canonical form
-	if _, err := s.db.Exec(`UPDATE pools SET plan_override = ? WHERE id = ?`,
+	if _, err := s.dbExec(`UPDATE pools SET plan_override = ? WHERE id = ?`,
 		string(canonical), pid); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -306,7 +306,7 @@ func (s *server) handlePoolPlanDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "only the pool owner can clear the plan")
 		return
 	}
-	if _, err := s.db.Exec(`UPDATE pools SET plan_override = NULL WHERE id = ?`, pid); err != nil {
+	if _, err := s.dbExec(`UPDATE pools SET plan_override = NULL WHERE id = ?`, pid); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}

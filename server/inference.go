@@ -297,7 +297,7 @@ func (s *server) handleInfer(w http.ResponseWriter, r *http.Request) {
 	)
 	{
 		var modelID *int64
-		_ = s.db.QueryRow(`SELECT model_id FROM pools WHERE id = ?`, body.PoolID).Scan(&modelID)
+		_ = s.dbQueryRow(`SELECT model_id FROM pools WHERE id = ?`, body.PoolID).Scan(&modelID)
 		if modelID != nil && *modelID > 0 {
 			shardFile = "stage-0.gguf"
 			shardURL = s.mintShardURL(*modelID, shardFile, 15*time.Minute)
@@ -414,7 +414,7 @@ func writeSSEErr(w http.ResponseWriter, fl http.Flusher, msg string) {
 
 func (s *server) logInference(userID, poolID, agentUserID int64, agentID string,
 	inTok, outTok int, status string) int64 {
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO inference_log (user_id, pool_id, agent_user_id, agent_id,
 		   input_tokens, output_tokens, started_at, status)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -432,7 +432,7 @@ func (s *server) finishInference(id int64, inTok, outTok int, status string) {
 	if id == 0 {
 		return
 	}
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE inference_log SET finished_at = ?, input_tokens = ?, output_tokens = ?, status = ?
 		 WHERE id = ?`,
 		nowUnix(), inTok, outTok, status, id,
@@ -609,7 +609,7 @@ func (s *server) handleInferenceLog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, pool_id, agent_id, input_tokens, output_tokens,
 		        started_at, finished_at, status
 		 FROM inference_log WHERE user_id = ?

@@ -96,7 +96,7 @@ func (s *server) appendMemory(ctx context.Context, m convMemory) (int64, error) 
 	if m.TokenCount == 0 {
 		m.TokenCount = approxTokens(m.Text)
 	}
-	res, err := s.db.ExecContext(ctx, s.dialect.RewriteQuery(
+	res, err := s.dbExecCtx(ctx, s.dialect.RewriteQuery(
 		`INSERT INTO conv_memories
 			(user_id, conversation_id, kind, text, token_count, embedding, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -115,7 +115,7 @@ func (s *server) recentMemories(ctx context.Context, uid int64, conv string, n i
 	if n <= 0 {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, s.dialect.RewriteQuery(
+	rows, err := s.dbQueryCtx(ctx, s.dialect.RewriteQuery(
 		`SELECT id, kind, text, token_count, embedding, created_at
 		   FROM conv_memories
 		  WHERE user_id=? AND conversation_id=?
@@ -151,7 +151,7 @@ func (s *server) recallSemantic(ctx context.Context, uid int64, conv string, que
 	if k <= 0 || len(query) == 0 {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, s.dialect.RewriteQuery(
+	rows, err := s.dbQueryCtx(ctx, s.dialect.RewriteQuery(
 		`SELECT id, kind, text, token_count, embedding, created_at
 		   FROM conv_memories
 		  WHERE user_id=? AND conversation_id=? AND embedding IS NOT NULL`,
@@ -211,7 +211,7 @@ func (s *server) recallSemantic(ctx context.Context, uid int64, conv string, que
 // forgetConversation removes every memory row for a conversation.  Used
 // when the user explicitly clears chat history or deletes a thread.
 func (s *server) forgetConversation(ctx context.Context, uid int64, conv string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, s.dialect.RewriteQuery(
+	res, err := s.dbExecCtx(ctx, s.dialect.RewriteQuery(
 		`DELETE FROM conv_memories WHERE user_id=? AND conversation_id=?`,
 	), uid, conv)
 	if err != nil {

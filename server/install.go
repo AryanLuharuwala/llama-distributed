@@ -227,7 +227,7 @@ func (s *server) handleInstallCommand(w http.ResponseWriter, r *http.Request) {
 	// 30-min TTL for install-command tokens — longer than the raw pairing
 	// flow because the user may walk to a second machine between clicks.
 	expires := time.Now().Add(30 * time.Minute)
-	if _, err := s.db.Exec(
+	if _, err := s.dbExec(
 		`INSERT INTO pair_tokens (token, user_id, created_at, expires_at, pool_id) VALUES (?, ?, ?, ?, ?)`,
 		token, u.ID, nowUnix(), expires.Unix(), poolID,
 	); err != nil {

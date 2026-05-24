@@ -45,7 +45,7 @@ func currentMinuteKey(t time.Time) string {
 
 func (s *server) loadRateLimit(userID int64) rateLimitPolicy {
 	var p rateLimitPolicy
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT req_per_min, tokens_per_month FROM rate_limits WHERE user_id = ?`,
 		userID,
 	).Scan(&p.ReqPerMin, &p.TokensPerMonth)
@@ -60,12 +60,12 @@ func (s *server) usageSnapshot(userID int64) usageSnapshot {
 	u.Period = currentMonthKey(time.Now())
 
 	minuteKey := currentMinuteKey(time.Now())
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT requests FROM usage_counters WHERE user_id = ? AND period = ?`,
 		userID, minuteKey,
 	).Scan(&u.ReqThisMinute)
 
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT input_tokens, output_tokens FROM usage_counters WHERE user_id = ? AND period = ?`,
 		userID, u.Period,
 	).Scan(&u.InputThisMo, &u.OutputThisMo)
@@ -88,7 +88,7 @@ func (s *server) refundRequestSlot(userID int64) {
 	minuteKey := currentMinuteKey(time.Now())
 	rlMu.Lock()
 	defer rlMu.Unlock()
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE usage_counters SET requests = MAX(0, requests - 1)
 		 WHERE user_id = ? AND period = ?`,
 		userID, minuteKey,
@@ -112,7 +112,7 @@ func (s *server) reserveRequestSlot(userID int64) (bool, rateLimitPolicy, usageS
 	// Bump the minute counter.  We do this before the request so a burst of
 	// concurrent calls can't all pass the check.
 	minuteKey := currentMinuteKey(time.Now())
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`INSERT INTO usage_counters (user_id, period, requests, input_tokens, output_tokens)
 		 VALUES (?, ?, 1, 0, 0)
 		 ON CONFLICT (user_id, period) DO UPDATE SET requests = requests + 1`,
@@ -148,7 +148,7 @@ func (s *server) recordTokens(userID int64, inTok, outTok int) {
 	periodKey := currentMonthKey(time.Now())
 	rlMu.Lock()
 	defer rlMu.Unlock()
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`INSERT INTO usage_counters (user_id, period, requests, input_tokens, output_tokens)
 		 VALUES (?, ?, 0, ?, ?)
 		 ON CONFLICT (user_id, period) DO UPDATE SET

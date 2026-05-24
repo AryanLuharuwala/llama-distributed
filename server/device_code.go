@@ -69,7 +69,7 @@ func (s *server) handleDeviceCodeMint(w http.ResponseWriter, r *http.Request) {
 	exp := now + int64(deviceCodeTTL.Seconds())
 	for i := 0; i < 5; i++ {
 		userCode = newUserCode()
-		_, err := s.db.Exec(
+		_, err := s.dbExec(
 			`INSERT INTO device_codes
 			   (device_code, user_code, hostname, n_gpus, vram_bytes,
 			    created_at, expires_at)
@@ -133,7 +133,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 		nGPUs     int
 		vramBytes int64
 	)
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, approved, expires_at, hostname, n_gpus, vram_bytes
 		 FROM device_codes WHERE user_code = ?`, body.UserCode,
 	).Scan(&id, &approved, &expiresAt, &hostname, &nGPUs, &vramBytes)
@@ -161,7 +161,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(
+	if _, err := s.txExec(tx,
 		`UPDATE device_codes
 		    SET approved = 1, user_id = ?, agent_id = ?, agent_key = ?,
 		        approved_at = ?
@@ -183,7 +183,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	// an operator login on the same host as a compute node can't erase its
 	// advertised GPU count.
 	akHash := hashAgentKey(agentKey)
-	if _, err := tx.Exec(`INSERT INTO rigs
+	if _, err := s.txExec(tx, `INSERT INTO rigs
 		(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, agent_key_hash)
 		VALUES (?, ?, ?, COALESCE(NULLIF(?, -1), 0), COALESCE(NULLIF(?, -1), 0), ?, '', ?)
 		ON CONFLICT (user_id, agent_id) DO UPDATE SET
@@ -233,7 +233,7 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		agentID   *string
 		agentKey  *string
 	)
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT approved, expires_at, agent_id, agent_key
 		   FROM device_codes WHERE device_code = ?`, body.DeviceCode,
 	).Scan(&approved, &expiresAt, &agentID, &agentKey)
@@ -263,7 +263,7 @@ func (s *server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	// fetches it.  A second poll for the same device_code returns 410.
 	// We do the CAS-style UPDATE … WHERE agent_key IS NOT NULL so two
 	// concurrent polls race to read-and-null exactly once.
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE device_codes SET agent_key = NULL
 		   WHERE device_code = ? AND agent_key IS NOT NULL`,
 		body.DeviceCode,
@@ -338,12 +338,12 @@ func (s *server) agentFromRequest(r *http.Request) (uid int64, agentID string, o
 	// column only for rows that the boot-time backfill hasn't touched yet
 	// (e.g. an in-flight reconnect on a freshly-migrated DB).
 	hash := hashAgentKey(key)
-	if err := s.db.QueryRow(
+	if err := s.dbQueryRow(
 		`SELECT user_id, agent_id FROM rigs WHERE agent_key_hash = ? LIMIT 1`, hash,
 	).Scan(&uid, &agentID); err == nil {
 		return uid, agentID, true
 	}
-	if err := s.db.QueryRow(
+	if err := s.dbQueryRow(
 		`SELECT user_id, agent_id FROM rigs
 		   WHERE (agent_key_hash IS NULL OR agent_key_hash = '')
 		     AND agent_key = ? LIMIT 1`, key,
@@ -394,7 +394,7 @@ func (s *server) handleAgentListPools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "bad or missing agent_key")
 		return
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT DISTINCT p.id, p.name, COALESCE(p.slug,''), p.visibility
 		  FROM pools p
 		  LEFT JOIN pool_members m ON m.pool_id = p.id

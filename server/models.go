@@ -111,7 +111,7 @@ func (s *server) handleRegisterModel(w http.ResponseWriter, r *http.Request) {
 	// Reject duplicate name up-front with a clearer error than SQLite's
 	// "UNIQUE constraint failed".
 	var existing int64
-	_ = s.db.QueryRow(`SELECT id FROM models WHERE name = ?`, body.Name).Scan(&existing)
+	_ = s.dbQueryRow(`SELECT id FROM models WHERE name = ?`, body.Name).Scan(&existing)
 	if existing != 0 {
 		writeErr(w, 409, "model name already exists")
 		return
@@ -141,7 +141,7 @@ func (s *server) handleRegisterModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalBytes := shardsTotalBytes(shardsDir)
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO models (name, n_layers, n_shards, shards_dir, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		body.Name, man.NBlocks, man.NStages, shardsDir, totalBytes, nowUnix(),
 	)
@@ -169,7 +169,7 @@ func (s *server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, name, n_layers, n_shards, shards_dir, size_bytes, created_at FROM models ORDER BY id ASC`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -195,7 +195,7 @@ func (s *server) handleListModels(w http.ResponseWriter, r *http.Request) {
 		out = append(out, m)
 	}
 	for _, b := range pending {
-		_, _ = s.db.Exec(`UPDATE models SET size_bytes = ? WHERE id = ?`, b.bytes, b.id)
+		_, _ = s.dbExec(`UPDATE models SET size_bytes = ? WHERE id = ?`, b.bytes, b.id)
 	}
 	writeJSON(w, 200, map[string]any{"models": out})
 }
@@ -286,7 +286,7 @@ func (s *server) handleShardDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) modelShardsDir(id int64) (string, error) {
 	var dir string
-	err := s.db.QueryRow(`SELECT shards_dir FROM models WHERE id = ?`, id).Scan(&dir)
+	err := s.dbQueryRow(`SELECT shards_dir FROM models WHERE id = ?`, id).Scan(&dir)
 	return dir, err
 }
 
@@ -320,7 +320,7 @@ func (s *server) modelInfoByName(name string) (int64, string, int, error) {
 	var id int64
 	var dir string
 	var nlay int
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, shards_dir, n_layers FROM models WHERE name = ?`, name,
 	).Scan(&id, &dir, &nlay)
 	return id, dir, nlay, err

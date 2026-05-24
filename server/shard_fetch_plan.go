@@ -100,7 +100,7 @@ func (s *server) handleShardFetchPlan(w http.ResponseWriter, r *http.Request) {
 		originURL   string
 		sizeBytes   int64
 	)
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT id, shards_dir FROM models WHERE name = ?`, name,
 	).Scan(&modelID, &shardsDir)
 

@@ -212,7 +212,7 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Upsert.
 	var uid int64
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT id FROM users WHERE github_id = ?`, gh.ID,
 	).Scan(&uid)
 	if err != nil {
@@ -231,7 +231,7 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		} else {
 			display = "user"
 		}
-		res, err := s.db.Exec(
+		res, err := s.dbExec(
 			`INSERT INTO users (github_id, github_login, display_name, created_at)
 			 VALUES (?, ?, ?, ?)`,
 			gh.ID, gh.Login, display, nowUnix(),

@@ -64,8 +64,47 @@ func dialectFor(driver string) (sqlDialect, error) {
 		return sqliteDialect{}, nil
 	case "postgres", "pgx":
 		return postgresDialect{}, nil
+	case "cockroach", "cockroachdb":
+		// CockroachDB speaks the Postgres wire protocol so the standard
+		// pgx/lib-pq driver works.  We register it as a separate name
+		// only to surface the retry semantics: every Cockroach txn can
+		// fail with SQLSTATE 40001 under contention, so callers using
+		// dbDoTx should always go through the retry helper.
+		return cockroachDialect{}, nil
+	case "spanner":
+		// Cloud Spanner with the PGAdapter sidecar speaks Postgres wire
+		// too.  Spanner has no AUTOINCREMENT — schema migrations under
+		// Spanner must define PKs with sequences or UUIDs.  The dialect
+		// rewrite is a best-effort: a real Spanner deploy needs hand-
+		// authored migration variants under migrations/spanner/.
+		return spannerDialect{}, nil
 	}
 	return nil, errors.New("unsupported DB driver: " + driver)
+}
+
+// cockroachDialect inherits Postgres rewrites but reports its own Name()
+// so telemetry distinguishes the two.
+type cockroachDialect struct{ postgresDialect }
+
+func (cockroachDialect) Name() string { return "cockroach" }
+
+// spannerDialect inherits Postgres rewrites and additionally drops the
+// `IF NOT EXISTS` qualifier on CREATE INDEX (Spanner doesn't support it
+// pre-2023) and rewrites BIGSERIAL back to a sequence-friendly form.
+// This is a starting point — production Spanner deploys will likely
+// want hand-authored migrations rather than auto-rewriting.
+type spannerDialect struct{ postgresDialect }
+
+func (spannerDialect) Name() string { return "spanner" }
+
+func (s spannerDialect) RewriteDDL(stmt string) string {
+	stmt = s.postgresDialect.RewriteDDL(stmt)
+	// Spanner's CREATE INDEX historically didn't accept IF NOT EXISTS.
+	// Modern Spanner does, but PGAdapter occasionally fumbles it; safer
+	// to strip and let migration ordering enforce uniqueness.
+	stmt = strings.ReplaceAll(stmt, "CREATE UNIQUE INDEX IF NOT EXISTS", "CREATE UNIQUE INDEX")
+	stmt = strings.ReplaceAll(stmt, "CREATE INDEX IF NOT EXISTS", "CREATE INDEX")
+	return stmt
 }
 
 // ── SQLite ────────────────────────────────────────────────────────────

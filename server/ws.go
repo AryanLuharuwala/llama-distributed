@@ -705,7 +705,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		var pkRaw []byte
 		var storedHash sql.NullString
 		var legacyPlain sql.NullString // read for the transitional rescue path below
-		err2 := s.db.QueryRow(
+		err2 := s.dbQueryRow(
 			`SELECT user_id, pubkey, agent_key_hash, agent_key FROM rigs WHERE agent_id = ? LIMIT 1`,
 			hello.AgentID,
 		).Scan(&uid, &pkRaw, &storedHash, &legacyPlain)
@@ -769,7 +769,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		// Store hash, not plaintext.  We blank out the legacy agent_key
 		// column so a DB dump never exposes the bearer credential.
 		akHash := hashAgentKey(agentKey)
-		_, err = s.db.Exec(`INSERT INTO rigs
+		_, err = s.dbExec(`INSERT INTO rigs
 			(user_id, agent_id, hostname, n_gpus, vram_bytes, last_seen, agent_key, agent_key_hash, pubkey)
 			VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)
 			ON CONFLICT (user_id, agent_id)
@@ -783,7 +783,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			uid, hello.AgentID, hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), akHash, pkArg,
 		)
 	} else {
-		_, err = s.db.Exec(`UPDATE rigs SET hostname = ?, n_gpus = ?, vram_bytes = ?, last_seen = ?
+		_, err = s.dbExec(`UPDATE rigs SET hostname = ?, n_gpus = ?, vram_bytes = ?, last_seen = ?
 			WHERE user_id = ? AND agent_id = ?`,
 			hello.Hostname, hello.NGPUs, hello.VRAMBytes, nowUnix(), uid, hello.AgentID,
 		)
@@ -800,7 +800,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	// roll out SPIRE without breaking the existing fleet.
 	if s.cfg.spiffe != nil {
 		if id, ok := s.spiffeFromAgentHello(r, &hello); ok {
-			if _, derr := s.db.Exec(
+			if _, derr := s.dbExec(
 				`UPDATE rigs SET spiffe_id = ? WHERE user_id = ? AND agent_id = ?`,
 				id.String(), uid, hello.AgentID,
 			); derr != nil {
@@ -816,12 +816,12 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	// pool_rigs rows already exist.
 	if isFirstPair && preferPoolID != 0 {
 		var rigRowID int64
-		if err := s.db.QueryRow(
+		if err := s.dbQueryRow(
 			`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
 			uid, hello.AgentID,
 		).Scan(&rigRowID); err == nil {
 			if _, isMember := s.userIsMember(preferPoolID, uid); isMember {
-				if _, err := s.db.Exec(
+				if _, err := s.dbExec(
 					`INSERT OR IGNORE INTO pool_rigs (pool_id, rig_id, added_at) VALUES (?, ?, ?)`,
 					preferPoolID, rigRowID, nowUnix(),
 				); err != nil {
@@ -835,7 +835,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch display name for welcome.
 	var displayName string
-	_ = s.db.QueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).
+	_ = s.dbQueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).
 		Scan(&displayName)
 
 	welcome := map[string]any{

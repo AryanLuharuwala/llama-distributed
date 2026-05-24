@@ -106,7 +106,7 @@ func (s *server) backfillAgentKeyHashes() error {
 		  AND agent_key IS NOT NULL
 		  AND agent_key <> ''
 	`)
-	rows, err := s.db.Query(q)
+	rows, err := s.dbQuery(q)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func (s *server) backfillAgentKeyHashes() error {
 	}
 	u := s.dialect.RewriteQuery(`UPDATE rigs SET agent_key_hash = ? WHERE id = ?`)
 	for _, p := range todo {
-		if _, err := s.db.Exec(u, p.hash, p.id); err != nil {
+		if _, err := s.dbExec(u, p.hash, p.id); err != nil {
 			return err
 		}
 	}

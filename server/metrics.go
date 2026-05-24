@@ -70,7 +70,7 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		repTotalBytes int64
 	)
 	if s.db != nil {
-		_ = s.db.QueryRow(`SELECT COUNT(*),
+		_ = s.dbQueryRow(`SELECT COUNT(*),
 		                          COALESCE(SUM(relay_sessions_total), 0),
 		                          COALESCE(SUM(relay_sessions_success), 0),
 		                          COALESCE(SUM(relay_sessions_failed), 0),
@@ -131,15 +131,15 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// indexed query; safe to run on a 15s scrape cadence.
 	if s.db != nil {
 		var n int64
-		if _ = s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); true {
+		if _ = s.dbQueryRow(`SELECT COUNT(*) FROM users`).Scan(&n); true {
 			writeGauge(&b, "distinf_users_total", "Registered users.", float64(n), nil)
 		}
-		if _ = s.db.QueryRow(`SELECT COUNT(*) FROM rigs`).Scan(&n); true {
+		if _ = s.dbQueryRow(`SELECT COUNT(*) FROM rigs`).Scan(&n); true {
 			writeGauge(&b, "distinf_rigs_registered", "Rigs known to the control plane (online + offline).",
 				float64(n), nil)
 		}
 		// Pools by visibility, one series per label.
-		rows, err := s.db.Query(`SELECT visibility, COUNT(*) FROM pools GROUP BY visibility`)
+		rows, err := s.dbQuery(`SELECT visibility, COUNT(*) FROM pools GROUP BY visibility`)
 		if err == nil {
 			for rows.Next() {
 				var v string
@@ -152,7 +152,7 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 			}
 			_ = rows.Close()
 		}
-		if _ = s.db.QueryRow(
+		if _ = s.dbQueryRow(
 			`SELECT COUNT(*) FROM pool_invites WHERE used_at IS NULL AND expires_at >= ?`,
 			nowUnix()).Scan(&n); true {
 			writeGauge(&b, "distinf_pool_invites_active",
@@ -160,7 +160,7 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 				float64(n), nil)
 		}
 		// Device-code logins waiting on browser approval.
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT COUNT(*) FROM device_codes WHERE approved = 0 AND expires_at >= ?`,
 			nowUnix()).Scan(&n)
 		writeGauge(&b, "distinf_device_codes_pending",
@@ -168,7 +168,7 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 
 		// 24h inference rollup, sliced by status.
 		since := nowUnix() - 86400
-		jobRows, err := s.db.Query(
+		jobRows, err := s.dbQuery(
 			`SELECT status, COUNT(*),
 			        COALESCE(SUM(input_tokens), 0),
 			        COALESCE(SUM(output_tokens), 0)

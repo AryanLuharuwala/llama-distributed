@@ -107,7 +107,7 @@ func (s *server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var uid int64
-	err = s.db.QueryRow(`SELECT id FROM users WHERE google_id = ?`, gu.Sub).Scan(&uid)
+	err = s.dbQueryRow(`SELECT id FROM users WHERE google_id = ?`, gu.Sub).Scan(&uid)
 	if err != nil {
 		display := gu.Name
 		if display == "" {
@@ -118,7 +118,7 @@ func (s *server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		} else {
 			display = "user"
 		}
-		res, err := s.db.Exec(
+		res, err := s.dbExec(
 			`INSERT INTO users (google_id, google_email, display_name, created_at)
 			 VALUES (?, ?, ?, ?)`,
 			gu.Sub, gu.Email, display, nowUnix(),

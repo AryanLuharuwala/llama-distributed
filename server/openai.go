@@ -84,7 +84,7 @@ func (s *server) pickPoolSlug(ownerHandle, poolName string, skipPoolID int64) (s
 			candidate = fmt.Sprintf("%s-%d", base, n+1)
 		}
 		var existing int64
-		err := s.db.QueryRow(
+		err := s.dbQueryRow(
 			`SELECT id FROM pools WHERE slug = ? AND id != ?`,
 			candidate, skipPoolID,
 		).Scan(&existing)
@@ -100,7 +100,7 @@ func (s *server) pickPoolSlug(ownerHandle, poolName string, skipPoolID int64) (s
 
 // backfillSlugs runs once at boot to give any pre-migration pool a slug.
 func (s *server) backfillSlugs() error {
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT p.id, p.name, COALESCE(u.github_login, ''), COALESCE(u.display_name, ''), u.id
 		 FROM pools p JOIN users u ON u.id = p.owner_id
 		 WHERE p.slug IS NULL OR p.slug = ''`,
@@ -126,7 +126,7 @@ func (s *server) backfillSlugs() error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.db.Exec(`UPDATE pools SET slug = ? WHERE id = ?`, slug, r.id); err != nil {
+		if _, err := s.dbExec(`UPDATE pools SET slug = ? WHERE id = ?`, slug, r.id); err != nil {
 			return err
 		}
 	}
@@ -171,7 +171,7 @@ func (s *server) resolvePoolFromHost(r *http.Request) (int64, string) {
 	}
 
 	var pid int64
-	err := s.db.QueryRow(`SELECT id FROM pools WHERE slug = ?`, slug).Scan(&pid)
+	err := s.dbQueryRow(`SELECT id FROM pools WHERE slug = ?`, slug).Scan(&pid)
 	if err != nil {
 		return 0, slug
 	}
@@ -193,7 +193,7 @@ func (s *server) mintAPIKey(userID int64, label string) (string, int64, error) {
 	sum := sha256.Sum256([]byte(plain))
 	hash := hex.EncodeToString(sum[:])
 	prefix := plain[:12]
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO api_keys (user_id, label, prefix, hash, created_at) VALUES (?, ?, ?, ?, ?)`,
 		userID, label, prefix, hash, nowUnix(),
 	)
@@ -212,15 +212,15 @@ func (s *server) userFromAPIKey(key string) (*user, bool) {
 	sum := sha256.Sum256([]byte(key))
 	hash := hex.EncodeToString(sum[:])
 	var uid int64
-	err := s.db.QueryRow(`SELECT user_id FROM api_keys WHERE hash = ?`, hash).Scan(&uid)
+	err := s.dbQueryRow(`SELECT user_id FROM api_keys WHERE hash = ?`, hash).Scan(&uid)
 	if err != nil {
 		return nil, false
 	}
-	_, _ = s.db.Exec(`UPDATE api_keys SET last_used_at = ? WHERE hash = ?`, nowUnix(), hash)
+	_, _ = s.dbExec(`UPDATE api_keys SET last_used_at = ? WHERE hash = ?`, nowUnix(), hash)
 
 	u := &user{}
 	var gh sql.NullString
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT id, github_login, display_name FROM users WHERE id = ?`, uid,
 	).Scan(&u.ID, &gh, &u.DisplayName)
 	if err != nil {
@@ -273,7 +273,7 @@ func (s *server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, label, prefix, created_at, COALESCE(last_used_at, 0)
 		 FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`, u.ID,
 	)
@@ -311,7 +311,7 @@ func (s *server) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad id")
 		return
 	}
-	res, err := s.db.Exec(`DELETE FROM api_keys WHERE id = ? AND user_id = ?`, id, u.ID)
+	res, err := s.dbExec(`DELETE FROM api_keys WHERE id = ? AND user_id = ?`, id, u.ID)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -349,11 +349,11 @@ func (s *server) handleOAIModels(w http.ResponseWriter, r *http.Request) {
 	}
 	var out []modelOut
 	var mid sql.NullInt64
-	_ = s.db.QueryRow(`SELECT model_id FROM pools WHERE id = ?`, poolID).Scan(&mid)
+	_ = s.dbQueryRow(`SELECT model_id FROM pools WHERE id = ?`, poolID).Scan(&mid)
 	if mid.Valid {
 		var name string
 		var created int64
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT name, created_at FROM models WHERE id = ?`, mid.Int64,
 		).Scan(&name, &created)
 		if name != "" {
@@ -522,7 +522,7 @@ func (s *server) handleOAIChat(w http.ResponseWriter, r *http.Request) {
 	var shardURL, shardFile string
 	{
 		var modelID *int64
-		_ = s.db.QueryRow(`SELECT model_id FROM pools WHERE id = ?`, poolID).Scan(&modelID)
+		_ = s.dbQueryRow(`SELECT model_id FROM pools WHERE id = ?`, poolID).Scan(&modelID)
 		if modelID != nil && *modelID > 0 {
 			shardFile = "stage-0.gguf"
 			shardURL = s.mintShardURL(*modelID, shardFile, 15*time.Minute)

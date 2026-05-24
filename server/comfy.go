@@ -218,7 +218,7 @@ func (s *server) handleComfyRegisterWorkflow(w http.ResponseWriter, r *http.Requ
 		writeErr(w, 400, "graph_json must be valid JSON (ComfyUI API format)")
 		return
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO comfy_workflows (user_id, name, kind, graph_json, n_rigs, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		u.ID, body.Name, body.Kind, graph, body.NRigs, nowUnix(),
@@ -242,7 +242,7 @@ func (s *server) handleComfyListWorkflows(w http.ResponseWriter, r *http.Request
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, name, kind, n_rigs, created_at FROM comfy_workflows
 		 WHERE user_id = ? ORDER BY id DESC`, u.ID)
 	if err != nil {
@@ -292,7 +292,7 @@ func (s *server) handleComfyRegisterModel(w http.ResponseWriter, r *http.Request
 	if body.Kind == "" {
 		body.Kind = "image"
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO comfy_models (name, kind, family, hf_repo, hf_file, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		body.Name, body.Kind, body.Family, body.HFRepo, body.HFFile, nowUnix(),
@@ -315,7 +315,7 @@ func (s *server) handleComfyListModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, name, kind, family, hf_repo, hf_file, created_at
 		 FROM comfy_models ORDER BY id DESC`)
 	if err != nil {
@@ -374,7 +374,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 	// that we reject so a slow rig can't be hammered into oblivion from one
 	// browser tab.
 	var inflight int
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT COUNT(*) FROM comfy_jobs
 		 WHERE user_id = ? AND status IN ('queued','running','streaming')`,
 		u.ID).Scan(&inflight)
@@ -409,7 +409,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 	var wfKind string
 	var nRigs int = 1
 	if wfID == 0 && body.WorkflowName != "" {
-		err := s.db.QueryRow(
+		err := s.dbQueryRow(
 			`SELECT id, graph_json, kind, n_rigs FROM comfy_workflows
 			 WHERE user_id = ? AND name = ?`, u.ID, body.WorkflowName,
 		).Scan(&wfID, &graph, &wfKind, &nRigs)
@@ -418,7 +418,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if wfID != 0 {
-		err := s.db.QueryRow(
+		err := s.dbQueryRow(
 			`SELECT graph_json, kind, n_rigs FROM comfy_workflows
 			 WHERE id = ? AND user_id = ?`, wfID, u.ID,
 		).Scan(&graph, &wfKind, &nRigs)
@@ -436,7 +436,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 	// Resolve model name if provided (informational; agent loads on demand).
 	if body.ModelName != "" {
 		var ok int
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT 1 FROM comfy_models WHERE name = ?`, body.ModelName,
 		).Scan(&ok)
 		if ok == 0 {
@@ -450,7 +450,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		params = "{}"
 	}
 
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO comfy_jobs
 		 (user_id, pool_id, workflow_id, prompt, params_json, status, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
@@ -493,7 +493,7 @@ func (s *server) handleComfyJobDetail(w http.ResponseWriter, r *http.Request) {
 		createdAt int64
 		updatedAt int64
 	)
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT user_id, status, out_files, error, prompt, created_at, updated_at
 		 FROM comfy_jobs WHERE id = ?`, id,
 	).Scan(&uid, &status, &outFiles, &errMsg, &prompt, &createdAt, &updatedAt)
@@ -540,7 +540,7 @@ func (s *server) handleComfyJobCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var uid int64
-	if err := s.db.QueryRow(`SELECT user_id FROM comfy_jobs WHERE id = ?`, id).Scan(&uid); err != nil {
+	if err := s.dbQueryRow(`SELECT user_id FROM comfy_jobs WHERE id = ?`, id).Scan(&uid); err != nil {
 		writeErr(w, 404, "no such job")
 		return
 	}
@@ -559,7 +559,7 @@ func (s *server) handleComfyListJobs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, status, prompt, out_files, error, created_at, updated_at
 		 FROM comfy_jobs WHERE user_id = ? ORDER BY id DESC LIMIT 200`, u.ID)
 	if err != nil {
@@ -777,7 +777,7 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 		"n":    body.N,
 	}
 	pj, _ := json.Marshal(params)
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO comfy_jobs
 		 (user_id, prompt, params_json, status, created_at, updated_at)
 		 VALUES (?, ?, ?, 'queued', ?, ?)`,
@@ -809,7 +809,7 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-tick.C:
 			var status, outFiles, errMsg string
-			err := s.db.QueryRow(
+			err := s.dbQueryRow(
 				`SELECT status, out_files, error FROM comfy_jobs WHERE id = ?`, jobID,
 			).Scan(&status, &outFiles, &errMsg)
 			if err != nil {
@@ -918,7 +918,7 @@ func (s *server) runComfyJob(
 
 	// Persist file list.
 	fb, _ := json.Marshal(allFiles)
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE comfy_jobs SET status = 'done', out_files = ?, updated_at = ? WHERE id = ?`,
 		string(fb), nowUnix(), jobID,
 	)
@@ -1007,13 +1007,13 @@ func (s *server) pickComfyRigs(uid, poolID int64, nRigs int) []*agentConn {
 	var rows *sql.Rows
 	var err error
 	if poolID > 0 {
-		rows, err = s.db.Query(`
+		rows, err = s.dbQuery(`
 			SELECT r.user_id, r.agent_id FROM pool_rigs pr
 			JOIN rigs r ON r.id = pr.rig_id
 			WHERE pr.pool_id = ?
 			ORDER BY RANDOM()`, poolID)
 	} else {
-		rows, err = s.db.Query(`
+		rows, err = s.dbQuery(`
 			SELECT user_id, agent_id FROM rigs WHERE user_id = ? ORDER BY RANDOM()`, uid)
 	}
 	if err != nil {
@@ -1033,7 +1033,7 @@ func (s *server) pickComfyRigs(uid, poolID int64, nRigs int) []*agentConn {
 		}
 		// Capability gate: rig must have advertised comfy_ok = 1.
 		var ok2 int
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT ok FROM comfy_caps WHERE user_id = ? AND agent_id = ?`,
 			ru, aid,
 		).Scan(&ok2)
@@ -1052,7 +1052,7 @@ func (s *server) recordComfyAgent(jobID int64, a *agentConn) {
 	if a == nil {
 		return
 	}
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE comfy_jobs SET agent_user_id = ?, agent_id = ?, updated_at = ?
 		 WHERE id = ?`,
 		a.userID, a.agentID, nowUnix(), jobID,
@@ -1074,7 +1074,7 @@ func (s *server) upsertComfyCaps(uid int64, agentID string, msg map[string]any) 
 	} else {
 		models = "[]"
 	}
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`INSERT INTO comfy_caps (user_id, agent_id, ok, version, models, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(user_id, agent_id) DO UPDATE SET
@@ -1089,7 +1089,7 @@ func (s *server) upsertComfyCaps(uid int64, agentID string, msg map[string]any) 
 // ─── Status + signing helpers ──────────────────────────────────────────────
 
 func (s *server) comfySetStatus(jobID, uid int64, status, errMsg string) {
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE comfy_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?`,
 		status, errMsg, nowUnix(), jobID,
 	)
@@ -1117,7 +1117,7 @@ func (s *server) comfyFail(jobID, uid int64, msg string) {
 // row with a stale timestamp is by definition orphaned.
 func (s *server) reapStaleComfyJobs(maxIdleSec int64) (int64, error) {
 	cutoff := nowUnix() - maxIdleSec
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`UPDATE comfy_jobs
 		   SET status = 'failed',
 		       error  = 'reaped: job idle past timeout',
@@ -1144,10 +1144,10 @@ func (s *server) countComfyJobs() (active, queued, totalFailed int64) {
 		s.comfyJobs.mu.Unlock()
 	}
 	if s.db != nil {
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT COUNT(*) FROM comfy_jobs WHERE status = 'queued'`,
 		).Scan(&queued)
-		_ = s.db.QueryRow(
+		_ = s.dbQueryRow(
 			`SELECT COUNT(*) FROM comfy_jobs WHERE status IN ('failed','cancelled')`,
 		).Scan(&totalFailed)
 	}

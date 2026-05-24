@@ -142,11 +142,11 @@ func concatContent(msgs []oaiMsg, max int) string {
 // caller owns it.  Returns the row's id+dim or an error.
 func (s *server) resolveCollection(uid int64, opts *chatRAGOpts) (id int64, dim int, err error) {
 	if opts.CollectionID > 0 {
-		err = s.db.QueryRow(s.dialect.RewriteQuery(
+		err = s.dbQueryRow(s.dialect.RewriteQuery(
 			`SELECT id, embedding_dim FROM rag_collections WHERE id=? AND user_id=?`,
 		), opts.CollectionID, uid).Scan(&id, &dim)
 	} else {
-		err = s.db.QueryRow(s.dialect.RewriteQuery(
+		err = s.dbQueryRow(s.dialect.RewriteQuery(
 			`SELECT id, embedding_dim FROM rag_collections WHERE name=? AND user_id=?`,
 		), strings.TrimSpace(opts.CollectionName), uid).Scan(&id, &dim)
 	}

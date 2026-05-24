@@ -60,7 +60,10 @@ var migrationFS embed.FS
 // using only SQL-standard features (INTEGER PRIMARY KEY, TEXT UNIQUE,
 // INTEGER for timestamps).
 func applyVersionedMigrations(ctx context.Context, db *sql.DB, d sqlDialect) error {
-	if err := ensureMigrationsTable(ctx, db); err != nil {
+	if d == nil {
+		d = sqliteDialect{}
+	}
+	if err := ensureMigrationsTable(ctx, db, d); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
 	}
 
@@ -83,24 +86,25 @@ func applyVersionedMigrations(ctx context.Context, db *sql.DB, d sqlDialect) err
 		if applied[version] {
 			continue
 		}
-		if err := applyOne(ctx, db, version, f.name, f.body); err != nil {
+		if err := applyOne(ctx, db, d, version, f.name, f.body); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func ensureMigrationsTable(ctx context.Context, db *sql.DB) error {
+func ensureMigrationsTable(ctx context.Context, db *sql.DB, d sqlDialect) error {
 	// One row per applied migration.  applied_at is unix-seconds — same
 	// shape as every other timestamp column in this codebase, so an
 	// operator scripting `SELECT version FROM schema_migrations` gets
 	// uniform data.
-	_, err := db.ExecContext(ctx, `
+	stmt := d.RewriteDDL(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    TEXT NOT NULL UNIQUE,
 			applied_at INTEGER NOT NULL,
 			PRIMARY KEY (version)
 		)`)
+	_, err := db.ExecContext(ctx, stmt)
 	return err
 }
 
@@ -173,7 +177,10 @@ func versionFromFilename(name string) string {
 	return v
 }
 
-func applyOne(ctx context.Context, db *sql.DB, version, name, body string) error {
+func applyOne(ctx context.Context, db *sql.DB, d sqlDialect, version, name, body string) error {
+	if d == nil {
+		d = sqliteDialect{}
+	}
 	body = strings.TrimSpace(body)
 	// Empty migrations are legal — useful for "baseline" markers that
 	// only exist to set the starting version after a legacy schema.
@@ -187,14 +194,16 @@ func applyOne(ctx context.Context, db *sql.DB, version, name, body string) error
 		// Apply the whole file as one Exec.  Most drivers (sqlite3,
 		// lib/pq, pgx) accept multi-statement payloads in a single
 		// ExecContext; if a future migration needs per-statement
-		// handling, split it into multiple files.
-		if _, err := tx.ExecContext(ctx, body); err != nil {
+		// handling, split it into multiple files.  DDL is dialect-
+		// rewritten so SQLite-flavoured CREATE TABLEs run on Postgres
+		// (BIGSERIAL, BYTEA, etc.).
+		if _, err := tx.ExecContext(ctx, d.RewriteDDL(body)); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+		d.RewriteQuery(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`),
 		version, time.Now().Unix(),
 	); err != nil {
 		// Lost the race with another replica — they applied it first.

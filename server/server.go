@@ -520,7 +520,7 @@ type user struct {
 func (s *server) createSession(userID int64) (string, time.Time, error) {
 	sid := newRandomToken(32)
 	expires := time.Now().Add(sessionTTL)
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
 		sid, userID, nowUnix(), expires.Unix(),
 	)
@@ -559,7 +559,7 @@ func (s *server) userFromRequest(r *http.Request) (*user, bool) {
 		uid int64
 		exp int64
 	)
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT user_id, expires_at FROM sessions WHERE id = ?`,
 		c.Value,
 	).Scan(&uid, &exp)
@@ -568,7 +568,7 @@ func (s *server) userFromRequest(r *http.Request) (*user, bool) {
 	}
 	u := &user{}
 	var gh sql.NullString
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT id, github_login, display_name FROM users WHERE id = ?`,
 		uid,
 	).Scan(&u.ID, &gh, &u.DisplayName)
@@ -646,7 +646,7 @@ func (s *server) handleListRigs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT agent_id, hostname, n_gpus, vram_bytes, last_seen
 		 FROM rigs WHERE user_id = ? ORDER BY last_seen DESC`,
 		u.ID,
@@ -700,7 +700,7 @@ func (s *server) handleForgetRig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var rigID int64
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
 		u.ID, agentID,
 	).Scan(&rigID)
@@ -716,9 +716,9 @@ func (s *server) handleForgetRig(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 	// Pool membership rows + shard cache index reference rig_id; drop first
 	// so the foreign-key-less SQLite schema doesn't leave dangling rows.
-	_, _ = tx.Exec(`DELETE FROM pool_rigs WHERE rig_id = ?`, rigID)
-	_, _ = tx.Exec(`DELETE FROM rig_shards WHERE rig_id = ?`, rigID)
-	if _, err := tx.Exec(
+	_, _ = s.txExec(tx, `DELETE FROM pool_rigs WHERE rig_id = ?`, rigID)
+	_, _ = s.txExec(tx, `DELETE FROM rig_shards WHERE rig_id = ?`, rigID)
+	if _, err := s.txExec(tx,
 		`DELETE FROM rigs WHERE id = ? AND user_id = ?`, rigID, u.ID,
 	); err != nil {
 		writeErr(w, 500, err.Error())
@@ -752,7 +752,7 @@ func (s *server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.DisplayName = clean
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO users (github_login, display_name, created_at) VALUES (NULL, ?, ?)`,
 		body.DisplayName, nowUnix(),
 	)
@@ -772,7 +772,7 @@ func (s *server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookieName); err == nil {
-		_, _ = s.db.Exec(`DELETE FROM sessions WHERE id = ?`, c.Value)
+		_, _ = s.dbExec(`DELETE FROM sessions WHERE id = ?`, c.Value)
 	}
 	s.clearSessionCookie(w)
 	writeJSON(w, 200, map[string]string{"ok": "true"})
@@ -790,7 +790,7 @@ func (s *server) handlePairMint(w http.ResponseWriter, r *http.Request) {
 	}
 	token := newRandomToken(20)
 	expires := time.Now().Add(5 * time.Minute)
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT INTO pair_tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
 		token, u.ID, nowUnix(), expires.Unix(),
 	)
@@ -827,7 +827,7 @@ func (s *server) consumePairToken(token string) (int64, int64, error) {
 	var uid, exp int64
 	var poolID sql.NullInt64
 	now := nowUnix()
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`UPDATE pair_tokens
 		    SET used_at = ?
 		  WHERE token = ? AND used_at IS NULL AND expires_at >= ?
@@ -877,8 +877,8 @@ func (s *server) reapLoop(ctx context.Context) {
 		case <-flush.C:
 			s.flushLastSeen()
 		case <-reap.C:
-			_, _ = s.db.Exec(`DELETE FROM sessions    WHERE expires_at < ?`, nowUnix())
-			_, _ = s.db.Exec(`DELETE FROM pair_tokens WHERE expires_at < ?`, nowUnix())
+			_, _ = s.dbExec(`DELETE FROM sessions    WHERE expires_at < ?`, nowUnix())
+			_, _ = s.dbExec(`DELETE FROM pair_tokens WHERE expires_at < ?`, nowUnix())
 			// Reap any relay assignment older than maxRelayAssignmentAge —
 			// the session leaked (client disappeared without release).
 			if s.relays != nil {
@@ -993,7 +993,7 @@ func (h *hub) snapshotAgents() []*agentConn {
 
 // countOnlineRigsInPool counts how many pool_rigs are currently online.
 func (s *server) countOnlineRigsInPool(poolID int64) int {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.user_id, r.agent_id FROM pool_rigs pr
 		JOIN rigs r ON r.id = pr.rig_id WHERE pr.pool_id = ?`, poolID)
 	if err != nil {
@@ -1025,7 +1025,7 @@ func (s *server) countOnlineRigsInPool(poolID int64) int {
 // pickAndReserveRig admits up to MaxConcurrent of them onto the same
 // agentConn instead of bouncing the later ones with 503.
 func (s *server) pickAndReserveRig(poolID int64, ip *inferPeer) *agentConn {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.user_id, r.agent_id FROM pool_rigs pr
 		JOIN rigs r ON r.id = pr.rig_id
 		WHERE pr.pool_id = ?
@@ -1080,7 +1080,7 @@ func (s *server) pickAndReserveRig(poolID int64, ip *inferPeer) *agentConn {
 // doesn't always route to the same rig.  Caller MUST call incInflight()
 // before dispatching and decInflight() when the request terminates.
 func (s *server) pickOnlineRigInPool(poolID int64) (*agentConn, bool) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT r.user_id, r.agent_id FROM pool_rigs pr
 		JOIN rigs r ON r.id = pr.rig_id
 		WHERE pr.pool_id = ?

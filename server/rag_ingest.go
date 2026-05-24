@@ -54,7 +54,7 @@ func (s *server) ingestDocument(ctx context.Context, req ingestRequest) (*ingest
 	// Fast path: dedup hit.
 	var existing int64
 	var existingChunks int
-	err := s.db.QueryRow(s.dialect.RewriteQuery(
+	err := s.dbQueryRow(s.dialect.RewriteQuery(
 		`SELECT id, chunk_count FROM rag_documents
 		  WHERE collection_id=? AND content_sha=? AND user_id=?`,
 	), req.CollectionID, sha, req.UserID).Scan(&existing, &existingChunks)
@@ -70,7 +70,7 @@ func (s *server) ingestDocument(ctx context.Context, req ingestRequest) (*ingest
 	// process-wide embedder.  Mismatch is a hard error — the caller has to
 	// either pick a matching embedder or create a new collection.
 	var collDim int
-	if err := s.db.QueryRow(s.dialect.RewriteQuery(
+	if err := s.dbQueryRow(s.dialect.RewriteQuery(
 		`SELECT embedding_dim FROM rag_collections WHERE id=? AND user_id=?`,
 	), req.CollectionID, req.UserID).Scan(&collDim); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -110,11 +110,11 @@ func (s *server) ingestDocument(ctx context.Context, req ingestRequest) (*ingest
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.Exec(s.dialect.RewriteQuery(
+	res, err := s.txExec(tx,
 		`INSERT INTO rag_documents
 			(collection_id, user_id, uri, content_sha, mime_type, size_bytes, chunk_count, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-	), req.CollectionID, req.UserID, req.URI, sha, req.MIMEType, int64(len(req.Body)), len(chunks), now)
+		req.CollectionID, req.UserID, req.URI, sha, req.MIMEType, int64(len(req.Body)), len(chunks), now)
 	if err != nil {
 		return nil, fmt.Errorf("rag: insert document: %w", err)
 	}
@@ -142,13 +142,13 @@ func (s *server) ingestDocument(ctx context.Context, req ingestRequest) (*ingest
 	}
 
 	// Counter rollups on the collection — keeps the dashboard cheap.
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
+	if _, err := s.txExec(tx,
 		`UPDATE rag_collections
 		    SET documents_count = documents_count + 1,
 		        chunks_count    = chunks_count + ?,
 		        updated_at      = ?
 		  WHERE id=?`,
-	), len(chunks), now, req.CollectionID); err != nil {
+		len(chunks), now, req.CollectionID); err != nil {
 		return nil, fmt.Errorf("rag: bump collection counters: %w", err)
 	}
 
@@ -163,10 +163,10 @@ func (s *server) ingestDocument(ctx context.Context, req ingestRequest) (*ingest
 func (s *server) removeDocument(uid, collectionID, documentID int64) error {
 	// Load chunk count for counter rollback.
 	var chunks int
-	err := s.db.QueryRow(s.dialect.RewriteQuery(
+	err := s.dbQueryRow(
 		`SELECT chunk_count FROM rag_documents
 		  WHERE id=? AND collection_id=? AND user_id=?`,
-	), documentID, collectionID, uid).Scan(&chunks)
+		documentID, collectionID, uid).Scan(&chunks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("rag: document %d not found", documentID)
 	}
@@ -180,23 +180,23 @@ func (s *server) removeDocument(uid, collectionID, documentID int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
+	if _, err := s.txExec(tx,
 		`DELETE FROM rag_chunks WHERE document_id=? AND collection_id=?`,
-	), documentID, collectionID); err != nil {
+		documentID, collectionID); err != nil {
 		return fmt.Errorf("rag: delete chunks: %w", err)
 	}
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
+	if _, err := s.txExec(tx,
 		`DELETE FROM rag_documents WHERE id=? AND collection_id=? AND user_id=?`,
-	), documentID, collectionID, uid); err != nil {
+		documentID, collectionID, uid); err != nil {
 		return fmt.Errorf("rag: delete doc: %w", err)
 	}
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
+	if _, err := s.txExec(tx,
 		`UPDATE rag_collections
 		    SET documents_count = documents_count - 1,
 		        chunks_count    = chunks_count - ?,
 		        updated_at      = ?
 		  WHERE id=?`,
-	), chunks, time.Now().Unix(), collectionID); err != nil {
+		chunks, time.Now().Unix(), collectionID); err != nil {
 		return fmt.Errorf("rag: roll back counters: %w", err)
 	}
 	return tx.Commit()

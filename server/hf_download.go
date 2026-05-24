@@ -154,7 +154,7 @@ func (s *server) decryptHFToken(nonce, ct []byte) (string, error) {
 // HF download forever.
 func (s *server) userHFToken(uid int64) string {
 	var nonce, ct []byte
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT nonce, ciphertext FROM hf_tokens WHERE user_id = ?`, uid,
 	).Scan(&nonce, &ct)
 	if err != nil {
@@ -164,7 +164,7 @@ func (s *server) userHFToken(uid int64) string {
 	if err != nil {
 		log.Printf("[hf] decrypt token for user %d failed (%v) — clearing row; "+
 			"user must re-paste their HF token", uid, err)
-		_, _ = s.db.Exec(`DELETE FROM hf_tokens WHERE user_id = ?`, uid)
+		_, _ = s.dbExec(`DELETE FROM hf_tokens WHERE user_id = ?`, uid)
 		return ""
 	}
 	return tok
@@ -644,7 +644,7 @@ func (s *server) handleHFSetToken(w http.ResponseWriter, r *http.Request) {
 	body.Token = strings.TrimSpace(body.Token)
 	if body.Token == "" {
 		// Delete the token.
-		_, _ = s.db.Exec(`DELETE FROM hf_tokens WHERE user_id = ?`, u.ID)
+		_, _ = s.dbExec(`DELETE FROM hf_tokens WHERE user_id = ?`, u.ID)
 		writeJSON(w, 200, map[string]any{"ok": true, "set": false})
 		return
 	}
@@ -659,7 +659,7 @@ func (s *server) handleHFSetToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "encrypt: "+err.Error())
 		return
 	}
-	_, err = s.db.Exec(
+	_, err = s.dbExec(
 		`INSERT INTO hf_tokens (user_id, nonce, ciphertext, updated_at)
 		 VALUES (?, ?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -683,7 +683,7 @@ func (s *server) handleHFGetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var n int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM hf_tokens WHERE user_id = ?`, u.ID).Scan(&n)
+	_ = s.dbQueryRow(`SELECT COUNT(*) FROM hf_tokens WHERE user_id = ?`, u.ID).Scan(&n)
 	writeJSON(w, 200, map[string]any{"set": n > 0})
 }
 
@@ -794,7 +794,7 @@ func (s *server) handleHFImport(w http.ResponseWriter, r *http.Request) {
 	// Concurrent import limit per user — prevents one tab from clogging
 	// disk and the converter queue.
 	var inflight int
-	_ = s.db.QueryRow(
+	_ = s.dbQueryRow(
 		`SELECT COUNT(*) FROM hf_imports
 		 WHERE user_id = ? AND status IN ('queued','downloading','converting','splitting')`,
 		u.ID).Scan(&inflight)
@@ -808,7 +808,7 @@ func (s *server) handleHFImport(w http.ResponseWriter, r *http.Request) {
 
 	// Validate model name uniqueness up-front so we can fail fast.
 	var existing int64
-	_ = s.db.QueryRow(`SELECT id FROM models WHERE name = ?`, body.ModelName).Scan(&existing)
+	_ = s.dbQueryRow(`SELECT id FROM models WHERE name = ?`, body.ModelName).Scan(&existing)
 	if existing != 0 {
 		writeErr(w, 409, "model name already exists: "+body.ModelName)
 		return
@@ -853,7 +853,7 @@ func (s *server) handleHFImport(w http.ResponseWriter, r *http.Request) {
 	if revision == "" {
 		revision = "main"
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO hf_imports
 		 (user_id, repo_id, revision, files_json, n_stages, status,
 		  bytes_total, bytes_done, created_at, updated_at)
@@ -896,7 +896,7 @@ func (s *server) handleHFListJobs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT id, repo_id, revision, status, bytes_total, bytes_done,
 		        error, model_id, created_at, updated_at
 		 FROM hf_imports
@@ -959,7 +959,7 @@ func (s *server) handleHFJobDetail(w http.ResponseWriter, r *http.Request) {
 		errMsg    string
 		mid       sql.NullInt64
 	)
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT user_id, repo_id, revision, status, files_json,
 		        bytes_total, bytes_done, error, model_id
 		 FROM hf_imports WHERE id = ?`, id,
@@ -1007,7 +1007,7 @@ func (s *server) handleHFJobCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var uid int64
-	if err := s.db.QueryRow(`SELECT user_id FROM hf_imports WHERE id = ?`, id).Scan(&uid); err != nil {
+	if err := s.dbQueryRow(`SELECT user_id FROM hf_imports WHERE id = ?`, id).Scan(&uid); err != nil {
 		writeErr(w, 404, "no such job")
 		return
 	}
@@ -1138,7 +1138,7 @@ func (s *server) runHFImport(
 		s.hfFail(jobID, uid, "read manifest: "+err.Error())
 		return
 	}
-	res, err := s.db.Exec(
+	res, err := s.dbExec(
 		`INSERT INTO models (name, n_layers, n_shards, shards_dir, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		modelName, man.NBlocks, man.NStages, shardsDir, nowUnix(),
@@ -1154,7 +1154,7 @@ func (s *server) runHFImport(
 	cleanupStaging = false
 
 	now := nowUnix()
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = 'done', model_id = ?, updated_at = ?, error = ''
 		 WHERE id = ?`, modelID, now, jobID)
 	s.hub.broadcastToUser(uid, "hf_progress", map[string]any{
@@ -1165,7 +1165,7 @@ func (s *server) runHFImport(
 }
 
 func (s *server) hfSetStatus(jobID, uid int64, status, errMsg string) {
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = ?, error = ?, updated_at = ? WHERE id = ?`,
 		status, errMsg, nowUnix(), jobID,
 	)
@@ -1177,14 +1177,14 @@ func (s *server) hfSetStatus(jobID, uid int64, status, errMsg string) {
 }
 
 func (s *server) hfUpdateBytes(jobID, bytesDone int64) {
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE hf_imports SET bytes_done = ?, updated_at = ? WHERE id = ?`,
 		bytesDone, nowUnix(), jobID,
 	)
 }
 
 func (s *server) hfFail(jobID, uid int64, msg string) {
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`,
 		msg, nowUnix(), jobID,
 	)

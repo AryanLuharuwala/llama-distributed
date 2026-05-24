@@ -159,7 +159,7 @@ func (s *server) loadReputation(agentID string) rigReputation {
 	if s == nil || s.db == nil || agentID == "" {
 		return r
 	}
-	_ = s.db.QueryRow(`
+	_ = s.dbQueryRow(`
 		SELECT relay_sessions_total, relay_sessions_success, relay_sessions_failed,
 		       relay_bytes_forwarded,
 		       compute_sessions_total, compute_sessions_failed,
@@ -195,7 +195,7 @@ func (s *server) recordRelaySuccess(agentID string, bytesForwarded int64) {
 		bytesForwarded = maxAggregateRelayBytes
 	}
 	now := nowUnix()
-	if _, err := s.db.Exec(`
+	if _, err := s.dbExec(`
 		INSERT INTO rig_reputation (agent_id, relay_sessions_total,
 		    relay_sessions_success, relay_bytes_forwarded,
 		    last_success_at, updated_at)
@@ -218,7 +218,7 @@ func (s *server) recordRelayFailure(agentID string) {
 		return
 	}
 	now := nowUnix()
-	_, _ = s.db.Exec(`
+	_, _ = s.dbExec(`
 		INSERT INTO rig_reputation (agent_id, relay_sessions_total,
 		    relay_sessions_failed, last_failure_at, updated_at)
 		VALUES (?, 1, 1, ?, ?)
@@ -239,7 +239,7 @@ func (s *server) recordComputeFailure(agentID string) {
 		return
 	}
 	now := nowUnix()
-	_, _ = s.db.Exec(`
+	_, _ = s.dbExec(`
 		INSERT INTO rig_reputation (agent_id, compute_sessions_total,
 		    compute_sessions_failed, last_failure_at, updated_at)
 		VALUES (?, 1, 1, ?, ?)
@@ -259,7 +259,7 @@ func (s *server) recordComputeSuccess(agentID string) {
 		return
 	}
 	now := nowUnix()
-	_, _ = s.db.Exec(`
+	_, _ = s.dbExec(`
 		INSERT INTO rig_reputation (agent_id, compute_sessions_total,
 		    last_success_at, updated_at)
 		VALUES (?, 1, ?, ?)
@@ -465,7 +465,7 @@ func (s *server) allReputations(agentIDs []string) map[string]rigReputation {
 		args = append(args, id)
 	}
 	q += ")"
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.dbQuery(q, args...)
 	if err != nil {
 		return out
 	}
@@ -522,7 +522,7 @@ func (s *server) pruneIdleReputation(maxIdleSec int64) (int64, error) {
 		return 0, nil
 	}
 	cutoff := nowUnix() - maxIdleSec
-	res, err := s.db.Exec(`DELETE FROM rig_reputation WHERE updated_at < ? AND updated_at > 0`, cutoff)
+	res, err := s.dbExec(`DELETE FROM rig_reputation WHERE updated_at < ? AND updated_at > 0`, cutoff)
 	if err != nil {
 		return 0, err
 	}

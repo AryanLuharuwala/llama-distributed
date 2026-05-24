@@ -83,7 +83,7 @@ func (s *server) handleRAGCreateCollection(w http.ResponseWriter, r *http.Reques
 	}
 
 	var count int
-	if err := s.db.QueryRow(s.dialect.RewriteQuery(
+	if err := s.dbQueryRow(s.dialect.RewriteQuery(
 		`SELECT COUNT(*) FROM rag_collections WHERE user_id=?`,
 	), u.ID).Scan(&count); err != nil {
 		writeErr(w, 500, "count collections: "+err.Error())
@@ -100,7 +100,7 @@ func (s *server) handleRAGCreateCollection(w http.ResponseWriter, r *http.Reques
 		model = emb.ModelID()
 	}
 	now := time.Now().Unix()
-	res, err := s.db.Exec(s.dialect.RewriteQuery(
+	res, err := s.dbExec(s.dialect.RewriteQuery(
 		`INSERT INTO rag_collections
 			(user_id, name, embedding_model, embedding_dim, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?)`,
@@ -131,7 +131,7 @@ func (s *server) handleRAGListCollections(w http.ResponseWriter, r *http.Request
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	rows, err := s.db.Query(s.dialect.RewriteQuery(
+	rows, err := s.dbQuery(s.dialect.RewriteQuery(
 		`SELECT id, name, embedding_model, embedding_dim,
 		        documents_count, chunks_count, created_at, updated_at
 		   FROM rag_collections
@@ -173,18 +173,18 @@ func (s *server) handleRAGDeleteCollection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
-		`DELETE FROM rag_chunks WHERE collection_id=?`), cid); err != nil {
+	if _, err := s.txExec(tx,
+		`DELETE FROM rag_chunks WHERE collection_id=?`, cid); err != nil {
 		writeErr(w, 500, "delete chunks: "+err.Error())
 		return
 	}
-	if _, err := tx.Exec(s.dialect.RewriteQuery(
-		`DELETE FROM rag_documents WHERE collection_id=? AND user_id=?`), cid, u.ID); err != nil {
+	if _, err := s.txExec(tx,
+		`DELETE FROM rag_documents WHERE collection_id=? AND user_id=?`, cid, u.ID); err != nil {
 		writeErr(w, 500, "delete docs: "+err.Error())
 		return
 	}
-	res, err := tx.Exec(s.dialect.RewriteQuery(
-		`DELETE FROM rag_collections WHERE id=? AND user_id=?`), cid, u.ID)
+	res, err := s.txExec(tx,
+		`DELETE FROM rag_collections WHERE id=? AND user_id=?`, cid, u.ID)
 	if err != nil {
 		writeErr(w, 500, "delete collection: "+err.Error())
 		return
@@ -279,7 +279,7 @@ func (s *server) handleRAGListDocuments(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "invalid id")
 		return
 	}
-	rows, err := s.db.Query(s.dialect.RewriteQuery(
+	rows, err := s.dbQuery(s.dialect.RewriteQuery(
 		`SELECT id, uri, content_sha, mime_type, size_bytes, chunk_count, created_at
 		   FROM rag_documents
 		  WHERE collection_id=? AND user_id=?
@@ -455,7 +455,7 @@ func (s *server) handleRAGHybridSearch(w http.ResponseWriter, r *http.Request) {
 	// Verify the user owns the collection up-front so we surface a clean
 	// 404 instead of an empty result for cross-tenant probes.
 	var owner int64
-	if err := s.db.QueryRow(s.dialect.RewriteQuery(
+	if err := s.dbQueryRow(s.dialect.RewriteQuery(
 		`SELECT user_id FROM rag_collections WHERE id=?`,
 	), cid).Scan(&owner); err != nil {
 		writeErr(w, 404, "collection not found")

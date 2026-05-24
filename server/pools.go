@@ -28,7 +28,7 @@ const poolInviteTTL = 24 * time.Hour
 // userIsMember returns (role, true) if the user is a member of pool_id.
 func (s *server) userIsMember(poolID, userID int64) (string, bool) {
 	var role string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT role FROM pool_members WHERE pool_id = ? AND user_id = ?`,
 		poolID, userID,
 	).Scan(&role)
@@ -41,7 +41,7 @@ func (s *server) userIsMember(poolID, userID int64) (string, bool) {
 func (s *server) poolVisibility(poolID int64) (string, int64, bool) {
 	var vis string
 	var owner int64
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT visibility, owner_id FROM pools WHERE id = ?`,
 		poolID,
 	).Scan(&vis, &owner)
@@ -121,7 +121,7 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		res, err := tx.Exec(
+		res, err := s.txExec(tx,
 			`INSERT INTO pools (owner_id, name, visibility, created_at,
 			                    parallelism, pp_stages, tp_size, slug)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -137,7 +137,7 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pid, _ = res.LastInsertId()
-		if _, err := tx.Exec(
+		if _, err := s.txExec(tx,
 			`INSERT INTO pool_members (pool_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)`,
 			pid, u.ID, nowUnix(),
 		); err != nil {
@@ -146,7 +146,7 @@ func (s *server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.ModelID > 0 {
-			if _, err := tx.Exec(
+			if _, err := s.txExec(tx,
 				`UPDATE pools SET model_id = ? WHERE id = ?`, body.ModelID, pid,
 			); err != nil {
 				_ = tx.Rollback()
@@ -220,7 +220,7 @@ func (s *server) handleListPools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Pools visible to u: ones they are a member of, PLUS public ones.
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT p.id, p.owner_id, COALESCE(o.display_name, ''), p.name, p.visibility,
 		       COALESCE(p.slug, ''), p.created_at,
 		       COALESCE(m.role, '') AS my_role
@@ -244,8 +244,8 @@ func (s *server) handleListPools(w http.ResponseWriter, r *http.Request) {
 		}
 		p.BaseURL = s.poolBaseURL(p.Slug)
 		// Member / rig counts.
-		_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, p.ID).Scan(&p.NMembers)
-		_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, p.ID).Scan(&p.NRigs)
+		_ = s.dbQueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, p.ID).Scan(&p.NMembers)
+		_ = s.dbQueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, p.ID).Scan(&p.NRigs)
 		p.NOnline = s.countOnlineRigsInPool(p.ID)
 		pools = append(pools, p)
 	}
@@ -279,7 +279,7 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 	var p poolInfo
 	p.ID = pid
 	p.Role = role
-	err = s.db.QueryRow(`
+	err = s.dbQueryRow(`
 		SELECT p.owner_id, COALESCE(o.display_name,''), p.name, p.visibility,
 		       COALESCE(p.slug,''), p.created_at
 		FROM pools p JOIN users o ON o.id = p.owner_id WHERE p.id = ?`, pid,
@@ -289,8 +289,8 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.BaseURL = s.poolBaseURL(p.Slug)
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, pid).Scan(&p.NMembers)
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, pid).Scan(&p.NRigs)
+	_ = s.dbQueryRow(`SELECT COUNT(*) FROM pool_members WHERE pool_id = ?`, pid).Scan(&p.NMembers)
+	_ = s.dbQueryRow(`SELECT COUNT(*) FROM pool_rigs    WHERE pool_id = ?`, pid).Scan(&p.NRigs)
 	p.NOnline = s.countOnlineRigsInPool(pid)
 
 	// Member list and rig list.
@@ -300,7 +300,7 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 		Role        string `json:"role"`
 	}
 	var members []memberOut
-	mrows, _ := s.db.Query(`
+	mrows, _ := s.dbQuery(`
 		SELECT m.user_id, COALESCE(u.display_name,''), m.role
 		FROM pool_members m JOIN users u ON u.id = m.user_id
 		WHERE m.pool_id = ? ORDER BY m.joined_at ASC`, pid)
@@ -320,7 +320,7 @@ func (s *server) handlePoolDetail(w http.ResponseWriter, r *http.Request) {
 		Online   bool   `json:"online"`
 	}
 	var rigs []rigOut
-	rrows, _ := s.db.Query(`
+	rrows, _ := s.dbQuery(`
 		SELECT r.id, r.user_id, r.agent_id, r.hostname
 		FROM pool_rigs pr JOIN rigs r ON r.id = pr.rig_id
 		WHERE pr.pool_id = ?`, pid)
@@ -372,7 +372,7 @@ func (s *server) handlePoolInvite(w http.ResponseWriter, r *http.Request) {
 
 	token := newRandomToken(20)
 	expires := time.Now().Add(poolInviteTTL)
-	_, err = s.db.Exec(
+	_, err = s.dbExec(
 		`INSERT INTO pool_invites (token, pool_id, created_by, created_at, expires_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		token, pid, u.ID, nowUnix(), expires.Unix(),
@@ -414,7 +414,7 @@ func (s *server) handlePoolInvitePreview(w http.ResponseWriter, r *http.Request)
 		visib   string
 		ownerID int64
 	)
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT pi.pool_id, pi.expires_at, pi.used_at, p.name, p.visibility, p.owner_id
 		   FROM pool_invites pi JOIN pools p ON p.id = pi.pool_id
 		  WHERE pi.token = ?`,
@@ -483,7 +483,7 @@ func (s *server) handlePoolJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		`INSERT OR IGNORE INTO pool_members (pool_id, user_id, role, joined_at)
 		 VALUES (?, ?, 'member', ?)`,
 		pid, u.ID, nowUnix(),
@@ -502,7 +502,7 @@ func (s *server) consumePoolInvite(token string) (int64, error) {
 		exp     int64
 		used    *int64
 	)
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT pool_id, expires_at, used_at FROM pool_invites WHERE token = ?`, token,
 	).Scan(&pid, &exp, &used)
 	if err != nil {
@@ -514,7 +514,7 @@ func (s *server) consumePoolInvite(token string) (int64, error) {
 	if used != nil {
 		return 0, errors.New("invite already used")
 	}
-	_, err = s.db.Exec(`UPDATE pool_invites SET used_at = ? WHERE token = ? AND used_at IS NULL`,
+	_, err = s.dbExec(`UPDATE pool_invites SET used_at = ? WHERE token = ? AND used_at IS NULL`,
 		nowUnix(), token)
 	if err != nil {
 		return 0, err
@@ -552,7 +552,7 @@ func (s *server) handlePoolAttachRig(w http.ResponseWriter, r *http.Request) {
 
 	// Rig must belong to the requesting user.
 	var rigID int64
-	err = s.db.QueryRow(
+	err = s.dbQueryRow(
 		`SELECT id FROM rigs WHERE user_id = ? AND agent_id = ?`,
 		u.ID, body.AgentID,
 	).Scan(&rigID)
@@ -560,7 +560,7 @@ func (s *server) handlePoolAttachRig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "rig not found or not yours")
 		return
 	}
-	_, err = s.db.Exec(
+	_, err = s.dbExec(
 		`INSERT OR IGNORE INTO pool_rigs (pool_id, rig_id, added_at) VALUES (?, ?, ?)`,
 		pid, rigID, nowUnix(),
 	)
@@ -591,7 +591,7 @@ func (s *server) handlePoolDetachRig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only the rig owner or the pool owner can detach.
 	var rigOwner int64
-	if err := s.db.QueryRow(`SELECT user_id FROM rigs WHERE id = ?`, rid).Scan(&rigOwner); err != nil {
+	if err := s.dbQueryRow(`SELECT user_id FROM rigs WHERE id = ?`, rid).Scan(&rigOwner); err != nil {
 		writeErr(w, 404, "rig not found")
 		return
 	}
@@ -600,7 +600,7 @@ func (s *server) handlePoolDetachRig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "not allowed to detach this rig")
 		return
 	}
-	_, err = s.db.Exec(`DELETE FROM pool_rigs WHERE pool_id = ? AND rig_id = ?`, pid, rid)
+	_, err = s.dbExec(`DELETE FROM pool_rigs WHERE pool_id = ? AND rig_id = ?`, pid, rid)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

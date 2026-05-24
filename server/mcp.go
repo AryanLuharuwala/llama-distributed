@@ -229,7 +229,7 @@ func (s *server) addMCPServer(m *mcpServer) (int64, error) {
 			 enabled, last_health_at, last_health_ok, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
 	`)
-	res, err := s.db.Exec(q,
+	res, err := s.dbExec(q,
 		m.UserID, m.Name, string(m.Transport), m.Endpoint,
 		string(scopes), m.SecretRef, boolToInt(m.Enabled),
 		now, now)
@@ -254,7 +254,7 @@ func (s *server) listMCPServers(uid int64) ([]mcpServer, error) {
 		WHERE user_id = ?
 		ORDER BY name ASC
 	`)
-	rows, err := s.db.Query(q, uid)
+	rows, err := s.dbQuery(q, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (s *server) getMCPServer(uid, id int64) (*mcpServer, error) {
 		FROM mcp_servers
 		WHERE user_id = ? AND id = ?
 	`)
-	row := s.db.QueryRow(q, uid, id)
+	row := s.dbQueryRow(q, uid, id)
 	var m mcpServer
 	var scopes, transport string
 	var enabled, healthOK int
@@ -322,7 +322,7 @@ func (s *server) getMCPServerByName(uid int64, name string) (*mcpServer, error) 
 		FROM mcp_servers
 		WHERE user_id = ? AND name = ?
 	`)
-	row := s.db.QueryRow(q, uid, name)
+	row := s.dbQueryRow(q, uid, name)
 	var m mcpServer
 	var scopes, transport string
 	var enabled, healthOK int
@@ -358,7 +358,7 @@ func (s *server) updateMCPServer(uid int64, m *mcpServer) error {
 		    enabled = ?, updated_at = ?
 		WHERE user_id = ? AND id = ?
 	`)
-	res, err := s.db.Exec(q,
+	res, err := s.dbExec(q,
 		string(m.Transport), m.Endpoint, string(scopes), m.SecretRef,
 		boolToInt(m.Enabled), m.UpdatedAt, uid, m.ID)
 	if err != nil {
@@ -379,7 +379,7 @@ func (s *server) updateMCPServer(uid int64, m *mcpServer) error {
 // survive deletes for billing/forensics.
 func (s *server) deleteMCPServer(uid, id int64) error {
 	q := s.dialect.RewriteQuery(`DELETE FROM mcp_servers WHERE user_id = ? AND id = ?`)
-	res, err := s.db.Exec(q, uid, id)
+	res, err := s.dbExec(q, uid, id)
 	if err != nil {
 		return err
 	}
@@ -402,7 +402,7 @@ func (s *server) markMCPHealth(id int64, ok bool, at int64) error {
 		SET last_health_at = ?, last_health_ok = ?, updated_at = ?
 		WHERE id = ?
 	`)
-	_, err := s.db.Exec(q, at, boolToInt(ok), at, id)
+	_, err := s.dbExec(q, at, boolToInt(ok), at, id)
 	return err
 }
 
@@ -416,7 +416,7 @@ func (s *server) recordMCPCall(rec mcpCallRecord) error {
 			 success, error_class, latency_ms, called_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
-	_, err := s.db.Exec(q,
+	_, err := s.dbExec(q,
 		rec.UserID, rec.ServerID, rec.Tool, rec.ArgsSHA256, rec.SizeBytes,
 		boolToInt(rec.Success), rec.ErrorClass, rec.LatencyMS, rec.CalledAt)
 	return err

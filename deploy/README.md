@@ -313,19 +313,51 @@ If you were running the `main`-branch image directly with `docker run
 The wire protocol is unchanged. Rigs reconnect to the same hostname,
 authenticate with their stored agent keys, and resume serving.
 
-## What's NOT here yet
+## Cross-driver SQL (P10)
 
-Items deferred to later prod-branch commits, in rough priority order:
+The control-plane DB layer speaks SQLite (default), Postgres, CockroachDB
+(via the Postgres wire protocol), and Cloud Spanner (via the PGAdapter
+sidecar).  Driver selection is via `DIST_DB_DRIVER` + `DIST_DB_DSN`:
+
+| Backend     | `DIST_DB_DRIVER`     | DSN example                                                     |
+|-------------|----------------------|-----------------------------------------------------------------|
+| SQLite      | `sqlite3` (default)  | `file:state/distpool.sqlite?_journal_mode=WAL`                  |
+| Postgres    | `postgres`           | `postgres://user:pass@host:5432/distpool?sslmode=require`       |
+| CockroachDB | `cockroach`          | `postgres://user:pass@host:26257/distpool?sslmode=verify-full`  |
+| Spanner     | `spanner`            | `postgres://localhost:5432/<project>/<instance>/<database>` (PGAdapter) |
+
+How the cross-driver machinery works:
+
+- **`server/dialect.go`** — DDL and query rewriters per dialect.  DDL
+  rewrite handles SQLite-isms (`INTEGER PRIMARY KEY AUTOINCREMENT` →
+  `BIGSERIAL PRIMARY KEY`, `BLOB` → `BYTEA`).  Query rewrite turns `?`
+  placeholders into `$1, $2, …` for Postgres-family drivers, respecting
+  single-quoted string literals.
+
+- **`server/dialect_wrap.go`** — `*server` methods (`s.dbExec`,
+  `s.dbQuery`, `s.dbQueryRow`, plus `Ctx` variants, plus `s.txExec` /
+  `s.txQueryRow`) auto-apply `RewriteQuery` so callers can keep using
+  `?` placeholders everywhere.  These are no-ops on SQLite.
+
+- **Serializable retry** (`s.dbDoTx`) — Cockroach (and Spanner) can fail
+  any transaction with SQLSTATE 40001 / `transaction aborted` under
+  contention.  `dbDoTx` runs a closure inside `Begin/Commit` with a
+  bounded retry loop (4 attempts, 50ms × n backoff) on retryable errors.
+  SQLite never returns 40001 so the retry loop is a no-op for the
+  default deploy.
+
+- **Schema migrations** (`server/schema_migrations.go`) — embedded
+  `.sql` files under `migrations/` are run through `RewriteDDL` before
+  application, so the same file works on SQLite and Postgres.  Spanner
+  is supported via the same path but the production recipe is to
+  author hand-tuned migrations under `migrations/spanner/` (Spanner
+  has no AUTOINCREMENT — PKs use UUIDs or bit-reverse sequences).
+
+What's deferred:
 
 - **Helm chart** — package the (envoy + dist-server + redis + postgres)
   topology for k8s with proper PDBs, HPA, and a sidecar Redis or
   Memorystore reference.
-- **Spanner / CockroachDB migration path** (P10) — once SQLite
-  becomes the bottleneck.  The dialect abstraction (server/dialect.go)
-  is the first-mile of this work; remaining gaps are query-time `?`
-  placeholders and Postgres connection pooling tuning.
-
-See the `Pn` tasks in the project board for the full plan.
 
 ## URL capabilities (P7)
 

@@ -100,7 +100,7 @@ func (s *server) clearRigShards(uid int64, agentID string) {
 	if s.db == nil || agentID == "" {
 		return
 	}
-	_, _ = s.db.Exec(
+	_, _ = s.dbExec(
 		`DELETE FROM rig_shards WHERE user_id = ? AND agent_id = ?`,
 		uid, agentID,
 	)
@@ -131,7 +131,7 @@ func (s *server) peersForShard(uid int64, modelName, file string) []shardPeer {
 	if s.db == nil {
 		return nil
 	}
-	rows, err := s.db.Query(
+	rows, err := s.dbQuery(
 		`SELECT agent_id, size_bytes, cached_at
 		 FROM rig_shards
 		 WHERE user_id = ? AND model_name = ? AND file = ?
