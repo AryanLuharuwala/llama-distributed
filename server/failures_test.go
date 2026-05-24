@@ -93,6 +93,9 @@ func newTestServer(t *testing.T) *server {
 	if err := migrateRAG(db, dialect); err != nil {
 		t.Fatalf("migrateRAG: %v", err)
 	}
+	if err := applyVersionedMigrations(context.Background(), db, dialect); err != nil {
+		t.Fatalf("applyVersionedMigrations: %v", err)
+	}
 	tmp := t.TempDir()
 	cfg := config{
 		sessionSecret: "failtest-secret-1234567890",

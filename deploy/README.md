@@ -188,6 +188,43 @@ bindings with `buf generate` (`buf.gen.yaml` writes into
 opaque JSON bytes so the server doesn't need a re-deploy every time a
 new field is added.
 
+## DIST_OIDC_* — federation via dex / hydra / Okta / Auth0
+
+Setting `DIST_OIDC_ISSUER` swaps the built-in GitHub/Google OAuth pair
+out for a real OIDC OP. The server runs discovery at boot
+(`/.well-known/openid-configuration`), caches the JWKS, and exposes:
+
+- `/auth/oidc` — browser code flow (PKCE S256, state HMAC'd to the
+  session secret like the GitHub flow).
+- `/auth/oidc/callback` — exchanges code → id_token, verifies signature
+  + audience + expiry, upserts a row keyed on (issuer, sub), mints the
+  session cookie.
+- `Authorization: Bearer <jwt>` on any `/api` endpoint — the bearer
+  middleware shape-checks the token (three base64url segments) before
+  hitting the verifier, so `sk-...` api keys still take the cheap path.
+
+The four env vars:
+
+| Var | What it is |
+| --- | --- |
+| `DIST_OIDC_ISSUER` | OP issuer URL, e.g. `https://dex.example.com`. Empty disables OIDC. |
+| `DIST_OIDC_CLIENT_ID` | Confidential client ID registered with the OP. |
+| `DIST_OIDC_CLIENT_SECRET` | Paired secret. |
+| `DIST_OIDC_BEARER_AUDIENCE` | Optional. Expected `aud` claim on JWT bearers. Defaults to `DIST_OIDC_CLIENT_ID`. |
+| `DIST_OIDC_LABEL` | Optional. Label rendered on the /auth page button. Defaults to `SSO`. |
+
+Discovery failures at boot log once and continue — `/auth/oidc*` returns
+501 in that mode so the operator can correct the issuer URL and restart
+without crash-looping the deploy. GitHub and Google OAuth paths are
+untouched and keep working alongside OIDC for the duration of any
+migration.
+
+The `users` table gets two columns from the
+`20260524000002_oidc_users.sql` migration: `oidc_issuer` and
+`oidc_subject`, both TEXT, joined by a partial UNIQUE index. Legacy
+GitHub/Google rows leave both columns NULL; the partial index skips
+NULL pairs so the dual-mode table doesn't collide.
+
 ## WebSocket + SSE caveats
 
 The dashboard and every rig hold long-lived connections:
@@ -226,8 +263,6 @@ Items deferred to later prod-branch commits, in rough priority order:
 - **Helm chart** — package the (envoy + dist-server + redis + postgres)
   topology for k8s with proper PDBs, HPA, and a sidecar Redis or
   Memorystore reference.
-- **OIDC** (P5) — federation via dex/hydra, replacing the
-  GitHub/Google OAuth pair.
 - **SPIFFE/SPIRE workload identity** (P6) — rig identity via SVID
   instead of paired agent keys.
 

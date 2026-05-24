@@ -61,8 +61,14 @@ func TestVersionFromFilename(t *testing.T) {
 func TestApplyVersionedMigrationsAppliesBaseline(t *testing.T) {
 	db := memDB(t)
 	ctx := context.Background()
-	// The embedded baseline file is empty but its version must be
-	// recorded so subsequent migrations build on top of it.
+	// Versioned migrations build on top of the legacy migrate*() tables
+	// (the embedded baseline file is intentionally empty).  Mirror what
+	// main.go does at boot: run the legacy migrator first so later
+	// versioned files like 20260524000002_oidc_users.sql have a `users`
+	// table to ALTER.
+	if err := migrate(db, sqliteDialect{}); err != nil {
+		t.Fatalf("legacy migrate: %v", err)
+	}
 	if err := applyVersionedMigrations(ctx, db, sqliteDialect{}); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -80,9 +86,23 @@ func TestApplyVersionedMigrationsAppliesBaseline(t *testing.T) {
 	}
 	var n int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n)
-	if n != 1 {
-		t.Errorf("second apply should not duplicate rows, got %d", n)
+	// One row per embedded migration file.  Stays in lock-step with
+	// the contents of server/migrations/.
+	if want := countEmbeddedMigrations(t); n != want {
+		t.Errorf("second apply should not duplicate rows, got %d want %d", n, want)
 	}
+}
+
+// countEmbeddedMigrations is a small helper so the row-count assertion
+// above doesn't have to be hand-edited every time we add a new versioned
+// file.
+func countEmbeddedMigrations(t *testing.T) int {
+	t.Helper()
+	files, err := listMigrationFiles()
+	if err != nil {
+		t.Fatalf("listMigrationFiles: %v", err)
+	}
+	return len(files)
 }
 
 func TestApplyOneRecordsVersion(t *testing.T) {

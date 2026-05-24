@@ -158,6 +158,8 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /auth/github/callback", s.handleGithubCallback)
 	mux.HandleFunc("GET /auth/google", s.handleGoogleStart)
 	mux.HandleFunc("GET /auth/google/callback", s.handleGoogleCallback)
+	mux.HandleFunc("GET /auth/oidc", s.handleOIDCStart)
+	mux.HandleFunc("GET /auth/oidc/callback", s.handleOIDCCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	if s.cfg.devMode {
 		mux.HandleFunc("POST /auth/dev", s.handleDevLogin)
@@ -535,6 +537,16 @@ func (s *server) userFromRequest(r *http.Request) (*user, bool) {
 	// send bearers.  We accept either so the dashboard endpoints can be
 	// driven from a script without a browser session.
 	if bearer := bearerFromRequest(r); bearer != "" {
+		// Two bearer shapes are accepted:
+		//   sk-dist-...  → static api_key, cheap DB lookup
+		//   eyJ...       → JWT minted by the configured OIDC OP,
+		//                  verified via JWKS.  Distinguished by
+		//                  looksLikeJWT — three dot-separated segments.
+		if looksLikeJWT(bearer) {
+			if u, ok := s.userFromOIDCBearer(r); ok {
+				return u, true
+			}
+		}
 		if u, ok := s.userFromAPIKey(bearer); ok {
 			return u, true
 		}

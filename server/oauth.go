@@ -92,6 +92,8 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"github_configured": s.cfg.githubClient != "",
 		"google_configured": s.cfg.googleClient != "",
+		"oidc_configured":   s.cfg.oidc != nil,
+		"oidc_label":        s.cfg.oidcLabel,
 		"dev_mode":          s.cfg.devMode,
 		"user_id":           uid,
 	})

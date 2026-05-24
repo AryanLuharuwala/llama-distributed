@@ -97,6 +97,28 @@ type config struct {
 	// without a second connect at request time.
 	redisURL    string
 	rateBackend rateBackend
+
+	// OIDC federation (P5).  Set DIST_OIDC_ISSUER to enable; the server
+	// will discover endpoints + JWKS via /.well-known/openid-configuration
+	// at boot, then expose /auth/oidc/start + /auth/oidc/callback for the
+	// browser code flow and accept JWT bearer tokens carrying matching
+	// claims on /api endpoints.  All four vars are required when issuer
+	// is set; the server fails closed (logs and skips OIDC) otherwise.
+	//
+	//   DIST_OIDC_ISSUER          https://dex.example.com
+	//   DIST_OIDC_CLIENT_ID       distpool-server
+	//   DIST_OIDC_CLIENT_SECRET   <shared with OP>
+	//   DIST_OIDC_BEARER_AUDIENCE optional; the aud claim the bearer
+	//                             middleware enforces.  Defaults to
+	//                             DIST_OIDC_CLIENT_ID.
+	//
+	// At runtime the live provider sits on cfg.oidc; nil when disabled.
+	oidcIssuer         string
+	oidcClientID       string
+	oidcClientSecret   string
+	oidcBearerAudience string
+	oidcLabel          string // human-readable label rendered on /auth (defaults to "SSO")
+	oidc               *oidcProvider
 }
 
 func loadConfig() config {
@@ -129,6 +151,12 @@ func loadConfig() config {
 
 		trustedProxiesRaw: os.Getenv("DIST_TRUSTED_PROXIES"),
 		redisURL:          os.Getenv("DIST_REDIS_URL"),
+
+		oidcIssuer:         os.Getenv("DIST_OIDC_ISSUER"),
+		oidcClientID:       os.Getenv("DIST_OIDC_CLIENT_ID"),
+		oidcClientSecret:   os.Getenv("DIST_OIDC_CLIENT_SECRET"),
+		oidcBearerAudience: os.Getenv("DIST_OIDC_BEARER_AUDIENCE"),
+		oidcLabel:          envOr("DIST_OIDC_LABEL", "SSO"),
 	}
 	tp, bad := parseTrustedProxies(c.trustedProxiesRaw)
 	c.trustedProxies = tp
@@ -370,6 +398,22 @@ func main() {
 		}
 		cfg.rateBackend = be
 		log.Printf("ratelimit: using redis backend at %s", cfg.redisURL)
+	}
+
+	// OIDC federation (P5).  Discovery is best-effort: if the OP is down
+	// at boot we log and continue — the server still serves browser
+	// sessions via GitHub/Google OAuth and api-key bearers.  The
+	// alternative (fail-closed) would chain a transient identity-provider
+	// outage into a full dist-server outage.
+	if cfg.oidcIssuer != "" {
+		op, err := newOIDCProvider(context.Background(), &cfg)
+		if err != nil {
+			log.Printf("oidc: discovery failed at %s: %v — /auth/oidc disabled", cfg.oidcIssuer, err)
+		} else {
+			cfg.oidc = op
+			log.Printf("oidc: federation enabled (issuer=%s, audience=%s)",
+				op.issuer, op.audience)
+		}
 	}
 
 	srv := newServer(cfg, db)
