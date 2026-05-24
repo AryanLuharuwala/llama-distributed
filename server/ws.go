@@ -112,6 +112,8 @@ func (s *server) handleBrowserWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	wsConnDelta(r.Context(), "browser", 1)
+	defer wsConnDelta(context.Background(), "browser", -1)
 
 	bc := &browserConn{
 		userID: u.ID,
@@ -602,6 +604,8 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	wsConnDelta(r.Context(), "agent", 1)
+	defer wsConnDelta(context.Background(), "agent", -1)
 
 	// Default coder/websocket read limit is 32 KiB.  Comfy result frames
 	// carry base64-encoded image/video bytes — a 512×512 PNG is ~750 KiB

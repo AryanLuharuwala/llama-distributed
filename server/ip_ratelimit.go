@@ -107,7 +107,11 @@ func (b *ipRateBucket) allow(ip string) bool {
 	if b.backend != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		ok, _ := b.backend.allow(ctx, b.name+":"+ip, float64(b.r), b.b)
+		ok, err := b.backend.allow(ctx, b.name+":"+ip, float64(b.r), b.b)
+		if err != nil {
+			recordRateError(ctx, b.name, "redis")
+		}
+		recordRate(ctx, b.name, "redis", ok)
 		return ok
 	}
 	now := time.Now().Unix()
@@ -120,7 +124,11 @@ func (b *ipRateBucket) allow(ip string) bool {
 	}
 	bk := v.(*ipLimBucket)
 	bk.lastSeen.set(now)
-	return bk.lim.Allow()
+	ok = bk.lim.Allow()
+	if b.name != "" {
+		recordRate(context.Background(), b.name, "local", ok)
+	}
+	return ok
 }
 
 // janitor prunes IPs that haven't been seen for `ttl`.  Run from a

@@ -1,0 +1,66 @@
+# OpenTelemetry Collector (Contrib) configuration for the prod-branch
+# docker-compose stack.
+#
+# Default posture: receive OTLP/HTTP on :4318 from dist-server, log to
+# stdout, and drop on the floor.  This is intentional — operators
+# should plumb their own backends (Tempo, Loki, Prometheus, Datadog,
+# Honeycomb, Grafana Cloud, etc.) and we don't want to assume which
+# vendor.  See the commented stanzas below for the common ones.
+#
+# To customize: edit this file in place; docker compose restart
+# otel-collector picks it up.  No dist-server restart required.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Batch to amortize export overhead.  256 KB / 1s is the OTel default
+  # tuned for low-latency interactive workloads.
+  batch:
+    send_batch_size: 8192
+    timeout: 1s
+
+  # Cap memory so a slow downstream can't OOM the collector.  10% slack
+  # before spill, 75% before refusing new traffic.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 10
+
+exporters:
+  # Default: stdout.  Replace with the real backend's exporter below.
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # Uncomment + configure when ready:
+  #
+  # otlp/tempo:
+  #   endpoint: tempo:4317
+  #   tls: { insecure: true }
+  #
+  # prometheusremotewrite:
+  #   endpoint: http://prometheus:9090/api/v1/write
+  #
+  # loki:
+  #   endpoint: http://loki:3100/loki/api/v1/push
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+  telemetry:
+    logs:
+      level: info

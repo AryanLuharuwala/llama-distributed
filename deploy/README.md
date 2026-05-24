@@ -17,7 +17,8 @@ ever appends to XFF, and dist-server enforces that with
 | Path | What it is |
 | --- | --- |
 | `envoy/envoy.yaml` | Production envoy config — TLS terminate on :443, h1/h2 ALPN, WebSocket + SSE upgrade support, h1 to upstream. |
-| `docker-compose.envoy.yaml` | Three-service stack (envoy + dist-server + redis) with the right network isolation and trust set. |
+| `otel/collector.yaml` | OpenTelemetry Collector (Contrib) — receives OTLP from dist-server and fans out to your tracing/metrics backend of choice. |
+| `docker-compose.envoy.yaml` | Four-service stack (envoy + dist-server + redis + otel-collector) with the right network isolation and trust set. |
 | `README.md` | This file. |
 
 ## Five-minute deploy
@@ -96,6 +97,36 @@ envoy ─┬─> dist-server (replica 1) ─┐
        └─> dist-server (replica N) ─┤
                                     └─> redis      (rate-limit buckets)
 ```
+
+## OTEL_EXPORTER_OTLP_ENDPOINT — traces + metrics out
+
+dist-server ships an OpenTelemetry SDK that activates the moment
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set. The bundled compose points it at
+the included `otel-collector` sidecar (`http://otel-collector:4318`),
+which by default just logs everything to stdout. Edit
+`deploy/otel/collector.yaml` to fan out to your real backend — there
+are commented-out exporter stanzas for Tempo (traces),
+Prometheus (metrics), and Loki (logs).
+
+What you get out of the box:
+
+- **Traces**: every HTTP request via `otelhttp` middleware
+  (method + path span, status code, duration). 10% sampling by default;
+  override with `OTEL_TRACES_SAMPLER_ARG`.
+- **Metrics**:
+  - `http.server.duration` / `http.server.active_requests` — from
+    `otelhttp`.
+  - `dist.ratelimit.allow` / `.deny` / `.error` — per (bucket, backend)
+    so you can graph "device-poll denies per minute" or "redis backend
+    fail-open events".
+  - `dist.ws.active` — live WebSocket count, labeled `kind=agent|browser`.
+  - `dist.inference.requests` — settled inferences by (model, status).
+- **Resource attributes**: `service.name`, `service.version`,
+  `service.instance.id` (hostname), `deployment.environment`. Override
+  via `DIST_OTEL_SERVICE` / `DIST_OTEL_VERSION` / `DIST_OTEL_ENV`.
+
+Unset `OTEL_EXPORTER_OTLP_ENDPOINT` to disable telemetry entirely —
+every instrument call becomes a no-op and no exporter goroutines run.
 
 ## WebSocket + SSE caveats
 

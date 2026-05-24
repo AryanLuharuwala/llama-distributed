@@ -301,6 +301,20 @@ func runMigrationsWithRetry(db *sql.DB, d sqlDialect) error {
 func main() {
 	cfg := loadConfig()
 
+	// OpenTelemetry SDK init (P2).  No-op when OTEL_EXPORTER_OTLP_ENDPOINT
+	// is unset — global providers stay no-op and every otel.Meter /
+	// otel.Tracer call is free.  When set, traces + metrics export to
+	// the configured collector at 5s/15s flush cadence.
+	otelShutdown, err := setupTelemetry(context.Background())
+	if err != nil {
+		log.Fatalf("otel setup: %v", err)
+	}
+	defer func() {
+		shutdownCtx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		_ = otelShutdown(shutdownCtx)
+	}()
+
 	dialect, err := dialectFor(cfg.dbDriver)
 	if err != nil {
 		log.Fatalf("db driver: %v", err)
@@ -363,7 +377,7 @@ func main() {
 	}
 	httpSrv := &http.Server{
 		Addr:              cfg.addr,
-		Handler:           srv.router(),
+		Handler:           wrapWithOTel(srv.router()),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Slowloris defense: cap the time a client can take to send the
 		// request body, and how long an idle keep-alive connection survives.

@@ -39,18 +39,43 @@ services:
       # Single-replica deploys can leave this empty; the in-process
       # sync.Map limiter is identical in behavior for one instance.
       DIST_REDIS_URL: "redis://redis:6379/0"
+      # OpenTelemetry (P2).  When OTEL_EXPORTER_OTLP_ENDPOINT is set, the
+      # server exports traces + metrics over OTLP/HTTP.  The bundled
+      # otel-collector receives on :4318 and fans out to whatever backends
+      # the operator configures in deploy/otel/collector.yaml — see the
+      # README for Tempo/Loki/Prometheus wiring examples.  Unset to
+      # disable OTel entirely (all instrument calls become no-ops).
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      DIST_OTEL_ENV: "prod"
+      DIST_OTEL_SERVICE: "dist-server"
     volumes:
       - dist-data:/var/lib/distpool
       - dist-models:/var/lib/distpool/models
     depends_on:
       redis:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
       interval: 10s
       timeout: 2s
       retries: 3
       start_period: 30s
+
+  otel-collector:
+    # Contrib build — bundles exporters for Tempo, Loki, Prometheus,
+    # Datadog, Honeycomb, etc.  Out of the box this config just logs to
+    # stdout so you can confirm the wire is alive before plumbing a real
+    # backend.  Override deploy/otel/collector.yaml to fan out for real.
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    # Ports intentionally not published — dist-server reaches the
+    # collector over the compose network only.  Add port 4318:4318 if
+    # you want to point other workloads at this collector.
 
   redis:
     image: redis:7-alpine
