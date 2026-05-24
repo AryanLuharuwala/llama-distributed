@@ -9,6 +9,7 @@
 
 #include "runtime_adapter.h"
 #include "vllm_adapter.h"
+#include "sglang_adapter.h"
 
 #include <algorithm>
 #include <cctype>
@@ -49,6 +50,7 @@ std::unique_ptr<IRuntimeAdapter> make_runtime_adapter(RuntimeKind kind) {
         case RuntimeKind::VLLM:
             return std::make_unique<VllmAdapter>(vllm_config_from_env());
         case RuntimeKind::SGLang:
+            return std::make_unique<SglangAdapter>(sglang_config_from_env());
         case RuntimeKind::TRTLLM:
             // Not yet compiled into this build.
             return nullptr;

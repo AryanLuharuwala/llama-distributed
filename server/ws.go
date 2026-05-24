@@ -1050,6 +1050,29 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				s.upsertComfyCaps(uid, hello.AgentID, msg)
 				continue
 			}
+			if kind == "sglang_caps" {
+				s.upsertSglangCaps(uid, hello.AgentID, msg)
+				continue
+			}
+			if kind == "vllm_caps" {
+				// Same shape (ok, base_url) — store minimally so the
+				// control plane can route full-model requests.  No
+				// per-prefix routing for vLLM; that's SGLang's edge.
+				_, _ = s.dbExec(
+					`INSERT INTO sglang_caps (user_id, agent_id, ok, base_url, prefix_cache, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?)
+					 ON CONFLICT(user_id, agent_id) DO UPDATE SET
+					   ok = excluded.ok,
+					   base_url = excluded.base_url,
+					   updated_at = excluded.updated_at`,
+					uid, hello.AgentID,
+					func() int { if v, _ := msg["ok"].(bool); v { return 1 }; return 0 }(),
+					func() string { v, _ := msg["base_url"].(string); return v }(),
+					0,
+					nowUnix(),
+				)
+				continue
+			}
 			if kind == "relay_stats" {
 				// Relay rig is reporting its byte counters from a finished
 				// session.  We attribute the count to the assignment record

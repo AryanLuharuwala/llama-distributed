@@ -27,6 +27,7 @@
 #include "actv_p2p.h"
 #include "runtime_adapter.h"
 #include "vllm_adapter.h"
+#include "sglang_adapter.h"
 
 #include "llama.h"
 
@@ -1186,6 +1187,37 @@ static int run_pair_mode(const std::string& token, const std::string& server,
             ws.send_text(caps.str());
             std::cout << "[pair] vllm_caps ok=" << (ok ? "1" : "0")
                       << " base_url=" << (va ? va->config().base_url : std::string())
+                      << "\n";
+        }
+    }
+
+    // ── SGLang capability advertisement ──────────────────────────────────
+    //
+    // P13: when DIST_RUNTIME=sglang or DIST_SGLANG_URL is set, advertise
+    // sglang_caps.  The control plane uses this to route prefix-cache-
+    // friendly traffic (multi-turn chat with shared system prompts) to
+    // rigs that ran the matching prefix recently — the rig's last
+    // observed `cached_tokens` rides along on the inference-finished
+    // frame so the server can update its prefix-affinity table.
+    {
+        const char* rt  = std::getenv("DIST_RUNTIME");
+        const char* url = std::getenv("DIST_SGLANG_URL");
+        const bool want_sglang =
+            (rt && std::string(rt) == "sglang") || (url && *url);
+        if (want_sglang) {
+            auto adapter = dist::make_runtime_adapter(dist::RuntimeKind::SGLang);
+            auto* sa = dynamic_cast<dist::SglangAdapter*>(adapter.get());
+            bool ok = sa && sa->probe(1500);
+            std::ostringstream caps;
+            caps << "{\"kind\":\"sglang_caps\","
+                 << "\"ok\":" << (ok ? "true" : "false") << ","
+                 << "\"base_url\":\""
+                 << json_escape(sa ? sa->config().base_url : std::string())
+                 << "\","
+                 << "\"prefix_cache\":true}";
+            ws.send_text(caps.str());
+            std::cout << "[pair] sglang_caps ok=" << (ok ? "1" : "0")
+                      << " base_url=" << (sa ? sa->config().base_url : std::string())
                       << "\n";
         }
     }

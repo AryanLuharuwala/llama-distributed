@@ -318,6 +318,7 @@ func runMigrationsWithRetry(db *sql.DB, d sqlDialect) error {
 		{"rag", migrateRAG},
 		{"conv_memory", migrateConvMemory},
 		{"quarantine", migrateQuarantine},
+		{"prefix_affinity", migratePrefixAffinity},
 	}
 	const maxAttempts = 8
 	backoff := 2 * time.Second

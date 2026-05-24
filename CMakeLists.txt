@@ -154,6 +154,7 @@ add_library(dist_common STATIC
     src/actv_p2p.cpp
     src/runtime_adapter.cpp
     src/vllm_adapter.cpp
+    src/sglang_adapter.cpp
 )
 
 target_include_directories(dist_common

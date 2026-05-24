@@ -509,6 +509,65 @@ adapter trait by default is the P12-follow-up.  Until then, set
 `DIST_RUNTIME=vllm` only on rigs where the operator has manually
 wired the vLLM endpoint into their server-side routing.
 
+## SGLang adapter + prefix-cache routing (P13)
+
+P13 adds a second runtime adapter — SGLang — and uses one of its
+native features to make the control plane smarter about which rig
+serves a follow-up turn.
+
+### Why SGLang gets its own adapter (not OpenAI-compat)
+
+SGLang's `vllm`-style OpenAI endpoints work, but they strip the
+prompt-prefix-cache hit count from the response.  Its native
+`/generate` endpoint exposes `meta_info.cached_tokens`, which is the
+exact signal the routing layer needs: it tells us how many tokens of
+the prompt SGLang served straight out of its radix-tree cache
+without re-prefilling.  That's the difference between a 50ms first
+token and a 2s first token for chat workloads with long shared
+system prompts.
+
+### Routing flow
+
+1. Agent boots with `DIST_RUNTIME=sglang` (or `DIST_SGLANG_URL`
+   set).  `dist-node` probes the local SGLang `/health` endpoint
+   and, on success, emits `{"kind":"sglang_caps","ok":true,
+   "base_url":"...","prefix_cache":true}` on the agent WS.
+2. The control plane records the cap in `sglang_caps` (parallel to
+   `comfy_caps`).
+3. After each inference finishes, the agent's adapter exposes the
+   stream's last `cached_tokens` via `SglangAdapter::last_cached_tokens()`.
+   The server upserts `(user_id, prefix_hash, rig_id) → cached_tokens`
+   into `prefix_affinity`.
+4. On a follow-up request, the dispatcher hashes the prompt's first
+   512 bytes (`promptPrefixHash`) and consults `prefixAffinityRig()`
+   for a sticky route.  Same hash → same rig → prefix cache hit.
+
+The table is bounded by `prefixAffinityCapPerUser` (32 distinct
+prefixes per owner); beyond that window the oldest entries are
+pruned because the rig's radix cache will have evicted them anyway.
+
+### Environment
+
+| Env                              | Default                   | Notes                                         |
+|----------------------------------|---------------------------|-----------------------------------------------|
+| `DIST_RUNTIME=sglang`            | unset                     | Enables sglang_caps advertisement.            |
+| `DIST_SGLANG_URL`                | `http://127.0.0.1:30000`  | Base URL of `sglang.launch_server`.           |
+| `DIST_SGLANG_API_KEY`            | unset                     | Bearer for SGLang's `--api-key` flag.         |
+| `DIST_SGLANG_SPAWN`              | `0`                       | Truthy → adapter forks `python -m sglang.launch_server …`. |
+| `DIST_SGLANG_PYTHON`             | `python3`                  | Interpreter for spawn mode.                   |
+| `DIST_SGLANG_EXTRA_ARGS`         | empty                     | Verbatim CLI args appended to launch_server.  |
+| `DIST_SGLANG_SPAWN_TIMEOUT`      | `90`                      | Seconds to wait for `/health` after spawn.    |
+| `DIST_SGLANG_CONNECT_TIMEOUT_MS` | `2000`                    | Socket-connect timeout.                       |
+
+### Privacy / scoping
+
+`prefix_affinity` is keyed by `user_id` first.  Owner A's prompt
+hash never matches owner B's, even if they happen to share a
+verbatim system prompt — the row keys are disjoint by design.  The
+hash is over the first 512 prompt bytes only, so a long shared
+prefix followed by per-user PII produces a stable hash without
+storing the PII anywhere.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output
