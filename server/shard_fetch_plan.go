@@ -40,7 +40,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -108,11 +107,10 @@ func (s *server) handleShardFetchPlan(w http.ResponseWriter, r *http.Request) {
 	const ttl = 30 * time.Minute
 	exp := time.Now().Add(ttl).Unix()
 	if modelID != 0 && isSafeShardFile(file) {
-		// Origin URL: same shape as mintShardURL, but we keep modelID + file
-		// so the existing handleShardDownload validates the signature.
-		sig := s.signShardURL(modelID, file, exp)
-		originURL = fmt.Sprintf("%s/models/%d/shards/%s?exp=%d&sig=%s",
-			strings.TrimRight(s.cfg.publicURL, "/"), modelID, file, exp, sig)
+		// P7: macaroon-capability URL.  mintShardURLCap returns the full
+		// URL including the cap= query param; handleShardDownload validates
+		// it via verifyShardCap.
+		originURL = s.mintShardURLCap(modelID, file, ttl)
 		// Inspect the on-disk shard so the plan can include the byte count.
 		// Falling back to zero (unknown) is harmless — the rig will issue
 		// a HEAD first if it needs the size.
@@ -138,13 +136,15 @@ func (s *server) handleShardFetchPlan(w http.ResponseWriter, r *http.Request) {
 			// HF cache path becomes a download target.
 			continue
 		}
-		sig := s.signShardURL(modelID, file, exp)
-		// AgentID is escaped because nothing pre-validates the charset on
-		// agent_ids — an id with '&' or '=' would otherwise smash the
-		// query string and silently break the rig downloader.
-		purl := fmt.Sprintf("%s/models/%d/shards/%s?exp=%d&sig=%s&via=%s",
-			strings.TrimRight(s.cfg.publicURL, "/"), modelID, file, exp, sig,
-			url.QueryEscape(p.AgentID))
+		// P7: peer URL is the macaroon URL with an extra &via= for the
+		// metrics tag.  AgentID is escaped because nothing pre-validates
+		// the charset on agent_ids — an id with '&' or '=' would otherwise
+		// smash the query string and silently break the rig downloader.
+		base := s.mintShardURLCap(modelID, file, ttl)
+		if base == "" {
+			continue
+		}
+		purl := fmt.Sprintf("%s&via=%s", base, url.QueryEscape(p.AgentID))
 		sources = append(sources, shardFetchSource{
 			URL:          purl,
 			Kind:         "peer",

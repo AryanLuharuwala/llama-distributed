@@ -244,20 +244,34 @@ func (s *server) handleShardDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exp, _ := strconv.ParseInt(r.URL.Query().Get("exp"), 10, 64)
-	sig := r.URL.Query().Get("sig")
-	if exp == 0 || sig == "" {
-		writeErr(w, 401, "missing signature")
-		return
-	}
-	if nowUnix() > exp {
-		writeErr(w, 401, "url expired")
-		return
-	}
-	want := s.signShardURL(id, file, exp)
-	if !hmac.Equal([]byte(sig), []byte(want)) {
-		writeErr(w, 401, "bad signature")
-		return
+	// P7: prefer macaroon (`cap=`) if present; fall back to legacy HMAC
+	// (`exp=`+`sig=`) within mintHMACGraceWindow for URLs minted just
+	// before a rolling deploy.
+	if tok := r.URL.Query().Get("cap"); tok != "" {
+		if err := s.verifyShardCap(tok, id, file); err != nil {
+			writeErr(w, 401, "bad capability")
+			return
+		}
+	} else {
+		exp, _ := strconv.ParseInt(r.URL.Query().Get("exp"), 10, 64)
+		sig := r.URL.Query().Get("sig")
+		if exp == 0 || sig == "" {
+			writeErr(w, 401, "missing signature")
+			return
+		}
+		if time.Since(s.startedAt) > mintHMACGraceWindow {
+			writeErr(w, 401, "legacy url no longer accepted; please refresh")
+			return
+		}
+		if nowUnix() > exp {
+			writeErr(w, 401, "url expired")
+			return
+		}
+		want := s.signShardURL(id, file, exp)
+		if !hmac.Equal([]byte(sig), []byte(want)) {
+			writeErr(w, 401, "bad signature")
+			return
+		}
 	}
 
 	dir, err := s.modelShardsDir(id)
@@ -284,9 +298,17 @@ func (s *server) signShardURL(id int64, file string, exp int64) string {
 }
 
 // mintShardURL produces a signed URL like
-//   <publicURL>/models/42/shards/stage-0.gguf?exp=...&sig=...
-// valid for `ttl`.
+//   <publicURL>/models/42/shards/stage-0.gguf?cap=<macaroon>
+// valid for `ttl`.  P7: switched from HMAC `exp+sig` to macaroon `cap`;
+// the verifier still accepts the legacy shape within mintHMACGraceWindow.
 func (s *server) mintShardURL(id int64, file string, ttl time.Duration) string {
+	if u := s.mintShardURLCap(id, file, ttl); u != "" {
+		return u
+	}
+	// Defensive fallback — macaroon mint should never fail in practice,
+	// but if it does we'd rather return a working HMAC URL than break
+	// the caller.  This branch is exercised by the unit test that nils
+	// out the session secret.
 	exp := time.Now().Add(ttl).Unix()
 	sig := s.signShardURL(id, file, exp)
 	return fmt.Sprintf("%s/models/%d/shards/%s?exp=%d&sig=%s",

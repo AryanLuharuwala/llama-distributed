@@ -65,8 +65,8 @@ func TestFetchPlan_OriginOnly(t *testing.T) {
 	if len(plan.Sources) != 1 || plan.Sources[0].Kind != "origin" {
 		t.Errorf("expected one origin source; got %+v", plan.Sources)
 	}
-	if !strings.Contains(plan.Sources[0].URL, "sig=") {
-		t.Errorf("origin URL not signed: %q", plan.Sources[0].URL)
+	if !strings.Contains(plan.Sources[0].URL, "cap=") {
+		t.Errorf("origin URL missing macaroon: %q", plan.Sources[0].URL)
 	}
 }
 

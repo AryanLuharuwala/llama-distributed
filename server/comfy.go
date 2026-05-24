@@ -591,13 +591,17 @@ func (s *server) handleComfyListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"jobs": out})
 }
 
-// GET /comfy/out/{id}/{file}?v=2&uid=...&exp=...&sig=...
+// GET /comfy/out/{id}/{file}?cap=<macaroon>
 //
-// HMAC-signed output retrieval.  Two URL formats are accepted:
+// Capability-signed output retrieval.  Three URL formats are accepted:
 //
-//   v2 (current):  ?v=2&uid=<uid>&exp=...&sig=hmac("comfyv2/<uid>/<id>/<file>@<exp>")
-//                  Additionally requires an authenticated session whose
-//                  user_id matches uid — leaking the URL is not enough.
+//   P7 (current):  ?cap=<macaroon>   — caveats: path=comfy-out, uid=,
+//                  job=, file=, exp=.  Still requires an authenticated
+//                  session whose user_id matches the uid caveat in the
+//                  cap — leaking the URL alone is not enough.
+//
+//   v2 (legacy):   ?v=2&uid=<uid>&exp=...&sig=hmac("comfyv2/<uid>/<id>/<file>@<exp>")
+//                  Accepted within mintHMACGraceWindow of server start.
 //
 //   v1 (legacy):   ?exp=...&sig=hmac("comfy/<id>/<file>@<exp>")
 //                  Accepted only within comfyV1GraceWindow of server
@@ -616,56 +620,82 @@ func (s *server) handleComfyOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	exp, _ := strconv.ParseInt(q.Get("exp"), 10, 64)
-	sig := q.Get("sig")
-	if exp == 0 || sig == "" {
-		writeErr(w, 401, "missing signature")
-		return
-	}
-	if nowUnix() > exp {
-		writeErr(w, 401, "url expired")
-		return
-	}
 
-	version := q.Get("v")
-	if version == "2" {
-		uidStr := q.Get("uid")
-		uid, err := strconv.ParseInt(uidStr, 10, 64)
-		if err != nil || uid <= 0 {
-			writeErr(w, 401, "bad uid")
-			return
-		}
-		want := s.signComfyOutputV2(uid, id, file, exp)
-		if !hmac.Equal([]byte(want), []byte(sig)) {
-			writeErr(w, 401, "bad signature")
-			return
-		}
-		// User binding: leaked v2 URL alone is not enough — caller must
-		// also hold a session for the uid encoded in the URL.
+	// P7: macaroon-capability path.  When `cap=` is present we verify
+	// the token (which carries uid + job + file + exp as caveats) and
+	// then enforce the same session-uid binding that v2 HMAC did.
+	if tok := q.Get("cap"); tok != "" {
+		// We don't know which uid the cap was minted for until we parse
+		// it; macaroon verify needs the expected uid up-front, so the
+		// resolver hits the authenticated session first and matches the
+		// uid into the cap check.
 		u, ok := s.userFromRequest(r)
 		if !ok {
-			// Allow API-key fallback so the OAI client polling pattern
-			// keeps working without a browser cookie.
-			if tok := bearerFromRequest(r); tok != "" {
-				if au, aok := s.userFromAPIKey(tok); aok {
+			if bt := bearerFromRequest(r); bt != "" {
+				if au, aok := s.userFromAPIKey(bt); aok {
 					u, ok = au, true
 				}
 			}
 		}
-		if !ok || u.ID != uid {
-			writeErr(w, 403, "url is bound to another user")
+		if !ok {
+			writeErr(w, 401, "auth required")
+			return
+		}
+		if err := s.verifyComfyOutputCap(tok, u.ID, id, file); err != nil {
+			writeErr(w, 403, "bad capability")
 			return
 		}
 	} else {
-		// Legacy v1 path — only valid for comfyV1GraceWindow after boot.
-		if time.Since(s.startedAt) > comfyV1GraceWindow {
+		exp, _ := strconv.ParseInt(q.Get("exp"), 10, 64)
+		sig := q.Get("sig")
+		if exp == 0 || sig == "" {
+			writeErr(w, 401, "missing signature")
+			return
+		}
+		if time.Since(s.startedAt) > mintHMACGraceWindow {
 			writeErr(w, 401, "legacy url no longer accepted; please refresh")
 			return
 		}
-		want := s.signComfyOutputV1(id, file, exp)
-		if !hmac.Equal([]byte(want), []byte(sig)) {
-			writeErr(w, 401, "bad signature")
+		if nowUnix() > exp {
+			writeErr(w, 401, "url expired")
 			return
+		}
+
+		version := q.Get("v")
+		if version == "2" {
+			uidStr := q.Get("uid")
+			uid, err := strconv.ParseInt(uidStr, 10, 64)
+			if err != nil || uid <= 0 {
+				writeErr(w, 401, "bad uid")
+				return
+			}
+			want := s.signComfyOutputV2(uid, id, file, exp)
+			if !hmac.Equal([]byte(want), []byte(sig)) {
+				writeErr(w, 401, "bad signature")
+				return
+			}
+			u, ok := s.userFromRequest(r)
+			if !ok {
+				if bt := bearerFromRequest(r); bt != "" {
+					if au, aok := s.userFromAPIKey(bt); aok {
+						u, ok = au, true
+					}
+				}
+			}
+			if !ok || u.ID != uid {
+				writeErr(w, 403, "url is bound to another user")
+				return
+			}
+		} else {
+			if time.Since(s.startedAt) > comfyV1GraceWindow {
+				writeErr(w, 401, "legacy url no longer accepted; please refresh")
+				return
+			}
+			want := s.signComfyOutputV1(id, file, exp)
+			if !hmac.Equal([]byte(want), []byte(sig)) {
+				writeErr(w, 401, "bad signature")
+				return
+			}
 		}
 	}
 	// Resolve and confine the file path to the configured output root —
@@ -1153,6 +1183,11 @@ func (s *server) signComfyOutputV2(uid, id int64, file string, exp int64) string
 }
 
 func (s *server) signComfyOutputURL(uid, id int64, file string, ttl time.Duration) string {
+	// P7: macaroon-capability URL.  Falls through to legacy v2 HMAC iff
+	// the macaroon mint fails (which should not happen in practice).
+	if u := s.mintComfyOutputURLCap(uid, id, file, ttl); u != "" {
+		return u
+	}
 	exp := time.Now().Add(ttl).Unix()
 	sig := s.signComfyOutputV2(uid, id, file, exp)
 	return fmt.Sprintf("%s/comfy/out/%d/%s?v=2&uid=%d&exp=%d&sig=%s",

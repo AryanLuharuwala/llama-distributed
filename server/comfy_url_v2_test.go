@@ -71,20 +71,24 @@ func TestComfyV2_RequiresMatchingSession(t *testing.T) {
 		t.Errorf("owner read failed: code=%d body=%q", rr.Code, rr.Body.String())
 	}
 
-	// Attacker with their own valid session but using a leaked v2 URL —
-	// the uid binding must trip.
+	// Attacker with their own valid session but using a leaked URL —
+	// the uid binding inside the cap must trip the verifier.
 	rr = doComfyOutput(s, jobID, "render.png", raw, attackerSID)
 	if rr.Code != 403 {
 		t.Errorf("attacker bypass: code=%d body=%q", rr.Code, rr.Body.String())
 	}
 
-	// Anonymous (no session at all) — must also fail.
+	// Anonymous (no session at all) — macaroon path requires a session
+	// before we even attempt verification, so this is 401, not 403.
 	rr = doComfyOutput(s, jobID, "render.png", raw, "")
-	if rr.Code != 403 {
+	if rr.Code != 401 {
 		t.Errorf("anonymous bypass: code=%d body=%q", rr.Code, rr.Body.String())
 	}
 }
 
+// TestComfyCap_TamperedCapFails — P7 macaroon path.  A bit-flipped cap
+// must fail verification; the test used to twiddle the uid= query param,
+// but uid now lives inside the cap so we tamper the cap bytes directly.
 func TestComfyV2_TamperedUidFails(t *testing.T) {
 	s := newTestServer(t)
 	owner, ownerSID := makeUser(t, s, "owner")
@@ -93,12 +97,22 @@ func TestComfyV2_TamperedUidFails(t *testing.T) {
 	signed := s.signComfyOutputURL(owner, jobID, "render.png", 15*time.Minute)
 	parsed, _ := url.Parse(signed)
 	q := parsed.Query()
-	q.Set("uid", strconv.FormatInt(owner+1, 10)) // tamper
-	raw := q.Encode()
+	cap := q.Get("cap")
+	if cap == "" {
+		t.Fatalf("expected cap= in URL, got %q", signed)
+	}
+	// Flip one byte of the macaroon.
+	b := []byte(cap)
+	if b[len(b)-1] == 'A' {
+		b[len(b)-1] = 'B'
+	} else {
+		b[len(b)-1] = 'A'
+	}
+	q.Set("cap", string(b))
 
-	rr := doComfyOutput(s, jobID, "render.png", raw, ownerSID)
-	if rr.Code != 401 {
-		t.Errorf("tampered uid passed verification: code=%d body=%q", rr.Code, rr.Body.String())
+	rr := doComfyOutput(s, jobID, "render.png", q.Encode(), ownerSID)
+	if rr.Code != 403 {
+		t.Errorf("tampered cap passed verification: code=%d body=%q", rr.Code, rr.Body.String())
 	}
 }
 
@@ -144,17 +158,23 @@ func TestComfyV2_BadSignatureFails(t *testing.T) {
 	signed := s.signComfyOutputURL(owner, jobID, "render.png", 15*time.Minute)
 	parsed, _ := url.Parse(signed)
 	q := parsed.Query()
-	// Twiddle one byte of the sig.
-	orig := q.Get("sig")
-	tampered := flipFirstHexNibble(orig)
-	if tampered == orig {
-		t.Fatal("could not tamper sig")
+	// P7: tamper the macaroon (formerly the sig) — flip the first
+	// base64-safe character.
+	orig := q.Get("cap")
+	if orig == "" {
+		t.Fatal("expected cap= in URL")
 	}
-	q.Set("sig", tampered)
+	b := []byte(orig)
+	if b[0] == 'A' {
+		b[0] = 'B'
+	} else {
+		b[0] = 'A'
+	}
+	q.Set("cap", string(b))
 
 	rr := doComfyOutput(s, jobID, "render.png", q.Encode(), ownerSID)
-	if rr.Code != 401 {
-		t.Errorf("tampered sig passed: code=%d body=%q", rr.Code, rr.Body.String())
+	if rr.Code != 403 {
+		t.Errorf("tampered cap passed: code=%d body=%q", rr.Code, rr.Body.String())
 	}
 
 	// And a payload sanity check — round-trip JSON of nothing, just to

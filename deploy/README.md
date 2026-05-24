@@ -320,8 +320,34 @@ Items deferred to later prod-branch commits, in rough priority order:
 - **Helm chart** — package the (envoy + dist-server + redis + postgres)
   topology for k8s with proper PDBs, HPA, and a sidecar Redis or
   Memorystore reference.
-- **Macaroons** (P7) — replace HMAC URL signing with attenuable
-  third-party caveats so a leaked URL can be scoped down by the
-  bearer without server round-trips.
+- **Spanner / CockroachDB migration path** (P10) — once SQLite
+  becomes the bottleneck.  The dialect abstraction (server/dialect.go)
+  is the first-mile of this work; remaining gaps are query-time `?`
+  placeholders and Postgres connection pooling tuning.
 
 See the `Pn` tasks in the project board for the full plan.
+
+## URL capabilities (P7)
+
+Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output
+URLs (`/comfy/out/{id}/{file}`) are signed with macaroon-based
+capability tokens carried in the `cap=` query parameter.  Caveats:
+
+- `path=<shard|comfy-out>` — namespaces tokens so a shard cap cannot
+  be replayed against a comfy URL.
+- `model=`/`job=` — resource id.
+- `uid=` — for comfy URLs, binds the cap to a specific user; the
+  handler also requires that the calling session match this uid, so
+  a leaked URL pasted into a public page cannot be opened by anyone
+  but the original user.
+- `file=` — exact filename, case-sensitive.
+- `exp=` — wall-clock expiry.
+
+The HMAC root key is derived from `DIST_SESSION_SECRET` (the same
+secret used by the legacy `?exp=&sig=` URLs), so rotating that
+secret invalidates every outstanding cap in one move.
+
+The legacy `?exp=&sig=` (shard) and `?v=2&uid=&exp=&sig=` (comfy)
+URL shapes are still accepted within 24 h of server start so URLs
+minted just before a rolling deploy don't 401 mid-fetch.  After the
+window, only macaroon caps verify.

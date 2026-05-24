@@ -48,21 +48,29 @@ func TestShardURL_RejectsTamperedSig(t *testing.T) {
 	}
 
 	good := s.mintShardURL(mid, "stage-0.gguf", 60*time.Second)
-	// Bit-flip the sig by changing its last hex char (modular: keep valid hex).
-	flipped := good[:len(good)-1] + flipHexChar(good[len(good)-1])
+	// P7: bit-flip a character inside the macaroon (cap=) value.  The
+	// final character of the URL is inside the cap= base64 since the
+	// minter doesn't append other params.
+	last := good[len(good)-1]
+	var alt byte = 'A'
+	if last == 'A' {
+		alt = 'B'
+	}
+	flipped := good[:len(good)-1] + string(alt)
 
 	rr := httptest.NewRecorder()
 	s.router().ServeHTTP(rr, httptest.NewRequest("GET", flipped, nil))
 	if rr.Code != 401 {
-		t.Errorf("tampered sig: got %d, want 401", rr.Code)
+		t.Errorf("tampered cap: got %d, want 401", rr.Code)
 	}
 
-	// Trailing-byte corruption (append junk): the HMAC compare must reject.
-	junkSig := good + "00"
+	// Trailing-byte corruption: appending bytes inside the cap= value
+	// must be rejected by the strict round-trip check in verifyCap.
+	junkSig := good + "AB"
 	rr = httptest.NewRecorder()
 	s.router().ServeHTTP(rr, httptest.NewRequest("GET", junkSig, nil))
 	if rr.Code != 401 {
-		t.Errorf("trailing-junk sig: got %d, want 401", rr.Code)
+		t.Errorf("trailing-junk cap: got %d, want 401", rr.Code)
 	}
 
 	// Sanity: the original signed URL must still serve.

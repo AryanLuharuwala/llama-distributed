@@ -129,7 +129,10 @@ func TestSignComfyOutputRoundtripAndTamper(t *testing.T) {
 		t.Fatal("v1 and v2 signatures collide; cross-version replay is possible")
 	}
 
-	// signComfyOutputURL wraps it in a v2 URL with v/uid/exp/sig query params.
+	// P7: signComfyOutputURL emits a macaroon-capability URL with a
+	// single `cap=` query param.  The v=/uid=/exp=/sig= triple is
+	// retired (the verifier still accepts it within the grace window
+	// for in-flight URLs, but the minter does not produce it).
 	u := s.signComfyOutputURL(7, 42, "out.png", time.Hour)
 	parsed, err := url.Parse(u)
 	if err != nil {
@@ -139,14 +142,8 @@ func TestSignComfyOutputRoundtripAndTamper(t *testing.T) {
 		t.Errorf("URL path = %q", parsed.Path)
 	}
 	q := parsed.Query()
-	if q.Get("v") != "2" {
-		t.Errorf("URL is not v2: v=%q", q.Get("v"))
-	}
-	if q.Get("uid") != "7" {
-		t.Errorf("URL uid = %q want 7", q.Get("uid"))
-	}
-	if q.Get("exp") == "" || q.Get("sig") == "" {
-		t.Error("URL missing exp/sig query params")
+	if q.Get("cap") == "" {
+		t.Errorf("URL missing cap= macaroon: %s", u)
 	}
 }
 
