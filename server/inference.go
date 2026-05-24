@@ -414,17 +414,34 @@ func writeSSEErr(w http.ResponseWriter, fl http.Flusher, msg string) {
 
 func (s *server) logInference(userID, poolID, agentUserID int64, agentID string,
 	inTok, outTok int, status string) int64 {
+	startedAt := nowUnix()
 	res, err := s.dbExec(
 		`INSERT INTO inference_log (user_id, pool_id, agent_user_id, agent_id,
 		   input_tokens, output_tokens, started_at, status)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, poolID, agentUserID, agentID, inTok, outTok, nowUnix(), status,
+		userID, poolID, agentUserID, agentID, inTok, outTok, startedAt, status,
 	)
 	if err != nil {
 		log.Printf("inference_log insert: %v", err)
 		return 0
 	}
 	id, _ := res.LastInsertId()
+	// P11: fan out to the analytics sink.  The nop sink in the
+	// default deploy returns immediately; the BigQuery sink async-
+	// buffers.  Either way this never blocks the inference path.
+	if s.analytics != nil {
+		s.analytics.LogInference(&inferenceEvent{
+			ID:           id,
+			UserID:       userID,
+			PoolID:       poolID,
+			AgentUserID:  agentUserID,
+			AgentID:      agentID,
+			InputTokens:  inTok,
+			OutputTokens: outTok,
+			StartedAt:    startedAt,
+			Status:       status,
+		})
+	}
 	return id
 }
 
@@ -432,11 +449,25 @@ func (s *server) finishInference(id int64, inTok, outTok int, status string) {
 	if id == 0 {
 		return
 	}
+	finishedAt := nowUnix()
 	_, _ = s.dbExec(
 		`UPDATE inference_log SET finished_at = ?, input_tokens = ?, output_tokens = ?, status = ?
 		 WHERE id = ?`,
-		nowUnix(), inTok, outTok, status, id,
+		finishedAt, inTok, outTok, status, id,
 	)
+	// Emit the *final* event with output tokens + latency.  BQ will
+	// see two rows for the same insertId (the initial one was the
+	// pending state); insertId-based de-dupe keeps the latest, which
+	// is what we want — analysts query the row with finished_at set.
+	if s.analytics != nil {
+		s.analytics.LogInference(&inferenceEvent{
+			ID:           id,
+			InputTokens:  inTok,
+			OutputTokens: outTok,
+			FinishedAt:   finishedAt,
+			Status:       status,
+		})
+	}
 }
 
 // ─── inferPeer plumbing on agentConn ───────────────────────────────────────

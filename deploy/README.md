@@ -359,6 +359,88 @@ What's deferred:
   topology for k8s with proper PDBs, HPA, and a sidecar Redis or
   Memorystore reference.
 
+## Analytics warehouse + hot counters (P11)
+
+The control plane fans out every inference event to an analytics sink
+that streams to BigQuery, and exposes a pluggable hot-counter store
+that can be swapped from SQLite to Bigtable without touching the
+inference path.
+
+Both are opt-in: with no env, the binary is a single-container deploy
+that writes to local SQLite as always.
+
+### BigQuery streaming (`DIST_BQ_*`)
+
+| Env                   | Required | Default          | What                                |
+|-----------------------|----------|------------------|-------------------------------------|
+| `DIST_BQ_PROJECT`     | yes      | (sink disabled)  | GCP project hosting the dataset.    |
+| `DIST_BQ_DATASET`     | yes      | (sink disabled)  | BQ dataset (must exist + partitioned recommended). |
+| `DIST_BQ_TABLE`       | no       | `inference_log`  | Destination table name.             |
+
+Auth: standard Google application default credentials.  On GKE, use
+Workload Identity for the deployment's service account.  On Cloud Run,
+the runtime service account is picked up automatically.  Locally,
+`GOOGLE_APPLICATION_CREDENTIALS` pointed at a service-account JSON
+works.  Scope: `bigquery.insertdata` (write-only, no read).
+
+Recommended BQ table schema (partition by DAY on `started_at`,
+cluster on `(user_id, agent_id)`):
+
+```sql
+CREATE TABLE `<project>.<dataset>.inference_log` (
+  id              INT64,
+  user_id         INT64,
+  pool_id         INT64,
+  agent_user_id   INT64,
+  agent_id        STRING,
+  input_tokens    INT64,
+  output_tokens   INT64,
+  started_at      INT64,
+  finished_at     INT64,
+  latency_ms      INT64,
+  status          STRING,
+  model_name      STRING,
+  region          STRING
+)
+PARTITION BY TIMESTAMP_TRUNC(TIMESTAMP_SECONDS(started_at), DAY)
+CLUSTER BY user_id, agent_id;
+```
+
+Behaviour:
+
+- Fully async — the inference path never blocks on BQ.
+- Buffered (default 10_000 rows); rows beyond the buffer are dropped
+  with a metric (`Sink.Dropped()`).
+- Batched (default 500 rows or 5s flush interval).
+- 5xx and per-row insert errors are logged but not retried — the next
+  batch carries on.  This is intentional: long retry chains during a
+  BQ outage would inflate the buffer and risk OOM.
+
+### Bigtable hot counters (`DIST_BT_*`)
+
+| Env                   | Required | Default | What                                       |
+|-----------------------|----------|---------|--------------------------------------------|
+| `DIST_BT_PROJECT`     | yes      | (off)   | GCP project hosting the Bigtable instance. |
+| `DIST_BT_INSTANCE`    | yes      | (off)   | Bigtable instance id.                      |
+| `DIST_BT_TABLE`       | yes      | (off)   | Table name; created externally.            |
+
+Today the in-tree Bigtable implementation is a **stub that proxies to
+the SQLite counter store** and tracks call volume in memory.  This lets
+operators wire the env vars in advance and watch real QPS on `/metrics`
+before flipping the build-tagged real Bigtable adapter on (separate
+commit; adds the cloud.google.com/go/bigtable dep).
+
+Row-key format the eventual adapter will use:
+
+```
+<period>#<zero-padded-user-id>
+e.g. 202605#0000000000000000042
+```
+
+Period-first ordering means a single row-range scan returns every
+user for a billing period — the same shape any external reporting
+view (BigQuery federation over Bigtable) will want.
+
 ## URL capabilities (P7)
 
 Shard download URLs (`/models/{id}/shards/{file}`) and Comfy output

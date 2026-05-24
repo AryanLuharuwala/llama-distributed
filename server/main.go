@@ -457,6 +457,51 @@ func main() {
 
 	srv := newServer(cfg, db)
 	srv.dialect = dialect
+
+	// P11: enable BigQuery analytics sink when DIST_BQ_* is configured.
+	// Absent any env, the nopAnalyticsSink default leaves behaviour
+	// identical to a non-cloud deploy.
+	if bq := os.Getenv("DIST_BQ_PROJECT"); bq != "" {
+		bqCfg := bigqueryAnalyticsConfig{
+			ProjectID: bq,
+			DatasetID: os.Getenv("DIST_BQ_DATASET"),
+			TableID:   os.Getenv("DIST_BQ_TABLE"),
+		}
+		if bqCfg.TableID == "" {
+			bqCfg.TableID = "inference_log"
+		}
+		sink, err := newBigQueryAnalyticsSink(context.Background(), bqCfg)
+		if err != nil {
+			log.Printf("bigquery sink: disabled (%v)", err)
+		} else {
+			srv.analytics = sink
+			log.Printf("bigquery sink: enabled (%s.%s.%s)",
+				bqCfg.ProjectID, bqCfg.DatasetID, bqCfg.TableID)
+		}
+	}
+
+	// P11: opt-in Bigtable hot-counter store.  Falls back to the
+	// SQLite store when env is unset.  The current bigtableCounterStore
+	// is a counted shim (see counter_store.go header) — flipping the
+	// real Bigtable SDK on is a separate, build-tagged commit.
+	if bt := os.Getenv("DIST_BT_PROJECT"); bt != "" {
+		btCfg := bigtableCounterConfig{
+			ProjectID:      bt,
+			InstanceID:     os.Getenv("DIST_BT_INSTANCE"),
+			TableID:        os.Getenv("DIST_BT_TABLE"),
+			MirrorToSQLite: true,
+		}
+		fb := newSQLiteCounterStore(srv)
+		store, err := newBigtableCounterStore(btCfg, fb)
+		if err != nil {
+			log.Printf("bigtable counters: disabled (%v)", err)
+		} else {
+			srv.counters = store
+			log.Printf("bigtable counters: enabled (project=%s instance=%s table=%s)",
+				btCfg.ProjectID, btCfg.InstanceID, btCfg.TableID)
+		}
+	}
+
 	if err := srv.backfillSlugs(); err != nil {
 		log.Fatalf("backfill slugs: %v", err)
 	}
@@ -546,6 +591,16 @@ func main() {
 	_ = httpSrv.Shutdown(shutdown)
 	// Final flush of pending last_seen rows.
 	srv.flushLastSeen()
+	// P11: drain the analytics sink with a tight deadline so a slow
+	// BigQuery never holds the process up past ~5s.
+	if srv.analytics != nil {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = srv.analytics.Close(drainCtx)
+		drainCancel()
+	}
+	if srv.counters != nil {
+		_ = srv.counters.Close()
+	}
 	fmt.Println("bye")
 }
 

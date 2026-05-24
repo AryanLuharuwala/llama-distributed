@@ -73,6 +73,13 @@ type server struct {
 	// on first call; janitor closes idle entries past mcpConnTTL.
 	brokers *brokerRegistry
 
+	// P11: async analytics sink (BigQuery streaming) and pluggable
+	// hot-counter store (Bigtable-ready).  Both default to nop /
+	// SQLite respectively, so single-container deploys work without
+	// any cloud configuration.
+	analytics analyticsSink
+	counters  counterStore
+
 	// Flipped to true when graceful shutdown begins.  /readyz watches
 	// this so load balancers can stop sending new connections while the
 	// process drains in-flight work.
@@ -80,7 +87,7 @@ type server struct {
 }
 
 func newServer(cfg config, db *sql.DB) *server {
-	return &server{
+	s := &server{
 		cfg:       cfg,
 		db:        db,
 		dialect:   sqliteDialect{}, // default; main() overrides after dialectFor()
@@ -93,7 +100,12 @@ func newServer(cfg config, db *sql.DB) *server {
 		ipRL:      newIPRateLimiterSet(cfg.rateBackend),
 		drift:     newRigDriftTable(),
 		startedAt: time.Now(),
+		analytics: nopAnalyticsSink{},
 	}
+	// counterStore needs `s` because the SQLite impl uses s.dbExecCtx;
+	// initialize after `s` is in scope.
+	s.counters = newSQLiteCounterStore(s)
+	return s
 }
 
 // markLastSeen records that (uid, agentID) was heard from at now.  O(1),
