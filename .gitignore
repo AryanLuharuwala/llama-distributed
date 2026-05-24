@@ -37,3 +37,7 @@ azure_creds.json
 .idea/
 .vscode/
 .claude/
+
+# Bazel (P19) — symlinked build outputs + bzlmod resolved lockfile
+bazel-*
+MODULE.bazel.lock

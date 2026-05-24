@@ -1,0 +1,90 @@
+# GitHub Actions workflow: build + sign + push every tagged release.
+#
+# Drop this into `.github/workflows/release.yaml` once the team is
+# ready to cut over from the legacy Docker workflow.  The required
+# org-level setting is `id-token: write` on the workflow job —
+# without that, cosign keyless signing returns 401 from Fulcio.
+#
+# This file lives in `deploy/sign/` rather than `.github/workflows/`
+# during the migration window so accidentally merging it doesn't
+# break the live release pipeline.
+
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents:    read
+  packages:    write   # ghcr.io push
+  id-token:    write   # cosign keyless OIDC
+
+jobs:
+  build-sign-push:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.10.0
+        with:
+          bazelisk-cache:   true
+          disk-cache:       ${{ github.workflow }}
+          repository-cache: true
+
+      - name: Set up cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Authenticate to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # ── Build all Go tests first; if any fail, no image gets pushed.
+      - name: Test
+        run: bazel test //:all_go --config=release
+
+      # ── Build the multi-arch OCI images (reproducible — pinned
+      # base digest, deterministic mtime, embedded git SHA).
+      - name: Build images
+        run: bazel build //:all_images --config=release
+
+      # ── Push without a signature first; cosign signs the digest.
+      - name: Push dist-server
+        run: bazel run //server:dist-server_push --config=release -- --tag=${{ github.ref_name }}
+
+      - name: Push dist-turn
+        run: bazel run //cmd/dist-turn:dist-turn_push --config=release -- --tag=${{ github.ref_name }}
+
+      # ── Sign with the workflow's OIDC identity (no key material).
+      # The signature ends up at $REPO@sha256:.sig in the registry,
+      # cosign-verify.sh at deploy time pins certificate-identity to
+      # this workflow's path so a different repo's identity can't
+      # produce a signature that verifies for us.
+      - name: Sign dist-server
+        env: { COSIGN_MODE: keyless }
+        run: |
+          DIGEST=$(bazel cquery 'kind("oci_image_index", //server:dist-server)' --output=files --config=release | head -n1)
+          deploy/sign/cosign-sign.sh \
+            --image      "$DIGEST" \
+            --repository ghcr.io/llama-distributed/dist-server \
+            --output     /tmp/dist-server.sigmanifest.json
+
+      - name: Sign dist-turn
+        env: { COSIGN_MODE: keyless }
+        run: |
+          DIGEST=$(bazel cquery 'kind("oci_image_index", //cmd/dist-turn:dist-turn)' --output=files --config=release | head -n1)
+          deploy/sign/cosign-sign.sh \
+            --image      "$DIGEST" \
+            --repository ghcr.io/llama-distributed/dist-turn \
+            --output     /tmp/dist-turn.sigmanifest.json
+
+      - name: Attach attestations to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            /tmp/dist-server.sigmanifest.json
+            /tmp/dist-turn.sigmanifest.json

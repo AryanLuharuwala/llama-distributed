@@ -1,0 +1,55 @@
+# Root BUILD file — gazelle config + cross-cutting aliases.
+#
+# To regenerate per-package BUILD.bazel files after editing go imports:
+#     bazel run //:gazelle
+#
+# To upgrade pinned deps after editing a go.mod:
+#     bazel mod tidy
+
+load("@gazelle//:def.bzl", "gazelle")
+
+# Module-level gazelle directives.  We tell gazelle to keep its hands
+# off third_party/ (vendored llama.cpp) and to use the bzlmod-style
+# resolver (no WORKSPACE-era hacks).
+# gazelle:prefix github.com/llama-distributed
+# gazelle:exclude third_party
+# gazelle:exclude build
+# gazelle:exclude _deps
+# gazelle:go_naming_convention import_alias
+# gazelle:go_visibility //visibility:public
+
+gazelle(name = "gazelle")
+
+# Lint-style alias: `bazel test //:all_go` runs every Go test in the
+# tree.  Used by CI before image build.
+test_suite(
+    name = "all_go",
+    tests = [
+        "//server:server_test",
+        "//cmd/dist-turn:dist_turn_test",
+        "//cmd/surd:surd_test",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Convenience: `bazel build //:all_images` produces every OCI image
+# the project ships.  Each is reproducible (deterministic mtime, pinned
+# base by digest) so cosign signatures bind to a stable digest.
+filegroup(
+    name = "all_images",
+    srcs = [
+        "//server:image",
+        "//cmd/dist-turn:image",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Cosign sign-and-verify wrapper — see deploy/sign/README.md.
+filegroup(
+    name = "all_images_signed",
+    srcs = [
+        "//server:image_signed",
+        "//cmd/dist-turn:image_signed",
+    ],
+    visibility = ["//visibility:public"],
+)

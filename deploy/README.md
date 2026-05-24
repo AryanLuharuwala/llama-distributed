@@ -826,6 +826,29 @@ The encoder is pure C++17 scalar code in `include/fp8.h`; no
 NVIDIA intrinsics are required and the dist-node binary stays
 CPU-portable.
 
+## Bazel + rules_oci + cosign-signed binaries (P19)
+
+The Go binaries (`dist-server`, `dist-turn`, `surd`) build through
+Bazel via Bzlmod (`MODULE.bazel` + `.bazelrc` at the repo root) and
+produce reproducible multi-arch OCI images via `rules_oci`.  Every
+image is signed with cosign — keyless OIDC in CI, key-based locally.
+
+The C++ binaries (`dist-node`, `dist-coordinator`, `dist-client`,
+`dist-cli`, `nat-portmap`) keep their CMake build for now; the
+llama.cpp vendored tree is too large to port to Bazel in P19's
+scope.  They're shipped as static-link release artifacts signed at
+upload time instead.
+
+Why the migration: the legacy `server/Dockerfile` does `apt-get
+install` in the runtime stage, which means the image digest drifts
+day-to-day as Debian's mirror gets updated.  cosign signs the digest;
+a drifting digest invalidates the signature.  Bazel's hermetic
+sandbox + pinned base-image digests + `SOURCE_DATE_EPOCH=0` produce
+byte-identical images across rebuilds, so signatures stay valid.
+
+See `sign/README.md` for the full threat model, sign/verify flow,
+CI workflow template, and migration playbook.
+
 ## coturn anycast edges (P18)
 
 For TURN-relayed ACTV traffic (the fourth ICE candidate tier, after

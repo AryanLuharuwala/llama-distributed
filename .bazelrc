@@ -1,0 +1,53 @@
+# Reproducibility & supply-chain integrity flags for the Bazel build.
+#
+# These defaults are what `bazel build //...` uses without extra args.
+# CI passes `--config=release` (see below) to lock down extra hermeticity.
+
+# ─── Bzlmod is required (P19 uses MODULE.bazel, not WORKSPACE) ─────
+common --enable_bzlmod
+common --noenable_workspace
+
+# ─── Stamping ──────────────────────────────────────────────────────
+# Embed git SHA + build date into binaries via -X linker flags.  The
+# values come from tools/bazel_stamp.sh (workspace_status_command).
+build --stamp
+build --workspace_status_command=tools/bazel_stamp.sh
+
+# ─── Hermeticity ───────────────────────────────────────────────────
+# Strip host PATH and locale-dependent env from action env so the
+# build output is invariant across developer workstations.
+build --incompatible_strict_action_env
+build --action_env=LANG=C.UTF-8
+build --action_env=TZ=UTC
+
+# Pin Go to the toolchain declared in MODULE.bazel — never the host's.
+build --@rules_go//go/config:pure=false
+build --@rules_go//go/config:strip=true
+build --@rules_go//go/config:linkmode=pie
+
+# ─── Image determinism ─────────────────────────────────────────────
+# rules_oci defaults to SOURCE_DATE_EPOCH=0 if unset, which is what we
+# want — every layer's mtime is fixed so the image digest is stable.
+build --action_env=SOURCE_DATE_EPOCH=0
+
+# ─── Test output ───────────────────────────────────────────────────
+test --test_output=errors
+test --test_env=GOFLAGS=-count=1
+
+# ─── Release config (CI use) ───────────────────────────────────────
+# Adds remote cache + verification of signed deps.  Local devs can
+# leave this off.
+build:release --remote_cache=https://bazel-cache.dist.example.com
+build:release --remote_upload_local_results=false
+build:release --experimental_remote_cache_compression
+build:release --verify_workspace_dirs
+
+# Disk cache so local rebuilds skip Go re-compilation when only the
+# image layer changes.  Bound to 20 GiB.
+build --disk_cache=~/.cache/bazel-disk
+
+# ─── Performance ───────────────────────────────────────────────────
+build --jobs=auto
+build --remote_local_fallback
+common --color=yes
+common --curses=auto
