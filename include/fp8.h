@@ -162,6 +162,9 @@ inline void encode_tensor(const float* src, size_t n_elems,
 // ─── tensor-level decode ──────────────────────────────────────────────
 inline void decode_tensor(const uint8_t* src, size_t n_elems,
                           float scale, float* dst) {
+    // F-WIRE-06: the scale is peer-supplied; NaN/Inf would poison every
+    // downstream multiplication. Clamp to a finite, non-negative value.
+    if (!std::isfinite(scale) || scale < 0.0f) scale = 0.0f;
     for (size_t i = 0; i < n_elems; ++i) {
         dst[i] = decode_e4m3(src[i]) * scale;
     }

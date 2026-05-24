@@ -34,6 +34,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -84,7 +85,14 @@ func (s *server) mintCap(caveats ...string) (string, error) {
 // server's root key, and runs the caveats through the supplied checker.
 // Returns nil on success.  The checker receives one caveat at a time
 // (the verifier walks the caveat list and returns the first error).
-func (s *server) verifyCap(token string, check func(caveat string) error) error {
+//
+// `require` is the set of caveat keys that MUST appear in the macaroon
+// (always including "exp"). After verification succeeds, we cross-check
+// that every required key was seen — without this, a macaroon minted
+// without (e.g.) the `file` caveat would verify against any file path.
+// F-AUTH-01: rejecting unknown caveats is not enough; we must also
+// reject missing-expected caveats.
+func (s *server) verifyCap(token string, check func(caveat string) error, require map[string]bool) error {
 	if token == "" {
 		return fmt.Errorf("empty cap")
 	}
@@ -98,20 +106,35 @@ func (s *server) verifyCap(token string, check func(caveat string) error) error 
 	}
 	// Strict round-trip: the macaroon library's UnmarshalBinary is
 	// lenient about trailing bytes, which would let an attacker append
-	// junk to a token and have it still verify.  Re-marshal and compare.
+	// junk to a token and have it still verify.  Re-marshal and compare
+	// in constant time so the timing of mismatch detection doesn't leak
+	// position-of-first-difference.
 	round, err := m.MarshalBinary()
 	if err != nil || len(round) != len(raw) {
 		return fmt.Errorf("token length mismatch (trailing-junk attack?)")
 	}
-	for i, b := range raw {
-		if round[i] != b {
-			return fmt.Errorf("token bytes mismatch at %d", i)
+	if subtle.ConstantTimeCompare(round, raw) != 1 {
+		return fmt.Errorf("token bytes mismatch")
+	}
+	// Wrap `check` so we observe each caveat key as the verifier walks
+	// the list. After Verify returns success, we assert every required
+	// key was visited.
+	seen := make(map[string]bool, len(require))
+	wrapped := func(cv string) error {
+		if eq := strings.IndexByte(cv, '='); eq >= 0 {
+			seen[cv[:eq]] = true
 		}
+		return check(cv)
 	}
 	// macaroon.v2.Verify takes the root key + a check function + any
 	// discharge macaroons (none, since we only use first-party caveats).
-	if err := m.Verify(s.macaroonRootKey(), check, nil); err != nil {
+	if err := m.Verify(s.macaroonRootKey(), wrapped, nil); err != nil {
 		return fmt.Errorf("verify: %w", err)
+	}
+	for k := range require {
+		if !seen[k] {
+			return fmt.Errorf("required caveat %q missing", k)
+		}
 	}
 	return nil
 }
@@ -163,11 +186,13 @@ func (s *server) mintShardCap(modelID int64, file string, ttl time.Duration) (st
 }
 
 func (s *server) verifyShardCap(token string, modelID int64, file string) error {
-	return s.verifyCap(token, capChecker(time.Now(), map[string]string{
+	expected := map[string]string{
 		"path":  "shard",
 		"model": strconv.FormatInt(modelID, 10),
 		"file":  file,
-	}))
+	}
+	require := map[string]bool{"path": true, "model": true, "file": true, "exp": true}
+	return s.verifyCap(token, capChecker(time.Now(), expected), require)
 }
 
 func (s *server) mintShardURLCap(modelID int64, file string, ttl time.Duration) string {
@@ -192,12 +217,14 @@ func (s *server) mintComfyOutputCap(uid, jobID int64, file string, ttl time.Dura
 }
 
 func (s *server) verifyComfyOutputCap(token string, uid, jobID int64, file string) error {
-	return s.verifyCap(token, capChecker(time.Now(), map[string]string{
+	expected := map[string]string{
 		"path": "comfy-out",
 		"uid":  strconv.FormatInt(uid, 10),
 		"job":  strconv.FormatInt(jobID, 10),
 		"file": file,
-	}))
+	}
+	require := map[string]bool{"path": true, "uid": true, "job": true, "file": true, "exp": true}
+	return s.verifyCap(token, capChecker(time.Now(), expected), require)
 }
 
 func (s *server) mintComfyOutputURLCap(uid, jobID int64, file string, ttl time.Duration) string {

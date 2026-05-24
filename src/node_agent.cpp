@@ -318,9 +318,14 @@ void NodeAgent::heartbeat_loop() {
 
 void NodeAgent::handle_layer_assign(const MsgLayerAssign& msg,
                                     const std::vector<LayerRange>& ranges) {
+    // F-WIRE-08: msg.model_path is a fixed 256-byte slot from the wire with
+    // no NUL guarantee; bound it before std::cout / implicit string ctor.
+    const size_t mp_len = ::strnlen(msg.model_path, sizeof(msg.model_path));
+    std::string model_path(msg.model_path, mp_len);
+
     std::cout << "[NodeAgent:" << cfg_.node_id << "] LAYER_ASSIGN: layers ";
     for (auto& r : ranges) std::cout << r.layer_first << "-" << r.layer_last << " ";
-    std::cout << "model=" << msg.model_path << "\n";
+    std::cout << "model=" << model_path << "\n";
 
     n_layer_total_ = msg.n_layer_total;
     if (!ranges.empty()) {
@@ -331,7 +336,7 @@ void NodeAgent::handle_layer_assign(const MsgLayerAssign& msg,
     is_last_stage_  = (layer_last_ == n_layer_total_ - 1);
 
     // Load model
-    handle_load_model(msg.model_path);
+    handle_load_model(model_path);
 
     // ACK
     MsgAck ack{};

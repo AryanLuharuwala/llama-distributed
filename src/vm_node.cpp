@@ -329,8 +329,10 @@ void VmNode::handle_collective_chunk(const uint8_t* payload, uint32_t sz) {
     if (sz < sizeof(MsgVmCollectiveChunk)) return;
     const auto& hdr = *reinterpret_cast<const MsgVmCollectiveChunk*>(payload);
     uint32_t chunk_bytes = sz - sizeof(MsgVmCollectiveChunk);
+    // F-WIRE-08: fixed-width id is not guaranteed NUL-terminated; bound it.
+    const size_t id_len = ::strnlen(hdr.from_node, sizeof(hdr.from_node));
     collective_.on_chunk(hdr.coll_id,
-                         std::string(hdr.from_node),
+                         std::string(hdr.from_node, id_len),
                          hdr.phase,
                          hdr.chunk_offset,
                          payload + sizeof(MsgVmCollectiveChunk),

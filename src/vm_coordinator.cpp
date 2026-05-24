@@ -84,7 +84,11 @@ void VmCoordinator::vm_ctrl_accept_fn() {
         }
         if (buf.size() < sizeof(MsgVmNodeReady)) continue;
         const auto& rdy = *reinterpret_cast<const MsgVmNodeReady*>(buf.data());
-        std::string node_id(rdy.node_id);
+        // F-WIRE-08: fixed-width id slot is not guaranteed NUL-terminated;
+        // strnlen-bound to prevent the std::string ctor walking past the
+        // struct into adjacent payload bytes.
+        const size_t nid_len = ::strnlen(rdy.node_id, sizeof(rdy.node_id));
+        std::string node_id(rdy.node_id, nid_len);
 
         auto conn_ptr = std::make_shared<Connection>(std::move(*conn));
         {
