@@ -645,6 +645,61 @@ GPU fleets, dedicated inference pods), a follow-up can ship a
 DIST_USE_TRTLLM CMake flag that pulls the in-process runtime in
 behind a build option.
 
+## NAT-PMP / PCP port mapping (P17)
+
+Before letting an ACTV peer-relay session fall back to a TURN
+server (with the byte-counting and relay-credit machinery that
+implies), try to ask the upstream router to open a direct
+external port via **PCP** (RFC 6887) or **NAT-PMP** (RFC 6886).
+Most consumer routers speak one of the two when port-forwarding
+UPnP is enabled; when they do, the rig gets an externally
+reachable `(ip:port)` at the cost of a single UDP round-trip
+and the router itself does the forwarding (no relay hop, no
+operator-funded TURN bandwidth).
+
+### Tools
+
+| binary         | what it does                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `nat-portmap`  | Operator probe: prints `external_ip:port`, granted lifetime, and which protocol succeeded.  `--keep` to renew.  |
+| `nat-pingpong` | Already-existing UDP reachability tester (P-task earlier).  Use it once `nat-portmap` reports a mapping.        |
+
+### Wire shape
+
+`include/nat_pmp.h` exposes:
+
+```cpp
+std::optional<MappedPort> try_map_udp(internal_port,
+                                      suggested_ext_port,
+                                      lifetime_s,
+                                      gateway = "",      // auto-discovers on Linux
+                                      timeout_ms = 1500);
+
+class PortMapper { /* renews halfway through granted lifetime */ };
+```
+
+The probe tries PCP MAP (version 2) first; on `UNSUPP_VERSION`
+or silence, it falls back to NAT-PMP MAP (version 0).  Both
+target UDP/5351 on the gateway.  Default gateway is read from
+`/proc/net/route` on Linux; set `DIST_PORTMAP_GATEWAY=<ip>` to
+override (also accepted by `nat-portmap --gateway`).
+
+### When this matters
+
+- Residential / SOHO networks where the rig sits behind a single
+  NAT and the router supports port mapping.
+- Carrier-grade NAT (CGNAT) **does not** support these protocols
+  in general — for those rigs you'll still need TURN.
+- Inside a corporate firewall, PCP is rarely enabled — admins
+  should open the port explicitly instead.
+
+### Why this lives in dist_common
+
+The library is small (~14 KB compiled) and the ACTV path needs
+it the moment a peer is opened.  Building it into `dist_common`
+lets `dist-node`, `nat-portmap`, and future ICE-candidate
+injection code all share the same implementation.
+
 ## Speculative decoding capability (P16)
 
 Speculative decoding (Medusa heads / Eagle / draft-model) lets a

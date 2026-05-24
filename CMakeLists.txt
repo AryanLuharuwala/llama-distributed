@@ -156,6 +156,7 @@ add_library(dist_common STATIC
     src/vllm_adapter.cpp
     src/sglang_adapter.cpp
     src/trtllm_adapter.cpp
+    src/nat_pmp.cpp
 )
 
 target_include_directories(dist_common
@@ -272,6 +273,11 @@ target_link_libraries(dist-join PRIVATE ${_PLATFORM_LIBS})
 # NAT inbound-blocking.  Two modes: `listen` (STUNs its external mapping and
 # echoes) and `probe` (sends pings to a listener's printed ip:port).
 add_executable(nat-pingpong src/nat_pingpong.cpp)
+
+# nat-portmap: probe NAT-PMP / PCP on the upstream router to obtain
+# an external (ip:port) mapping for a UDP port.  P17.
+add_executable(nat-portmap src/nat_portmap_main.cpp)
+target_link_libraries(nat-portmap PRIVATE dist_common)
 
 # ─── dist-cli — operator CLI ────────────────────────────────────────────────
 #
