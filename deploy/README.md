@@ -166,6 +166,28 @@ What you get out of the box:
 Unset `OTEL_EXPORTER_OTLP_ENDPOINT` to disable telemetry entirely —
 every instrument call becomes a no-op and no exporter goroutines run.
 
+## /ws/agent — proto subprotocol (distpool.proto.v1)
+
+Rigs that ship the proto wire opt in by sending
+`Sec-WebSocket-Protocol: distpool.proto.v1` on the WS handshake.  The
+server lists it in its `Subprotocols` and echoes the token back on the
+101 response per RFC 6455 §4.2.2.  When the negotiation succeeds the
+control frames switch from JSON-over-TEXT to length-delimited proto
+(`distpool.ctrl.v1`) carried in WebSocket BINARY frames; ACTV relay
+bytes stay on BINARY too, distinguished by the fact that they don't
+parse as a ClientFrame.
+
+Legacy rigs send no subprotocol header and stay on JSON — byte-for-byte
+identical to the pre-P4 wire.  There is no flag day; rigs roll over
+independently.
+
+Schemas live in `proto/distpool/ctrl/v1/ctrl.proto`; regenerate Go
+bindings with `buf generate` (`buf.gen.yaml` writes into
+`server/ctrlpb/`).  Frames whose payloads are still evolving
+(`comfy_result`, `comfy_caps`, `p2p_signal`) ride inside the proto as
+opaque JSON bytes so the server doesn't need a re-deploy every time a
+new field is added.
+
 ## WebSocket + SSE caveats
 
 The dashboard and every rig hold long-lived connections:

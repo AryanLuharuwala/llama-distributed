@@ -1,0 +1,143 @@
+// distpool/ctrl/v1/ctrl.proto — wire schema for the /ws/agent control plane.
+//
+// Negotiated via the `Sec-WebSocket-Protocol: distpool.proto.v1` request
+// header.  When the server accepts that subprotocol the frames on the
+// WebSocket switch from JSON (the default, still supported for legacy
+// rigs) to length-delimited protobuf carried in WebSocket BINARY frames.
+//
+// Each frame is a ClientFrame (rig → server) or ServerFrame (server →
+// rig) — both top-level envelopes wrap a single `oneof body`.  This
+// preserves the dispatch model of the JSON wire (the JSON "kind" field
+// becomes the oneof discriminator) while giving us static types and
+// 3–5× smaller frames on the wire.
+//
+// Frames whose payloads are still evolving (comfy_result, comfy_caps,
+// p2p_signal) carry their body as opaque JSON bytes inside the proto.
+// This is deliberate: the server forwards those frames to other parties
+// largely untouched, and re-typing them every time a field is added is
+// not worth the breakage risk during the rollout window.  Hello /
+// status / relay_stats — the frames the server actually deserializes
+// and operates on — get full proto schemas.
+
+syntax = "proto3";
+
+package distpool.ctrl.v1;
+
+option go_package = "github.com/llama-distributed/server/ctrlpb;ctrlpb";
+
+// CachedShardEntry — one row of a rig's on-disk shard cache.
+message CachedShardEntry {
+  string model = 1;
+  string file = 2;
+  int64 size_bytes = 3;
+}
+
+// AgentHello — first frame on every connection.  Either a fresh pair
+// (kind="hello", carries a pair token) or a reconnect (kind="resume",
+// carries an agent_key).  See server/ws.go agentHello struct.
+message AgentHello {
+  string kind = 1;
+  string token = 2;
+  string agent_key = 3;
+  string agent_id = 4;
+  string hostname = 5;
+  int32 n_gpus = 6;
+  int64 vram_bytes = 7;
+  string pubkey_b64 = 8;
+  int32 protocol_version = 9;
+  string client_build = 10;
+  repeated CachedShardEntry cached_shards = 11;
+}
+
+// AgentStatus — periodic telemetry.  See server/ws.go agentStatus.
+message AgentStatus {
+  double tokens_sec = 1;
+  repeated double gpu_util = 2;
+  int32 n_gpus = 3;
+  string gpu_model = 4;
+  int64 vram_total = 5;
+  int64 vram_free = 6;
+  int64 uptime_sec = 7;
+  repeated string roles = 8;
+  repeated string models = 9;
+  int32 inflight = 10;
+  int64 bw_up_kbps = 11;
+  int64 bw_dn_kbps = 12;
+  string last_error = 13;
+  string nat_type = 14;
+  bool relay_capable = 15;
+  int32 coturn_port = 16;
+  string public_ip = 17;
+  repeated CachedShardEntry cached_shards = 18;
+  int32 max_concurrent = 19;
+}
+
+// RelayStats — relay rig reporting per-session byte counters.
+message RelayStats {
+  string session_id = 1;
+  int64 bytes_l2r = 2;
+  int64 bytes_r2l = 3;
+}
+
+// OpaqueJSON — body carried as a JSON document, for frames whose
+// schema is still in motion (comfy_result, comfy_caps, p2p_signal).
+// The rig serializes the same map it would have sent over the JSON
+// wire; the server json.Unmarshal's it the same way.
+message OpaqueJSON {
+  bytes json = 1;
+}
+
+// ClientFrame — anything the rig sends to the server.
+message ClientFrame {
+  oneof body {
+    AgentHello hello = 1;
+    AgentStatus status = 2;
+    RelayStats relay_stats = 3;
+    OpaqueJSON comfy_result = 4;
+    OpaqueJSON comfy_caps = 5;
+    OpaqueJSON p2p_signal = 6;
+  }
+}
+
+// Welcome — successful hello/resume reply; carries the agent_key that
+// the rig must use on every subsequent resume.
+message Welcome {
+  string agent_key = 1;
+  int64 user_id = 2;
+  string display_name = 3;
+  int32 negotiated_protocol = 4;
+}
+
+// ErrorFrame — sent before closing the connection on auth/protocol
+// failures.  Named with the Frame suffix to avoid colliding with Go's
+// builtin `error` type after codegen.
+message ErrorFrame {
+  string message = 1;
+  int32 server_protocol_min = 2;
+  int32 server_protocol_max = 3;
+}
+
+// Challenge — for signed-identity rigs: server sends a nonce, rig
+// signs with its private key and replies with a ChallengeResponse
+// (carried as OpaqueJSON for now).
+message Challenge {
+  string nonce = 1;
+}
+
+// Command — server-to-rig directive (join-pool, leave-pool, ping, …).
+// Payload is opaque to keep the wire stable as new commands ship.
+message Command {
+  string cmd = 1;
+  bytes payload = 2;
+}
+
+// ServerFrame — anything the server sends to the rig.
+message ServerFrame {
+  oneof body {
+    Welcome welcome = 1;
+    ErrorFrame error = 2;
+    Challenge challenge = 3;
+    Command command = 4;
+    OpaqueJSON other = 5;
+  }
+}

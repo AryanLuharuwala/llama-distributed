@@ -1,0 +1,14 @@
+version: v2
+managed:
+  enabled: true
+plugins:
+  # Emits server/ctrlpb/ctrl.pb.go from the go_package option in
+  # ctrl.proto.  `module=github.com/llama-distributed/server` strips
+  # the module prefix so the file lands under server/ctrlpb directly
+  # instead of nested under the full import path.
+  - local: protoc-gen-go
+    out: server/ctrlpb
+    opt:
+      - module=github.com/llama-distributed/server/ctrlpb
+inputs:
+  - directory: proto

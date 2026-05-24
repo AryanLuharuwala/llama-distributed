@@ -597,13 +597,21 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 
 	// The agent is not a browser — accept any origin.  Auth is via pair token
 	// in the first message.
+	//
+	// Subprotocol negotiation: rigs that ship the proto wire opt in by
+	// advertising `Sec-WebSocket-Protocol: distpool.proto.v1` on the
+	// handshake.  We list it in Subprotocols so coder/websocket echoes
+	// it back in the 101 response (RFC 6455 §4.2.2).  Legacy rigs send
+	// no subprotocol header and stay on JSON.  See ws_codec.go.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify:   true,
-		OriginPatterns:       []string{"*"},
+		InsecureSkipVerify: true,
+		OriginPatterns:     []string{"*"},
+		Subprotocols:       []string{protoSubprotocolV1},
 	})
 	if err != nil {
 		return
 	}
+	codec := codecForSubprotocol(conn.Subprotocol())
 	wsConnDelta(r.Context(), "agent", 1)
 	defer wsConnDelta(context.Background(), "agent", -1)
 
@@ -619,10 +627,11 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// First message must arrive within 10s.  Accept either hello (first-time
-	// pair) or resume (every subsequent reconnect).
+	// pair) or resume (every subsequent reconnect).  Codec-aware so a
+	// proto-negotiated rig can send its hello as binary.
 	readCtx, rc := context.WithTimeout(ctx, 10*time.Second)
 	var hello agentHello
-	err = wsjsonRead(readCtx, conn, &hello)
+	err = codecReadHello(readCtx, conn, codec, &hello)
 	rc()
 	if err != nil || hello.AgentID == "" ||
 		(hello.Kind != "hello" && hello.Kind != "resume") ||
@@ -637,9 +646,9 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	// store and gives the operator a clear upgrade message.
 	negotiated, ok := negotiateProtocol(hello.ProtocolVersion)
 	if !ok {
-		_ = wsjsonWrite(ctx, conn, map[string]any{
-			"kind":    "error",
-			"message": "dist-node is too old; upgrade to a newer build",
+		_ = codecWrite(ctx, conn, codec, map[string]any{
+			"kind":                "error",
+			"message":             "dist-node is too old; upgrade to a newer build",
 			"server_protocol_min": serverProtocolMin,
 			"server_protocol_max": serverProtocolMax,
 		})
@@ -710,7 +719,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				_ = conn.Close(websocket.StatusInternalError, "challenge")
 				return
 			}
-			if err := wsjsonWrite(ctx, conn, map[string]any{
+			if err := codecWrite(ctx, conn, codec, map[string]any{
 				"kind":  "challenge",
 				"nonce": nonce,
 				"ts":    ts,
@@ -722,7 +731,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				Kind   string `json:"kind"`
 				SigB64 string `json:"sig"`
 			}
-			err = wsjsonRead(sigCtx, conn, &sigMsg)
+			err = codecReadInto(sigCtx, conn, codec, &sigMsg)
 			scancel()
 			if err != nil || sigMsg.Kind != "sig" || sigMsg.SigB64 == "" {
 				s.failWSAuth(ctx, conn, srcIP, "missing or bad sig frame")
@@ -829,7 +838,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			welcome["turn_realm"] = "dist"
 		}
 	}
-	_ = wsjsonWrite(ctx, conn, welcome)
+	_ = codecWrite(ctx, conn, codec, welcome)
 
 	ac := &agentConn{
 		userID:          uid,
@@ -946,7 +955,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case msg := <-ac.outCh:
 				wctx, c := context.WithTimeout(ctx, 5*time.Second)
-				err := wsjsonWrite(wctx, conn, msg)
+				err := codecWrite(wctx, conn, codec, msg)
 				c()
 				if err != nil {
 					ac.close()
@@ -964,19 +973,27 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Reader loop.  Text frames are JSON control messages (status, etc.).
-	// Binary frames are forwarded to the bound relay client, if any.
+	// Reader loop.  The codec decides what's a control frame vs a
+	// relay passthrough — see ws_codec.go.  On the JSON wire, TEXT
+	// frames are control and BINARY frames are relay; on the proto
+	// wire control and relay are both BINARY, distinguished by whether
+	// the bytes parse as a ClientFrame.
 	for {
 		mt, data, err := conn.Read(ctx)
 		if err != nil {
 			break
 		}
-		switch mt {
-		case websocket.MessageText:
-			var msg map[string]any
-			if err := json.Unmarshal(data, &msg); err != nil {
-				continue
-			}
+		msg, isRelay, derr := codec.decodeClient(mt, data)
+		if isRelay {
+			// Route the frame: first chance to the inference peer (if any
+			// request is in flight), fallback to the raw relay peer.
+			_ = ac.dispatchBinaryFromAgent(data)
+			continue
+		}
+		if derr != nil || msg == nil {
+			continue
+		}
+		{
 			kind, _ := msg["kind"].(string)
 			if kind == "status" {
 				// Hot path: coalesce into in-memory map, flushed every 1s.
@@ -1055,10 +1072,6 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			}
 			msg["agent_id"] = hello.AgentID
 			s.hub.broadcastToUser(uid, "agent_message", msg)
-		case websocket.MessageBinary:
-			// Route the frame: first chance to the inference peer (if any
-			// request is in flight), fallback to the raw relay peer.
-			_ = ac.dispatchBinaryFromAgent(data)
 		}
 	}
 
@@ -1088,4 +1101,48 @@ func wsjsonRead(ctx context.Context, c *websocket.Conn, v any) error {
 		return err
 	}
 	return json.Unmarshal(b, v)
+}
+
+// codecWrite sends a server-emitted control frame through the
+// negotiated codec.  Behaves identically to wsjsonWrite when the
+// codec is jsonCodec.
+func codecWrite(ctx context.Context, c *websocket.Conn, codec wireCodec, msg any) error {
+	mt, data, err := codec.encodeServer(msg)
+	if err != nil {
+		return err
+	}
+	return c.Write(ctx, mt, data)
+}
+
+// codecReadHello reads the first /ws/agent frame and unmarshals it
+// into the typed agentHello struct.  Goes through the codec so a
+// proto-negotiated rig can send its hello as a BINARY ClientFrame
+// rather than as TEXT JSON.  Returns an error if the wire frame
+// cannot be parsed.
+func codecReadHello(ctx context.Context, c *websocket.Conn, codec wireCodec, out *agentHello) error {
+	return codecReadInto(ctx, c, codec, out)
+}
+
+// codecReadInto reads one control frame through the codec and decodes
+// it into a typed Go value via JSON tags.  We round-trip through JSON
+// because (a) the codec normalizes to map[string]any anyway, (b) the
+// destination struct's json tags handle the per-field type coercion
+// (float64 → int, etc.).
+func codecReadInto(ctx context.Context, c *websocket.Conn, codec wireCodec, out any) error {
+	mt, data, err := c.Read(ctx)
+	if err != nil {
+		return err
+	}
+	msg, isRelay, err := codec.decodeClient(mt, data)
+	if err != nil {
+		return err
+	}
+	if isRelay || msg == nil {
+		return errors.New("expected control frame, got relay or empty")
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
 }
