@@ -99,7 +99,13 @@ class Daemon:
 
     def request(self, msg: dict, timeout: float = 60.0) -> dict:
         self.send(msg)
-        return self._next_json(timeout=timeout)
+        # Skip progress / log events; return the first terminal response.
+        while True:
+            r = self._next_json(timeout=timeout)
+            k = r.get("kind", "")
+            if k in ("sdcpp_progress", "sdcpp_log"):
+                continue
+            return r
 
     def close(self) -> None:
         try:

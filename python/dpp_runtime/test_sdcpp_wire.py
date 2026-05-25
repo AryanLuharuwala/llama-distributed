@@ -230,11 +230,9 @@ def test_half0_half1_wire_chain_smoke():
             pytest.skip("worker not compiled with DIST_HAVE_SDCPP_SPLIT")
         half_cut = block_total // 2
 
-        # Build an sdcpp_step_x frame — SD1.5 latents are 4×H/8×W/8, so
-        # 512×512 → 4×64×64.  The worker only cares that the tensor
-        # *shape* matches what the UNet expects; we let sd.cpp determine
-        # the resolution downstream of TE.
-        step_x = _encode_step_x_frame((1, 4, 64, 64), step_idx=0, timestep=999.0)
+        # Build an sdcpp_step_x frame.  sd::Tensor uses WHCN layout (not
+        # NCHW), so SD1.5 at 512×512 latents → (W=64, H=64, C=4, N=1).
+        step_x = _encode_step_x_frame((64, 64, 4, 1), step_idx=0, timestep=999.0)
 
         half0 = d.request({
             "cmd": "sdr_sample_blocks",
@@ -282,8 +280,8 @@ def test_half0_half1_wire_chain_smoke():
         assert half1["kind"] == "sdcpp_role_done", half1
 
         noise_pred = sc.sdt_decode(base64.b64decode(half1["frame_b64"]))
-        # SD1.5 noise pred is the same shape as the latent.
+        # SD1.5 noise pred is WHCN with trailing N=1 dropped → rank-3.
         assert noise_pred.dtype in (sc.DT_F32, sc.DT_F16, sc.DT_BF16)
-        assert len(noise_pred.dims) == 4
+        assert len(noise_pred.dims) in (3, 4)
     finally:
         d.close()
