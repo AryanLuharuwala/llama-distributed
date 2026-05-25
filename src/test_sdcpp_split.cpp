@@ -207,6 +207,45 @@ void test_block_count_no_ctx() {
     CHECK(std::string(tag) == "unknown", "null ctx -> unknown");
 }
 
+void test_cond_lifecycle() {
+    std::printf("== test_cond_lifecycle ==\n");
+    sd_cond_t* c = sd_cond_new();
+    CHECK(c != nullptr, "sd_cond_new");
+    CHECK(sd_cond_has_uncond(c) == 0, "fresh cond -> no uncond");
+
+    // Null-ctx encode should fail with EINVAL, not crash.
+    int rc = sd_encode_condition(nullptr, "hello", "world", -1, 512, 512, c);
+    CHECK(rc == SD_SPLIT_EINVAL, "null ctx encode -> EINVAL");
+
+    // Get-tensor on fresh state: name unknown -> EINVAL, known-but-empty -> EINVAL.
+    const float*   gp  = nullptr;
+    const int64_t* gsh = nullptr;
+    int            gnd = 0;
+    rc = sd_cond_get_tensor(c, "bogus", &gp, &gsh, &gnd);
+    CHECK(rc == SD_SPLIT_EINVAL, "unknown name -> EINVAL");
+    rc = sd_cond_get_tensor(c, "cond.crossattn", &gp, &gsh, &gnd);
+    CHECK(rc == SD_SPLIT_EINVAL && gp == nullptr, "empty cond.crossattn -> EINVAL");
+
+    sd_cond_free(c);
+    sd_cond_free(nullptr);  // null free must be a no-op
+}
+
+void test_vae_decode_null_ctx() {
+    std::printf("== test_vae_decode_null_ctx ==\n");
+    float latent[4] = {0.f, 0.f, 0.f, 0.f};
+    int64_t shape[4] = {1, 4, 1, 1};
+    float*   data = nullptr;
+    int64_t* sh   = nullptr;
+    int      nd   = 0;
+    int rc = sd_decode_first_stage_to_floats(nullptr, latent, shape, 4, &data, &sh, &nd);
+    CHECK(rc == SD_SPLIT_EINVAL, "null ctx -> EINVAL");
+
+    rc = sd_decode_first_stage_to_floats(nullptr, nullptr, nullptr, 0, &data, &sh, &nd);
+    CHECK(rc == SD_SPLIT_EINVAL, "all null -> EINVAL");
+
+    sd_vae_image_free(nullptr, nullptr);  // null free must be a no-op
+}
+
 } // namespace
 
 int main() {
@@ -214,6 +253,8 @@ int main() {
     test_serialize_roundtrip();
     test_sdcd_carry_roundtrip();
     test_block_count_no_ctx();
+    test_cond_lifecycle();
+    test_vae_decode_null_ctx();
 
     if (g_fails == 0) {
         std::printf("ALL PASS\n");

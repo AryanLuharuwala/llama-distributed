@@ -145,21 +145,76 @@ extern "C" sd_role_status_t sd_role_encode_text(
 
     std::lock_guard<std::mutex> lk(g_role_mutex);
 
-    // ── Why this works without the internals patch ──────────────────────
-    // The wire-correct behaviour for a TE role is "emit an SDCD frame
-    // that downstream UNet rigs can rehydrate prompts from".  Until we
-    // have direct access to `cond_stage_model->get_learned_condition`,
-    // we ship a deferred-prompt frame: a small SDCD carrying the raw
-    // prompt strings + clip_skip + cfg_split flag.  The receiving UNet
-    // worker will re-encode locally on first use (it has the same
-    // model loaded anyway when running on the same ctx without
-    // role-skip).  This is a graceful degradation: bytes flow,
-    // pipelines complete, just without the VRAM savings of TE-only.
-    //
-    // Once the upstream `sd_internal_encode_text` patch lands, this
-    // function switches to populating real prompt_embeds / pooled
-    // tensors and the deferred-prompt branch can be removed.
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    // Real path — invoke the loaded conditioner directly and ship the
+    // resulting cond / uncond tensors as named SDCD tensors so a downstream
+    // UNet rig can consume embeds without re-encoding.
+    sd_cond_t* cresult = sd_cond_new();
+    int rc = sd_encode_condition(
+        sd_ctx,
+        in->prompt ? in->prompt : "",
+        (in->negative_prompt && in->negative_prompt[0]) ? in->negative_prompt : "",
+        in->clip_skip,
+        /*width=*/ -1, /*height=*/ -1,
+        cresult);
 
+    if (rc == SD_SPLIT_OK) {
+        dist::SdcdFrame f;
+        f.kv.push_back({"role",      "te"});
+        f.kv.push_back({"backbone",  backbone_tag_from_ctx(sd_ctx)});
+        f.kv.push_back({"deferred",  "0"});
+        f.kv.push_back({"cfg_split", in->cfg_split ? "1" : "0"});
+        f.kv.push_back({"has_uncond", sd_cond_has_uncond(cresult) ? "1" : "0"});
+
+        auto add = [&](const char* name) {
+            const float*   d  = nullptr;
+            const int64_t* sh = nullptr;
+            int            nd = 0;
+            if (sd_cond_get_tensor(cresult, name, &d, &sh, &nd) != SD_SPLIT_OK) return;
+            dist::SdcdNamed t;
+            t.name           = name;
+            t.tensor.dtype   = dist::SdtDType::F32;
+            size_t nbytes    = sizeof(float);
+            t.tensor.dims.reserve(nd);
+            for (int i = 0; i < nd; ++i) {
+                t.tensor.dims.push_back(static_cast<uint32_t>(sh[i]));
+                nbytes *= static_cast<size_t>(sh[i]);
+            }
+            t.tensor.data.assign(reinterpret_cast<const uint8_t*>(d),
+                                 reinterpret_cast<const uint8_t*>(d) + nbytes);
+            f.tensors.push_back(std::move(t));
+        };
+        add("cond.crossattn");
+        add("cond.vector");
+        add("cond.concat");
+        if (sd_cond_has_uncond(cresult)) {
+            add("uncond.crossattn");
+            add("uncond.vector");
+            add("uncond.concat");
+        }
+
+        sd_cond_free(cresult);
+
+        std::vector<uint8_t> enc;
+        std::string err;
+        if (!dist::sdcd_encode(f, enc, err)) {
+            static thread_local std::string m;
+            m = "sdcd_encode: " + err;
+            return fail(SDR_EBADSDCD, m.c_str());
+        }
+        *out_frame = make_buf(std::move(enc));
+        return ok();
+    }
+
+    // Conditioner not loaded (rc == ENOTSUP) or encoder threw — fall
+    // through to deferred-prompt so the wire still flows.
+    sd_cond_free(cresult);
+#endif
+
+    // ── Deferred-prompt fallback ────────────────────────────────────────
+    // No split patch (or conditioner not available): ship raw strings so
+    // a downstream rig with the same model loaded can re-encode locally.
+    // Wire-compatible; just doesn't save VRAM.
     dist::SdcdFrame f;
     f.kv.push_back({"role",      "te"});
     f.kv.push_back({"backbone",  backbone_tag_from_ctx(sd_ctx)});
@@ -351,8 +406,81 @@ extern "C" sd_role_status_t sd_role_decode_latent(
         return ok();
     }
 
-    // True latent → real VAE decode requires `decode_first_stage` bridge.
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    // Real VAE decode via the internal bridge.  The incoming SDT carries
+    // a rank-4 latent (NCHW) — either fp32 or fp16; we promote to fp32
+    // before calling into sd.cpp because the bridge takes a float buffer.
+    if (latent.dims.size() != 4) {
+        return fail(SDR_EBADSDT, "decode/vae: expected rank-4 latent");
+    }
+    std::vector<float> latent_f32;
+    if (latent.dtype == dist::SdtDType::F32) {
+        const float* p = reinterpret_cast<const float*>(latent.data.data());
+        size_t n = latent.data.size() / sizeof(float);
+        latent_f32.assign(p, p + n);
+    } else if (latent.dtype == dist::SdtDType::F16) {
+        // Naive f16→f32 fallback so the bridge handles fp16 inputs.
+        size_t n = latent.data.size() / 2;
+        latent_f32.resize(n);
+        const uint16_t* h = reinterpret_cast<const uint16_t*>(latent.data.data());
+        for (size_t i = 0; i < n; ++i) {
+            uint32_t u = h[i];
+            uint32_t sign = (u >> 15) & 0x1;
+            uint32_t exp  = (u >> 10) & 0x1F;
+            uint32_t mant =  u        & 0x3FF;
+            uint32_t f;
+            if (exp == 0)       f = sign << 31; // subnormal/zero → ±0
+            else if (exp == 31) f = (sign << 31) | (0xFFu << 23) | (mant << 13);
+            else                f = (sign << 31) | ((exp + 112u) << 23) | (mant << 13);
+            float ff;
+            std::memcpy(&ff, &f, 4);
+            latent_f32[i] = ff;
+        }
+    } else {
+        return fail(SDR_EBADSDT, "decode/vae: unsupported latent dtype");
+    }
+
+    int64_t shape[4] = {
+        latent.dims[0], latent.dims[1], latent.dims[2], latent.dims[3],
+    };
+    float*   img_data  = nullptr;
+    int64_t* img_shape = nullptr;
+    int      img_ndims = 0;
+    int rc = sd_decode_first_stage_to_floats(
+        sd_ctx, latent_f32.data(), shape, 4,
+        &img_data, &img_shape, &img_ndims);
+    if (rc != SD_SPLIT_OK) {
+        return fail(SDR_ENOTIMPL, MSG_VAE_FAIL);
+    }
+    // Image comes back as fp32 in NCHW (range typically [0,1] after
+    // postprocess inside sd.cpp); ship as SDT-f32 so the caller can do
+    // PNG encode / further processing.
+    dist::SdtTensor img;
+    img.dtype = dist::SdtDType::F32;
+    img.dims.reserve(img_ndims);
+    size_t img_numel = 1;
+    for (int i = 0; i < img_ndims; ++i) {
+        img.dims.push_back(static_cast<uint32_t>(img_shape[i]));
+        img_numel *= static_cast<size_t>(img_shape[i]);
+    }
+    img.data.assign(reinterpret_cast<uint8_t*>(img_data),
+                    reinterpret_cast<uint8_t*>(img_data) + img_numel * sizeof(float));
+    sd_vae_image_free(img_data, img_shape);
+
+    std::vector<uint8_t> enc;
+    std::string err;
+    if (!dist::sdt_encode(img, enc, err)) {
+        static thread_local std::string m;
+        m = "decode/sdt_encode: " + err;
+        return fail(SDR_EBADSDT, m.c_str());
+    }
+    *out_image = make_buf(std::move(enc));
+    return ok();
+#else
+    // Patch not applied — VAE-only role unsupported; planner will fall
+    // back to a single-rig "full" route.
     return fail(SDR_ENOTIMPL, MSG_VAE_FAIL);
+#endif
 }
 
 extern "C" int sd_role_block_count(sd_ctx_t* sd_ctx) {

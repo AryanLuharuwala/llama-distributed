@@ -1,8 +1,8 @@
 diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
-index f8b2c2f..966f8b7 100644
+index f8b2c2f..0b5f190 100644
 --- a/include/stable-diffusion.h
 +++ b/include/stable-diffusion.h
-@@ -480,6 +480,118 @@ SD_API bool preprocess_canny(sd_image_t image,
+@@ -480,6 +480,178 @@ SD_API bool preprocess_canny(sd_image_t image,
  SD_API const char* sd_commit(void);
  SD_API const char* sd_version(void);
  
@@ -118,6 +118,66 @@ index f8b2c2f..966f8b7 100644
 +// cap-advert so the planner sees the real backbone, not a filename guess.
 +SD_API const char* sd_loaded_backbone_tag(const sd_ctx_t* sd_ctx);
 +
++// ─── CF12-W6b: TE / VAE bridges (llama-distributed extension) ──────────────
++//
++// Two narrow C surfaces over the existing internal `cond_stage_model->
++// get_learned_condition` and `decode_first_stage` calls, so a TE-only or
++// VAE-only worker can run those stages without going through the full
++// `generate_image` orchestration.  The role bridge (sdcpp_roles.cpp) wraps
++// the outputs in SDCD/SDT framing for cross-rig hop.
++
++// Opaque conditioner result.  Holds cond.{crossattn,vector,concat} and the
++// optional uncond.{...} tensors as host fp32 buffers.  Freed by sd_cond_free.
++typedef struct sd_cond_t sd_cond_t;
++
++SD_API sd_cond_t* sd_cond_new(void);
++SD_API void       sd_cond_free(sd_cond_t* c);
++
++// Run the loaded conditioner (CLIP-L / CLIP-G / T5 / …) on `prompt` and
++// optionally `negative_prompt`.  Populates `out` with named tensors.  Pass
++// negative_prompt==NULL or "" to skip the uncond half (no allocation).
++// Returns SD_SPLIT_OK on success, SD_SPLIT_EINVAL on bad args, or
++// SD_SPLIT_ENOTSUP if no cond_stage_model is loaded.
++SD_API int sd_encode_condition(
++    sd_ctx_t*       sd_ctx,
++    const char*     prompt,
++    const char*     negative_prompt,
++    int             clip_skip,
++    int             width,
++    int             height,
++    sd_cond_t*      out);
++
++// True (1) when the result includes uncond.* tensors; 0 otherwise.
++SD_API int sd_cond_has_uncond(const sd_cond_t* c);
++
++// Fetch a named tensor by string.  Valid names:
++//   "cond.crossattn"  | "cond.vector"  | "cond.concat"
++//   "uncond.crossattn"| "uncond.vector"| "uncond.concat"
++// The returned pointers are borrowed (lifetime tied to `c`); caller must
++// not free them.  Returns SD_SPLIT_OK or SD_SPLIT_EINVAL.  Missing-but-
++// expected tensors (e.g. c_vector on SD1.x) return EINVAL with shape=NULL.
++SD_API int sd_cond_get_tensor(
++    const sd_cond_t*  c,
++    const char*       name,
++    const float**     out_data,
++    const int64_t**   out_shape,
++    int*              out_ndims);
++
++// VAE decode (latent → image).  `latent_data` is row-major fp32 in NCHW.
++// On success writes `out_data` (malloc'd), `out_shape` (malloc'd), and
++// `out_ndims` — caller frees with sd_vae_image_free.  Returns SD_SPLIT_OK
++// or SD_SPLIT_EINVAL / SD_SPLIT_ENOTSUP.
++SD_API int sd_decode_first_stage_to_floats(
++    sd_ctx_t*         sd_ctx,
++    const float*      latent_data,
++    const int64_t*    latent_shape,
++    int               latent_ndims,
++    float**           out_data,
++    int64_t**         out_shape,
++    int*              out_ndims);
++
++SD_API void sd_vae_image_free(float* data, int64_t* shape);
++
  #ifdef __cplusplus
  }
  #endif
@@ -219,7 +279,7 @@ index 9e4e444..ca2704c 100644
  
  struct MMDiTModel : public DiffusionModel {
 diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
-index 9e8e474..5773ba2 100644
+index 9e8e474..67b3594 100644
 --- a/src/stable-diffusion.cpp
 +++ b/src/stable-diffusion.cpp
 @@ -2857,6 +2857,344 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
@@ -567,6 +627,176 @@ index 9e8e474..5773ba2 100644
  static sd_audio_t* waveform_to_sd_audio(const StableDiffusionGGML* sd,
                                          const sd::Tensor<float>& waveform) {
      if (sd == nullptr || waveform.empty()) {
+@@ -5369,3 +5707,169 @@ SD_API bool generate_video(sd_ctx_t* sd_ctx,
+     }
+     return true;
+ }
++
++// ─── CF12-W6b: TE / VAE bridges ────────────────────────────────────────────
++//
++// Direct C surfaces over `cond_stage_model->get_learned_condition` and
++// `decode_first_stage`.  Used by llama-distributed's role bridge so a TE-
++// only or VAE-only worker can stream real prompt_embeds / pooled tensors
++// or decode latents without invoking the full generate_image orchestrator.
++
++struct sd_cond_t {
++    bool                    has_uncond = false;
++    sd::Tensor<float>       cond_crossattn;
++    sd::Tensor<float>       cond_vector;
++    sd::Tensor<float>       cond_concat;
++    sd::Tensor<float>       uncond_crossattn;
++    sd::Tensor<float>       uncond_vector;
++    sd::Tensor<float>       uncond_concat;
++};
++
++extern "C" sd_cond_t* sd_cond_new(void) {
++    return new sd_cond_t();
++}
++
++extern "C" void sd_cond_free(sd_cond_t* c) {
++    delete c;
++}
++
++extern "C" int sd_cond_has_uncond(const sd_cond_t* c) {
++    return (c && c->has_uncond) ? 1 : 0;
++}
++
++extern "C" int sd_encode_condition(
++    sd_ctx_t*       sd_ctx,
++    const char*     prompt,
++    const char*     negative_prompt,
++    int             clip_skip,
++    int             width,
++    int             height,
++    sd_cond_t*      out)
++{
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return SD_SPLIT_EINVAL;
++    if (prompt == nullptr || out == nullptr)        return SD_SPLIT_EINVAL;
++    if (!sd_ctx->sd->cond_stage_model)              return SD_SPLIT_ENOTSUP;
++
++    ConditionerParams params;
++    params.text             = prompt;
++    params.clip_skip        = clip_skip;
++    params.width            = (width  > 0) ? width  : 512;
++    params.height           = (height > 0) ? height : 512;
++    params.zero_out_masked  = false;
++    if (sd_ctx->sd->diffusion_model) {
++        params.adm_in_channels = static_cast<int>(sd_ctx->sd->diffusion_model->get_adm_in_channels());
++    }
++
++    try {
++        auto cond = sd_ctx->sd->cond_stage_model->get_learned_condition(
++            sd_ctx->sd->n_threads, params);
++        out->cond_crossattn = std::move(cond.c_crossattn);
++        out->cond_vector    = std::move(cond.c_vector);
++        out->cond_concat    = std::move(cond.c_concat);
++    } catch (...) {
++        return SD_SPLIT_EINVAL;
++    }
++
++    out->has_uncond = false;
++    if (negative_prompt != nullptr && negative_prompt[0] != '\0') {
++        try {
++            params.text            = negative_prompt;
++            params.zero_out_masked = false;
++            auto uncond = sd_ctx->sd->cond_stage_model->get_learned_condition(
++                sd_ctx->sd->n_threads, params);
++            out->uncond_crossattn = std::move(uncond.c_crossattn);
++            out->uncond_vector    = std::move(uncond.c_vector);
++            out->uncond_concat    = std::move(uncond.c_concat);
++            out->has_uncond       = true;
++        } catch (...) {
++            return SD_SPLIT_EINVAL;
++        }
++    }
++
++    return SD_SPLIT_OK;
++}
++
++extern "C" int sd_cond_get_tensor(
++    const sd_cond_t*  c,
++    const char*       name,
++    const float**     out_data,
++    const int64_t**   out_shape,
++    int*              out_ndims)
++{
++    if (c == nullptr || name == nullptr || out_data == nullptr ||
++        out_shape == nullptr || out_ndims == nullptr) return SD_SPLIT_EINVAL;
++
++    const sd::Tensor<float>* t = nullptr;
++    if      (std::strcmp(name, "cond.crossattn")   == 0) t = &c->cond_crossattn;
++    else if (std::strcmp(name, "cond.vector")      == 0) t = &c->cond_vector;
++    else if (std::strcmp(name, "cond.concat")      == 0) t = &c->cond_concat;
++    else if (std::strcmp(name, "uncond.crossattn") == 0) t = c->has_uncond ? &c->uncond_crossattn : nullptr;
++    else if (std::strcmp(name, "uncond.vector")    == 0) t = c->has_uncond ? &c->uncond_vector    : nullptr;
++    else if (std::strcmp(name, "uncond.concat")    == 0) t = c->has_uncond ? &c->uncond_concat    : nullptr;
++    else return SD_SPLIT_EINVAL;
++
++    if (t == nullptr || t->empty()) {
++        *out_data  = nullptr;
++        *out_shape = nullptr;
++        *out_ndims = 0;
++        return SD_SPLIT_EINVAL;
++    }
++    *out_data  = t->data();
++    *out_shape = t->shape().data();
++    *out_ndims = static_cast<int>(t->dim());
++    return SD_SPLIT_OK;
++}
++
++extern "C" int sd_decode_first_stage_to_floats(
++    sd_ctx_t*         sd_ctx,
++    const float*      latent_data,
++    const int64_t*    latent_shape,
++    int               latent_ndims,
++    float**           out_data,
++    int64_t**         out_shape,
++    int*              out_ndims)
++{
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return SD_SPLIT_EINVAL;
++    if (latent_data == nullptr || latent_shape == nullptr) return SD_SPLIT_EINVAL;
++    if (latent_ndims <= 0 || latent_ndims > 4) return SD_SPLIT_EINVAL;
++    if (out_data == nullptr || out_shape == nullptr || out_ndims == nullptr) return SD_SPLIT_EINVAL;
++    if (!sd_ctx->sd->first_stage_model) return SD_SPLIT_ENOTSUP;
++
++    std::vector<int64_t> shape(latent_shape, latent_shape + latent_ndims);
++    int64_t numel = 1;
++    for (int64_t d : shape) numel *= d;
++    if (numel <= 0) return SD_SPLIT_EINVAL;
++
++    sd::Tensor<float> latent(shape);
++    std::memcpy(latent.data(), latent_data, static_cast<size_t>(numel) * sizeof(float));
++
++    sd::Tensor<float> image;
++    try {
++        image = sd_ctx->sd->decode_first_stage(latent);
++    } catch (...) {
++        return SD_SPLIT_EINVAL;
++    }
++    if (image.empty()) return SD_SPLIT_EINVAL;
++
++    const int64_t img_numel = image.numel();
++    const int64_t img_ndims = image.dim();
++    float*   data_buf  = static_cast<float*>(std::malloc(static_cast<size_t>(img_numel) * sizeof(float)));
++    int64_t* shape_buf = static_cast<int64_t*>(std::malloc(static_cast<size_t>(img_ndims) * sizeof(int64_t)));
++    if (data_buf == nullptr || shape_buf == nullptr) {
++        std::free(data_buf);
++        std::free(shape_buf);
++        return SD_SPLIT_EINVAL;
++    }
++    std::memcpy(data_buf, image.data(), static_cast<size_t>(img_numel) * sizeof(float));
++    for (int64_t i = 0; i < img_ndims; ++i) shape_buf[i] = image.shape()[static_cast<size_t>(i)];
++
++    *out_data  = data_buf;
++    *out_shape = shape_buf;
++    *out_ndims = static_cast<int>(img_ndims);
++    return SD_SPLIT_OK;
++}
++
++extern "C" void sd_vae_image_free(float* data, int64_t* shape) {
++    if (data)  std::free(data);
++    if (shape) std::free(shape);
++}
 diff --git a/src/unet.hpp b/src/unet.hpp
 index a67fe07..feaeef6 100644
 --- a/src/unet.hpp
