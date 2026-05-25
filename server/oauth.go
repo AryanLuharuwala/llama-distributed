@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	_ "embed"
@@ -98,7 +99,16 @@ func isSafeNext(v string) bool {
 func (s *server) handleAuthPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(authPageHTML)
+	// Swap the placeholder install URL for the real publicURL server-side so
+	// view-source / pre-JS / "copy link" all yield the deployed host rather
+	// than a misleading localhost.  Skip when running locally so the dev
+	// experience is unchanged.
+	body := authPageHTML
+	pub := strings.TrimRight(s.cfg.publicURL, "/")
+	if pub != "" && !strings.HasPrefix(pub, "http://localhost") && !strings.HasPrefix(pub, "http://127.") {
+		body = bytes.ReplaceAll(body, []byte("http://localhost:8080"), []byte(pub))
+	}
+	_, _ = w.Write(body)
 }
 
 // handleAuthStatus tells the /auth page whether GitHub OAuth is wired,
