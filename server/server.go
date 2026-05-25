@@ -70,6 +70,12 @@ type server struct {
 	// earning reputation credit.  See tokenization.go.
 	drift *rigDriftTable
 
+	// Optional cached bundle of the Python DPP runtime — served to
+	// nodes via /api/dpp/runtime/* so they can auto-update without
+	// a full binary redeploy.  nil when the runtime directory isn't
+	// present (single-binary deploys without bundled python).
+	dppRuntime *dppRuntimeBundle
+
 	// Live MCP broker connections, keyed by (uid, server_id).  Lazy-init
 	// on first call; janitor closes idle entries past mcpConnTTL.
 	brokers *brokerRegistry
@@ -85,6 +91,19 @@ type server struct {
 	// this so load balancers can stop sending new connections while the
 	// process drains in-flight work.
 	shuttingDown atomic.Bool
+
+	// Lifetime count of comfy-output URLs that were rejected because
+	// their v1 signature aged past comfyV1GraceWindow.  Surfaced via
+	// /metrics so an operator can see the legacy-URL cliff when it
+	// arrives (audit P21-CF10d).
+	comfyLegacyURLRejected atomic.Int64
+
+	// Per-user live progress events from DPP (diffusion pipeline-
+	// parallel) workers — see dpp_progress.go.  Subscribers consume via
+	// /api/dpp/stream (SSE).  Broker is independent of inference
+	// because DPP frames flow on the agent control-plane WS (not the
+	// activation wire) and don't need the per-req peer machinery.
+	dppProgress *dppProgressBroker
 }
 
 func newServer(cfg config, db *sql.DB) *server {
@@ -98,6 +117,7 @@ func newServer(cfg config, db *sql.DB) *server {
 		comfyJobs: newComfyJobs(),
 		relays:    newActiveRelays(),
 		costCache: newRigCostCache(2 * time.Second),
+		dppProgress: newDPPProgressBroker(),
 		ipRL:      newIPRateLimiterSet(cfg.rateBackend),
 		drift:     newRigDriftTable(),
 		startedAt: time.Now(),
@@ -106,6 +126,9 @@ func newServer(cfg config, db *sql.DB) *server {
 	// counterStore needs `s` because the SQLite impl uses s.dbExecCtx;
 	// initialize after `s` is in scope.
 	s.counters = newSQLiteCounterStore(s)
+	// Optional: bundle the on-disk Python DPP runtime for /api/dpp/runtime
+	// (nil when the directory isn't present).
+	s.dppRuntime = loadDPPRuntimeBundle()
 	return s
 }
 
@@ -232,6 +255,12 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("POST /api/infer", s.handleInfer)
 	mux.HandleFunc("POST /api/infer_pp", s.handleInferPP)
 	mux.HandleFunc("POST /api/infer_dpp", s.handleInferDPP)
+	mux.HandleFunc("GET /api/dpp/stream", s.handleDPPStream)
+	mux.HandleFunc("GET /api/dpp/backbones", s.handleDPPBackbones)
+	mux.HandleFunc("GET /api/pools/{id}/rigs/dpp", s.handleDPPRigsForPool)
+	mux.HandleFunc("GET /api/admin/rig_attest", s.handleRigAttest)
+	mux.HandleFunc("GET /api/dpp/runtime/manifest", s.handleDPPRuntimeManifest)
+	mux.HandleFunc("GET /api/dpp/runtime/bundle.tar.gz", s.handleDPPRuntimeBundle)
 	mux.HandleFunc("GET /api/usage", s.handleUsage)
 	mux.HandleFunc("GET /api/inference_log", s.handleInferenceLog)
 
@@ -272,8 +301,27 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/comfy/jobs/{id}", s.handleComfyJobDetail)
 	mux.HandleFunc("POST /api/comfy/jobs/{id}/cancel", s.handleComfyJobCancel)
 	mux.HandleFunc("GET /comfy/out/{id}/{file}", s.handleComfyOutput)
+
+	// ComfyUI native-API proxy surface (CF11).  Namespaced under
+	// /api/comfy/rig/ so it doesn't collide with our own curated
+	// /api/comfy/models registry.  Strict path allowlist in comfy_meta.go
+	// blocks anything not enumerated here.
+	mux.HandleFunc("GET /api/comfy/rig/system_stats", s.handleComfyMetaSystemStats)
+	mux.HandleFunc("GET /api/comfy/rig/object_info", s.handleComfyMetaObjectInfo)
+	mux.HandleFunc("GET /api/comfy/rig/embeddings", s.handleComfyMetaEmbeddings)
+	mux.HandleFunc("GET /api/comfy/rig/model_types", s.handleComfyMetaModels)
+	mux.HandleFunc("GET /api/comfy/rig/features", s.handleComfyMetaFeatures)
+	mux.HandleFunc("GET /api/comfy/rig/queue", s.handleComfyMetaQueue)
+	mux.HandleFunc("POST /api/comfy/jobs/{id}/interrupt", s.handleComfyMetaInterrupt)
+	mux.HandleFunc("POST /api/comfy/rig/free", s.handleComfyMetaFree)
 	mux.HandleFunc("POST /v1/images/generations", s.handleOAIImageGen)
 	mux.HandleFunc("POST /v1/{slug}/images/generations", s.handleOAIImageGen)
+
+	// Stubs for the OpenAI + Anthropic surface we don't implement yet.
+	// Registered after the real routes so the real ones win — Go's
+	// ServeMux refuses duplicate exact-pattern registrations and would
+	// panic at startup if a stub clashed with a real route.
+	s.registerOpenAIStubs(mux)
 
 	// Pools
 	mux.HandleFunc("POST /api/pools", s.handleCreatePool)

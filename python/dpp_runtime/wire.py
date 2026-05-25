@@ -8,16 +8,23 @@ Magic = b"ACTV", ver = 1.
 Type codes:  1=act, 2=token, 3=done, 4=error
 DType codes: 0=f32, 1=f16, 2=bf16, 3=q8_0, 4=bytes
 Flag bits:   0x01=is_prompt, 0x02=kv_append, 0x04=end_of_prompt,
-             0x08=dpp_latent, 0x10=dpp_final, 0x20=dpp_image
+             0x08=dpp_latent, 0x10=dpp_final, 0x20=dpp_image,
+             0x40=dpp_loop,   0x80=dpp_config
 """
 
 from __future__ import annotations
 
+import json
 import struct
 from dataclasses import dataclass, field
 from typing import List
 
 MAGIC = 0x41435456  # b"ACTV"
+PROGRESS_MAGIC = 0x50524F47  # b"PROG" — non-ACTV sideband used by the
+# worker to emit JSON progress events.  The dist-node's reader_loop
+# detects this magic in the first 4 bytes and diverts the rest of the
+# frame (UTF-8 JSON) onto the WS as a TEXT control frame.  Shares the
+# same length-prefixed transport as ACTV so we don't open a second pipe.
 VER = 1
 
 TYPE_ACT = 1
@@ -37,6 +44,10 @@ FLAG_END_OF_PROMPT = 0x04
 FLAG_DPP_LATENT = 0x08
 FLAG_DPP_FINAL = 0x10
 FLAG_DPP_IMAGE = 0x20
+FLAG_DPP_LOOP = 0x40
+FLAG_DPP_CONFIG = 0x80  # payload is utf-8 JSON; agent→worker only, per-req_id
+                        # generation config (steps, cfg_scale, width, height,
+                        # seed, …) pulled from the dpp_route control message.
 
 
 @dataclass
@@ -100,6 +111,19 @@ def recv_frame(sock) -> ActvFrame:
 
 def send_frame(sock, f: ActvFrame) -> None:
     buf = f.encode()
+    sock.sendall(struct.pack(">I", len(buf)) + buf)
+
+
+def send_progress(sock, event: dict) -> None:
+    """Emit a JSON progress event on the runtime↔dist-node socket.
+
+    Framing: u32_be length || "PROG" (4 bytes) || UTF-8 JSON.
+    The dist-node's reader_loop detects PROG magic and ships the JSON
+    body as a WS TEXT frame to the server, where it lands in
+    ingestDPPProgress() and fans out on /api/dpp/stream.
+    """
+    body = json.dumps(event, separators=(",", ":")).encode("utf-8")
+    buf = struct.pack(">I", PROGRESS_MAGIC) + body
     sock.sendall(struct.pack(">I", len(buf)) + buf)
 
 

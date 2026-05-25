@@ -1,7 +1,10 @@
 build/
+build-*/
 /install/
 .cache/
 compile_commands.json
+__pycache__/
+*.pyc
 *.o
 *.a
 *.so
@@ -21,6 +24,13 @@ server/dist-server
 server/*.sqlite
 server/*.sqlite-shm
 server/*.sqlite-wal
+/distpool.sqlite
+/distpool.sqlite-shm
+/distpool.sqlite-wal
+
+# Local-only built binaries (built via scripts/build.sh, not source)
+/cmd/dist-turn/dist-turn
+/cmd/surd/surd
 
 # Model weights — large, not source
 server/models-store/

@@ -17,16 +17,16 @@
 # resolution.  All deps below are pinned by version + integrity hash.
 
 module(
-    name    = "llama_distributed",
+    name = "llama_distributed",
     version = "0.1.0",
 )
 
 # ─── Toolchains ────────────────────────────────────────────────────
-bazel_dep(name = "rules_go",     version = "0.50.1")
-bazel_dep(name = "gazelle",      version = "0.39.1")
-bazel_dep(name = "rules_oci",    version = "2.0.0")
-bazel_dep(name = "rules_pkg",    version = "1.0.1")
-bazel_dep(name = "platforms",    version = "0.0.10")
+bazel_dep(name = "rules_go", version = "0.50.1")
+bazel_dep(name = "gazelle", version = "0.39.1")
+bazel_dep(name = "rules_oci", version = "2.0.0")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "platforms", version = "0.0.10")
 bazel_dep(name = "aspect_bazel_lib", version = "2.9.4")
 
 # ─── Go toolchain ──────────────────────────────────────────────────
@@ -69,20 +69,30 @@ use_repo(
 # across builds (a precondition for cosign signatures to remain valid).
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci.pull(
-    name   = "distroless_base",
-    image  = "gcr.io/distroless/base-debian12",
+    name = "distroless_base",
     # 2025-Q1 nonroot/static rev — refresh quarterly.
     digest = "sha256:786007f631d22e8a1a5084c5b177352d9dcac24b1e8c815187750f70b24a9fc6",
-    platforms = ["linux/amd64", "linux/arm64"],
+    image = "gcr.io/distroless/base-debian12",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64",
+    ],
 )
 oci.pull(
-    name   = "distroless_cc",
-    image  = "gcr.io/distroless/cc-debian12",
+    name = "distroless_cc",
     digest = "sha256:c53c9416a1acdbfd6e09abba720442f042285d2c00fde6c80a01ddb02ce93eaf",
-    platforms = ["linux/amd64", "linux/arm64"],
+    image = "gcr.io/distroless/cc-debian12",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64",
+    ],
 )
-
-use_repo(oci, "distroless_base", "distroless_base_linux_amd64",
-              "distroless_base_linux_arm64",
-              "distroless_cc",   "distroless_cc_linux_amd64",
-              "distroless_cc_linux_arm64")
+use_repo(
+    oci,
+    "distroless_base",
+    "distroless_base_linux_amd64",
+    "distroless_base_linux_arm64",
+    "distroless_cc",
+    "distroless_cc_linux_amd64",
+    "distroless_cc_linux_arm64",
+)

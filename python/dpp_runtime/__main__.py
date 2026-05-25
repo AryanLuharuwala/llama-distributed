@@ -41,6 +41,9 @@ def main():
     p.add_argument("--device", default=os.environ.get("DPP_DEVICE", "cuda"))
     p.add_argument("--dtype", default=os.environ.get("DPP_DTYPE", "fp16"))
     p.add_argument("--cache", default=os.environ.get("DPP_CACHE", "/var/tmp/dpp"))
+    p.add_argument("--pipeline", default=os.environ.get("DPP_PIPELINE", ""),
+                   help="diffusers pipeline class to force (e.g. FluxPipeline); "
+                        "auto-detected from model_index.json by default")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
 
@@ -58,6 +61,7 @@ def main():
         device=args.device,
         dtype=args.dtype,
         cache=args.cache,
+        pipeline_override=args.pipeline,
     )
     worker.preload()
 
@@ -84,7 +88,11 @@ def main():
 
 
 def _serve(conn: socket.socket, worker) -> None:
-    from dpp_runtime.wire import recv_frame, send_frame
+    from dpp_runtime.wire import recv_frame, send_frame, send_progress
+    # Install the progress hook for this connection.  Writes are serialised
+    # because the socket is single-threaded per connection here (one _serve
+    # thread owns conn).  If we ever multiplex, this needs a lock.
+    worker.progress = lambda ev: send_progress(conn, ev)
     try:
         while True:
             frame = recv_frame(conn)
@@ -95,6 +103,7 @@ def _serve(conn: socket.socket, worker) -> None:
     except Exception as e:
         log.exception("worker crash: %s", e)
     finally:
+        worker.progress = None
         try:
             conn.close()
         except Exception:

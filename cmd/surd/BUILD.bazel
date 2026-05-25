@@ -6,30 +6,36 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
-    name       = "surd_lib",
-    srcs       = ["main.go"],
+    name = "surd_lib",
+    srcs = ["main.go"],
     importpath = "github.com/llama-distributed/surd",
     visibility = ["//visibility:private"],
 )
 
 go_test(
-    name     = "surd_test",
-    srcs     = glob(["*_test.go"], allow_empty = True),
-    embed    = [":surd_lib"],
+    name = "surd_test",
+    srcs = glob(
+        ["*_test.go"],
+        allow_empty = True,
+    ),
+    embed = [":surd_lib"],
     visibility = ["//visibility:public"],
 )
 
 go_binary(
-    name        = "surd",
-    embed       = [":surd_lib"],
-    gc_linkopts = ["-s", "-w"],
-    x_defs = {
-        "main.gitSHA":    "{STABLE_GIT_SHA}",
-        "main.buildDate": "{STABLE_BUILD_DATE}",
-    },
+    name = "surd",
+    embed = [":surd_lib"],
+    gc_linkopts = [
+        "-s",
+        "-w",
+    ],
     # Static binary by default — surd has no CGO deps and runs on
     # alpine, scratch, or air-gapped CI runners.
-    pure        = "on",
-    static      = "on",
-    visibility  = ["//visibility:public"],
+    pure = "on",
+    static = "on",
+    visibility = ["//visibility:public"],
+    x_defs = {
+        "main.gitSHA": "{STABLE_GIT_SHA}",
+        "main.buildDate": "{STABLE_BUILD_DATE}",
+    },
 )

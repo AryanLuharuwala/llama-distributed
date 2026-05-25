@@ -53,6 +53,26 @@ type config struct {
 	releasesDir   string // on-disk cache for GitHub release tarballs
 	comfyOutDir   string // dir where ComfyUI renders are stored
 	comfyEnabled  bool   // whether the ComfyUI integration is enabled on the agent install
+	// comfyOAIDeadlineSecs bounds the synchronous /v1/images/generations
+	// wait.  SDXL at 20 steps typically needs ~30-60s on a 4090 but can
+	// easily exceed 60s on a 3070 — the default 5min covers both with
+	// headroom.  Async callers should use /api/comfy/jobs/{id} for very
+	// long renders.  Set via DIST_COMFY_OAI_DEADLINE_SECS.
+	comfyOAIDeadlineSecs int
+	// comfyMaxFileBytes caps a single output file from a rig (default
+	// 64 MiB).  Without this, a malicious or buggy rig could keep
+	// streaming until the WS codec's frame limit fills the disk.  Set
+	// via DIST_COMFY_MAX_FILE_BYTES.
+	comfyMaxFileBytes int64
+	// comfyMaxJobBytes caps total bytes written per job across all
+	// files (default 1 GiB).  Caps multi-file renders (video + sidecar
+	// previews) from running the disk out.  Set via
+	// DIST_COMFY_MAX_JOB_BYTES.
+	comfyMaxJobBytes int64
+	// comfyMaxJobFiles caps file count per job (default 64).  Same
+	// motivation — a runaway rig shouldn't be able to drop 100k tiny
+	// files into outDir.  Set via DIST_COMFY_MAX_JOB_FILES.
+	comfyMaxJobFiles int
 	converterPy   string // path to llama.cpp's convert_hf_to_gguf.py
 	pythonBin     string // python interpreter used to run the converter
 	convertQuant  string // default convert output type (e.g. q8_0, f16, q4_k_m)
@@ -156,7 +176,11 @@ func loadConfig() config {
 		modelsDir:     envOr("DIST_MODELS_DIR", "./models-store"),
 		splitterBin:   envOr("DIST_SPLITTER", "/home/boom/startup/Project/llama.cpp/build/bin/llama-split-gguf"),
 		releasesDir:   envOr("DIST_RELEASES_DIR", "./releases-cache"),
-		comfyOutDir:   envOr("DIST_COMFY_OUT_DIR", "./comfy-out"),
+		comfyOutDir:          envOr("DIST_COMFY_OUT_DIR", "./comfy-out"),
+		comfyOAIDeadlineSecs: parseIntEnv("DIST_COMFY_OAI_DEADLINE_SECS", 300),
+		comfyMaxFileBytes:    int64(parseIntEnv("DIST_COMFY_MAX_FILE_BYTES", 64*1024*1024)),
+		comfyMaxJobBytes:     int64(parseIntEnv("DIST_COMFY_MAX_JOB_BYTES", 1024*1024*1024)),
+		comfyMaxJobFiles:     parseIntEnv("DIST_COMFY_MAX_JOB_FILES", 64),
 		converterPy:   envOr("DIST_CONVERTER", "./third_party/llama.cpp/convert_hf_to_gguf.py"),
 		pythonBin:     envOr("DIST_PYTHON", "python3"),
 		convertQuant:  envOr("DIST_CONVERT_QUANT", "q8_0"),
@@ -320,6 +344,8 @@ func runMigrationsWithRetry(db *sql.DB, d sqlDialect) error {
 		{"quarantine", migrateQuarantine},
 		{"prefix_affinity", migratePrefixAffinity},
 		{"spec_caps", migrateSpecCaps},
+		{"rig_attest", migrateRigAttest},
+		{"sdcpp_caps", migrateSdcppCaps},
 	}
 	const maxAttempts = 8
 	backoff := 2 * time.Second

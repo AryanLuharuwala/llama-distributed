@@ -25,9 +25,9 @@ gazelle(name = "gazelle")
 test_suite(
     name = "all_go",
     tests = [
-        "//server:server_test",
         "//cmd/dist-turn:dist_turn_test",
         "//cmd/surd:surd_test",
+        "//server:server_test",
     ],
     visibility = ["//visibility:public"],
 )
@@ -38,8 +38,8 @@ test_suite(
 filegroup(
     name = "all_images",
     srcs = [
-        "//server:image",
         "//cmd/dist-turn:image",
+        "//server:image",
     ],
     visibility = ["//visibility:public"],
 )
@@ -48,8 +48,8 @@ filegroup(
 filegroup(
     name = "all_images_signed",
     srcs = [
-        "//server:image_signed",
         "//cmd/dist-turn:image_signed",
+        "//server:image_signed",
     ],
     visibility = ["//visibility:public"],
 )

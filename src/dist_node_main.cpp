@@ -1162,6 +1162,66 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                   << " err=" << dpp_err << "\n";
     }
 
+    // ── sd.cpp capability advertisement ──────────────────────────────────
+    //
+    // Companion to dpp_caps for rigs that can't run python+diffusers
+    // (paramshakti cn01, stripped distros without sudo, …).  If the
+    // dist-sdcpp-worker binary is present and its --probe succeeds we
+    // advertise `sdcpp_caps` so the control plane can route a
+    // whole-pipeline single-rig diffusion job here.  Phase A scope:
+    // role="full" only — no block-split participation yet (#254).
+    //
+    // Resolution order for the worker binary:
+    //   1. $DIST_SDCPP_WORKER (operator override)
+    //   2. <argv[0]_dir>/dist-sdcpp-worker (next to dist-node in the
+    //      install dir or build dir — the common case)
+    //   3. plain "dist-sdcpp-worker" (PATH lookup)
+    std::string sdcpp_worker_bin;
+    if (const char* env = std::getenv("DIST_SDCPP_WORKER"); env && *env) {
+        sdcpp_worker_bin = env;
+    } else {
+        char buf[4096];
+        ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (n > 0) {
+            buf[n] = '\0';
+            std::string self(buf);
+            auto slash = self.find_last_of('/');
+            if (slash != std::string::npos) {
+                std::string candidate = self.substr(0, slash + 1) + "dist-sdcpp-worker";
+                if (::access(candidate.c_str(), X_OK) == 0) {
+                    sdcpp_worker_bin = candidate;
+                }
+            }
+        }
+        if (sdcpp_worker_bin.empty()) sdcpp_worker_bin = "dist-sdcpp-worker";
+    }
+    {
+        std::string sdcpp_err, sdcpp_info;
+        bool sdcpp_ok = dist::DppAdapter::probe_local_sdcpp_caps(
+            sdcpp_worker_bin, sdcpp_info, sdcpp_err);
+        std::ostringstream caps;
+        caps << "{\"kind\":\"sdcpp_caps\","
+             << "\"ok\":" << (sdcpp_ok ? "true" : "false") << ","
+             << "\"roles\":[";
+        if (sdcpp_ok) {
+            // CF12-W4: the role API (sdr_encode_text / sdr_sample /
+            // sdr_decode_latent) is wired into every dist-sdcpp-worker
+            // build alongside the single-rig "full" path.  Advertise the
+            // four roles the daemon can multiplex over; the server-side
+            // planner picks one rig per role when an image request comes
+            // in.
+            caps << "\"full\",\"te\",\"unet\",\"vae\"";
+        }
+        caps << "],"
+             << "\"worker\":\"" << json_escape(sdcpp_worker_bin) << "\","
+             << "\"backend\":\"" << json_escape(sdcpp_info) << "\","
+             << "\"error\":\"" << json_escape(sdcpp_err) << "\"}";
+        ws.send_text(caps.str());
+        std::cout << "[pair] sdcpp_caps ok=" << (sdcpp_ok ? "1" : "0")
+                  << " worker=" << sdcpp_worker_bin
+                  << " err=" << sdcpp_err << "\n";
+    }
+
     // ── vLLM capability advertisement ────────────────────────────────────
     //
     // P12: when DIST_RUNTIME=vllm (or when DIST_VLLM_URL is set explicitly),
@@ -1581,6 +1641,9 @@ static int run_pair_mode(const std::string& token, const std::string& server,
         if ((data[16] & DPP_FLAGS) != 0) {
             if (!dpp.dispatch_actv(data, n)) {
                 std::cerr << "[dpp] no runtime for req=" << be16(data + 6)
+                          << " stage=" << be16(data + 8)
+                          << " flags=0x" << std::hex << (unsigned)data[16] << std::dec
+                          << " type=0x" << std::hex << (unsigned)data[5] << std::dec
                           << " (missing dpp_route?)\n";
             }
             return true;
@@ -3069,6 +3132,83 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                     }).detach();
                 }
 
+                // ── ComfyUI native-API proxy (CF11) ──────────────────────
+                //
+                // Control plane sends:
+                //   {"kind":"comfy_meta","corr_id":"…","method":"GET"|"POST",
+                //    "path":"/system_stats", "body":"…"}
+                //
+                // We forward to our local ComfyUI via ComfyClient::proxy
+                // (which re-validates the path allowlist) and emit:
+                //   {"kind":"comfy_meta_result","corr_id":"…","status":N,"body_b64":"…"}
+                // The body is base64-encoded so binary responses survive
+                // (no allowed path returns binary today, but future-proof).
+                if (txt.find("\"kind\":\"comfy_meta\"") != std::string::npos) {
+                    auto pull_str = [&](const char* key) -> std::string {
+                        std::string k = std::string("\"") + key + "\":\"";
+                        size_t p = txt.find(k);
+                        if (p == std::string::npos) return "";
+                        size_t s = p + k.size();
+                        size_t e = s;
+                        while (e < txt.size() && txt[e] != '"') {
+                            if (txt[e] == '\\' && e + 1 < txt.size()) e += 2;
+                            else ++e;
+                        }
+                        std::string raw = txt.substr(s, e - s);
+                        std::string out; out.reserve(raw.size());
+                        for (size_t i = 0; i < raw.size(); ++i) {
+                            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                                char c = raw[i + 1];
+                                if      (c == '"')  { out += '"';  ++i; }
+                                else if (c == '\\') { out += '\\'; ++i; }
+                                else if (c == '/')  { out += '/';  ++i; }
+                                else if (c == 'n')  { out += '\n'; ++i; }
+                                else if (c == 'r')  { out += '\r'; ++i; }
+                                else if (c == 't')  { out += '\t'; ++i; }
+                                else { out += c; ++i; }
+                            } else out += raw[i];
+                        }
+                        return out;
+                    };
+                    std::string corr   = pull_str("corr_id");
+                    std::string method = pull_str("method");
+                    std::string path   = pull_str("path");
+                    std::string body   = pull_str("body");
+                    if (corr.empty() || method.empty() || path.empty()) {
+                        // Malformed frame — without a corr_id we can't even
+                        // tell the server who to deliver an error to, so
+                        // drop quietly.  The server-side timeout (10s) will
+                        // surface the failure to the SDK caller.
+                    } else {
+                        // Run on a worker thread; the proxy may block on
+                        // ComfyUI for several seconds on a cold
+                        // /object_info call (custom_nodes scan).
+                        std::thread([&comfy, &b64_encode,
+                                     &comfy_outbox, &comfy_outbox_mu,
+                                     corr, method, path, body]() {
+                            int st = 0;
+                            std::string resp = comfy.proxy(method, path, body, 10000, &st);
+                            // Encode body as base64 so binary-safe.  Empty
+                            // body still emits empty b64 (decodes to "").
+                            std::vector<uint8_t> bytes(resp.begin(), resp.end());
+                            std::string b64 = b64_encode(bytes);
+                            std::ostringstream o;
+                            o << "{\"kind\":\"comfy_meta_result\","
+                              << "\"corr_id\":\"" << json_escape(corr) << "\","
+                              << "\"status\":"    << st;
+                            if (!b64.empty()) {
+                                o << ",\"body_b64\":\"" << b64 << "\"";
+                            }
+                            if (st == 0) {
+                                o << ",\"error\":\"comfy proxy unreachable or path disallowed\"";
+                            }
+                            o << "}";
+                            std::lock_guard<std::mutex> lk(comfy_outbox_mu);
+                            comfy_outbox.push_back(o.str());
+                        }).detach();
+                    }
+                }
+
                 // Diffusion pipeline-parallel route assignment.  Hands the
                 // control payload to the dpp adapter, which lazily spawns
                 // a Python runtime for (role, model) if needed.
@@ -3083,6 +3223,38 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                         ws.send_text(e.str());
                     } else {
                         std::cout << "[dpp] route accepted\n";
+                    }
+                }
+
+                // Whole-pipeline C++ diffusion route (sd.cpp backend).
+                // Used when this rig advertised `sdcpp_caps.ok=true` and
+                // the control plane decided the request fits one rig.
+                if (txt.find("\"kind\":\"sdcpp_route\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_route(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] route rejected: " << err << "\n";
+                        std::ostringstream e;
+                        e << "{\"kind\":\"sdcpp_error\",\"message\":\""
+                          << json_escape(err) << "\"}";
+                        ws.send_text(e.str());
+                    } else {
+                        std::cout << "[sdcpp] route accepted\n";
+                    }
+                }
+
+                // Per-role sd.cpp dispatch (CF12-W3).  TE/UNet/VAE may live
+                // on different rigs; this rig serves whichever role(s) it
+                // advertised in `sdcpp_roles`.
+                if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_role_route(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] role route rejected: " << err << "\n";
+                        std::ostringstream e;
+                        e << "{\"kind\":\"sdcpp_error\",\"message\":\""
+                          << json_escape(err) << "\"}";
+                        ws.send_text(e.str());
+                    } else {
+                        std::cout << "[sdcpp] role route accepted\n";
                     }
                 }
 
@@ -3162,6 +3334,30 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                         std::cout << "[dpp] route accepted\n";
                     }
                 }
+                if (txt.find("\"kind\":\"sdcpp_route\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_route(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] route rejected: " << err << "\n";
+                        std::ostringstream e;
+                        e << "{\"kind\":\"sdcpp_error\",\"message\":\""
+                          << json_escape(err) << "\"}";
+                        ws.send_text(e.str());
+                    } else {
+                        std::cout << "[sdcpp] route accepted\n";
+                    }
+                }
+                if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_role_route(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] role route rejected: " << err << "\n";
+                        std::ostringstream e;
+                        e << "{\"kind\":\"sdcpp_error\",\"message\":\""
+                          << json_escape(err) << "\"}";
+                        ws.send_text(e.str());
+                    } else {
+                        std::cout << "[sdcpp] role route accepted\n";
+                    }
+                }
             }
         }
 
@@ -3175,6 +3371,16 @@ static int run_pair_mode(const std::string& token, const std::string& server,
             for (auto& f : out) {
                 if (!ws.is_open()) break;
                 ws.send_binary(f.bytes.data(), f.bytes.size());
+            }
+        }
+        // Per-stage progress events: text JSON lines that the worker
+        // emitted via the PROG sideband.  Ship as WS TEXT frames so the
+        // server's JSON dispatcher (kind=="dpp_progress") handles them.
+        {
+            auto lines = dpp.drain_text_outbox();
+            for (auto& s : lines) {
+                if (!ws.is_open()) break;
+                ws.send_text(s);
             }
         }
     }

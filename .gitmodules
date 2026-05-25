@@ -4,3 +4,6 @@
 [submodule "third_party/ComfyUI"]
 	path = third_party/ComfyUI
 	url = https://github.com/comfyanonymous/ComfyUI
+[submodule "third_party/stable-diffusion.cpp"]
+	path = third_party/stable-diffusion.cpp
+	url = https://github.com/leejet/stable-diffusion.cpp

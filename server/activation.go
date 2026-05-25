@@ -62,6 +62,11 @@ const (
 	// DPP image-bytes frame: the VAE stage emits one of these as the
 	// terminal payload, dtype=bytes, payload is PNG/JPEG.
 	actvFlagDPPImage     = uint8(0x20)
+	// Multi-step UNet loopback: the last UNet stage emits this when
+	// step_idx+1 < total_steps, sending the noise prediction back to
+	// the FIRST UNet stage so it can scheduler.step + re-emit the
+	// next step's hidden state.  See dpp_route.go::dispatchDPPFromAgent.
+	actvFlagDPPLoop      = uint8(0x40)
 )
 
 // ActvFrame is the decoded/encodeable form.  Payload is owned by the caller;

@@ -305,6 +305,53 @@ button { cursor: pointer; }
   padding: 30px 0; text-align: center;
 }
 
+/* ─── DPP live pipeline panel ─── */
+.dpp-stages {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+  margin-bottom: 12px;
+}
+.dpp-stage {
+  display: grid;
+  grid-template-columns: 110px 1fr 70px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-2); letter-spacing: 0.08em;
+  transition: border-color 200ms, background 200ms;
+}
+.dpp-stage.active {
+  border-color: var(--accent);
+  background: var(--surface);
+  color: var(--ink);
+}
+.dpp-stage.done {
+  border-color: var(--ok, #4a7);
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-3);
+}
+.dpp-stage .role { text-transform: uppercase; }
+.dpp-stage .bar {
+  height: 6px; background: var(--rule); position: relative; overflow: hidden;
+}
+.dpp-stage .bar > i {
+  display: block; height: 100%; background: var(--accent);
+  width: 0%; transition: width 200ms ease-out;
+}
+.dpp-stage .count {
+  text-align: right; color: var(--ink-3);
+}
+.dpp-log {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); letter-spacing: 0.05em;
+  max-height: 96px; overflow-y: auto;
+  border-top: 1px dashed var(--rule); padding-top: 8px;
+}
+.dpp-log div { padding: 1px 0; white-space: nowrap; }
+
 /* ───────────────────────────────────────────────────────────────── */
 /*  DISCOVER TAB                                                     */
 /* ───────────────────────────────────────────────────────────────── */
@@ -533,8 +580,52 @@ button { cursor: pointer; }
       </div>
 
       <div class="field">
-        <div class="lbl">Model (optional)</div>
-        <input id="studio-model" placeholder="comfy model name (e.g. sdxl-base-1.0)">
+        <div class="lbl">Backend</div>
+        <select id="studio-backend">
+          <option value="auto" selected>Auto (DPP when ≥2 rigs)</option>
+          <option value="comfy">Single rig (ComfyUI)</option>
+          <option value="dpp">Distributed pipeline (DPP)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <div class="lbl">Model</div>
+        <select id="studio-model-pick"><option value="">— pick a backbone —</option></select>
+        <input id="studio-model" placeholder="…or type a model id" style="margin-top:6px">
+      </div>
+
+      <!-- DPP-only options: per-role rig pinning + UNet shard count.
+           Shown only when backend != comfy and a pool is selected. -->
+      <div id="studio-dpp-opts" style="display:none">
+        <div class="field">
+          <div class="lbl">UNet stages</div>
+          <input id="studio-unet-stages" type="number" min="0" max="8" value="0" placeholder="0 = single">
+          <div class="muted" style="font-size:11px;margin-top:4px">0 or 1 = single UNet rig. ≥2 splits UNet blocks across that many rigs.</div>
+        </div>
+        <div class="field">
+          <div class="lbl">Role placement</div>
+          <div style="display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center;font-size:12px">
+            <span>Text-enc</span><select id="studio-role-te"><option value="">— auto —</option></select>
+            <span>UNet</span><select id="studio-role-unet"><option value="">— auto —</option></select>
+            <span>VAE</span><select id="studio-role-vae"><option value="">— auto —</option></select>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:4px" id="studio-role-hint">Pick a pool to populate rigs.</div>
+        </div>
+        <div class="field">
+          <div class="lbl">Init image (img2img, optional)</div>
+          <input id="studio-init-url" type="url" placeholder="https://… or /comfy/out/…">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+            <label class="ghost-btn" style="text-align:center;cursor:pointer">
+              <input id="studio-init-file" type="file" accept="image/*" style="display:none">
+              Upload file…
+            </label>
+            <button type="button" id="studio-pick-prev" class="ghost-btn">Pick last render</button>
+          </div>
+          <div style="margin-top:8px">
+            <div class="lbl" style="font-size:11px">Strength (0 = keep input, 1 = ignore)</div>
+            <input id="studio-strength" type="number" min="0" max="1" step="0.05" value="0.6" style="width:100%">
+          </div>
+        </div>
       </div>
 
       <div class="field">
@@ -579,6 +670,26 @@ button { cursor: pointer; }
           <div class="hd"><span>Queue</span><span class="stat">idle</span></div>
           <div class="empty">No renders yet. Compose a prompt on the left and hit <b style="color:var(--ink)">Generate</b>.</div>
         </div>
+      </div>
+
+      <!-- Live distributed-pipeline view.  Only meaningful for DPP
+           (diffusion-pipeline-parallel) renders — for non-DPP renders
+           the stream is silent so this panel just stays blank.  Subscribes
+           to /api/dpp/stream as long as the user is on this page. -->
+      <div class="job-card" id="dpp-live" style="margin-top:16px">
+        <div class="hd"><span>Pipeline · live</span><span class="stat" id="dpp-live-stat">listening</span></div>
+        <!-- SVG node-graph view: nodes are stages (TE → UNet[0..N] → VAE),
+             edges are data flow, animated when frames are in transit.
+             Falls back to the flat bar list below when the panel is too
+             narrow to render the graph legibly. -->
+        <div id="dpp-graph-wrap" style="position:relative;padding:8px 4px 4px;min-height:140px">
+          <svg id="dpp-graph" width="100%" height="140" viewBox="0 0 800 140" preserveAspectRatio="xMidYMid meet" style="overflow:visible"></svg>
+          <div class="empty" id="dpp-graph-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--muted);font-size:12px">No active distributed run.</div>
+        </div>
+        <div id="dpp-stages" class="dpp-stages">
+          <div class="empty" id="dpp-stages-empty" style="display:none">Per-stage progress will appear here when a distributed diffusion job runs.</div>
+        </div>
+        <div class="dpp-log" id="dpp-log" aria-label="recent events"></div>
       </div>
     </div>
   </section>
@@ -815,6 +926,7 @@ button { cursor: pointer; }
     b.classList.add('on');
     studioKind = b.dataset.kind;
     loadWorkflows();
+    renderBackbones();
   }));
 
   async function loadWorkflows() {
@@ -829,7 +941,121 @@ button { cursor: pointer; }
         sel.appendChild(o);
       });
     } catch {}
+    loadBackbones();
   }
+
+  /* Populate the model picker from the static DPP backbone registry.
+     We surface all kinds (image+video) but filter by studioKind so the
+     dropdown stays scannable. */
+  let backbones = [];
+  async function loadBackbones() {
+    if (backbones.length) { renderBackbones(); return; }
+    try {
+      const r = await fetch('/api/dpp/backbones', { credentials: 'include' });
+      const j = await r.json();
+      backbones = (j && j.backbones) || [];
+      renderBackbones();
+    } catch {}
+  }
+  function renderBackbones() {
+    const sel = $('#studio-model-pick');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— pick a backbone —</option>';
+    backbones.filter(b => b.kind === studioKind).forEach(b => {
+      const o = document.createElement('option');
+      o.value = b.id;
+      const reg = b.comfy_registered ? ' · registered' : '';
+      o.textContent = b.family + ' · ' + b.id.split('/').pop() + reg;
+      sel.appendChild(o);
+    });
+    sel.onchange = () => {
+      const b = backbones.find(x => x.id === sel.value);
+      if (!b) return;
+      $('#studio-model').value = b.id;
+      if (b.default_w) $('#studio-w').value = b.default_w;
+      if (b.default_h) $('#studio-h').value = b.default_h;
+      if (b.default_steps) $('#studio-steps').value = b.default_steps;
+    };
+  }
+
+  /* Per-role rig picker.  Re-populates whenever a pool is selected. */
+  let dppRigs = [];
+  async function loadDPPRigs() {
+    const poolID = parseInt($('#studio-pool').value, 10);
+    const teS = $('#studio-role-te'), unS = $('#studio-role-unet'), vaS = $('#studio-role-vae');
+    [teS, unS, vaS].forEach(s => { if (s) s.innerHTML = '<option value="">— auto —</option>'; });
+    const hint = $('#studio-role-hint');
+    if (!poolID) { dppRigs = []; if (hint) hint.textContent = 'Pick a pool to populate rigs.'; return; }
+    try {
+      const r = await fetch('/api/pools/' + poolID + '/rigs/dpp', { credentials: 'include' });
+      const j = await r.json();
+      dppRigs = (j && j.rigs) || [];
+      const eligible = dppRigs.filter(g => g.dpp_eligible);
+      if (hint) hint.textContent = eligible.length
+        ? eligible.length + ' eligible · ' + dppRigs.filter(g => !g.dpp_eligible).length + ' offline/ineligible'
+        : 'No eligible rigs in this pool.';
+      [teS, unS, vaS].forEach(s => {
+        if (!s) return;
+        eligible.forEach(g => {
+          const o = document.createElement('option');
+          o.value = g.agent_id;
+          const vram = g.vram_total ? (Math.round(g.vram_total / (1024*1024*1024)) + 'G') : '?';
+          o.textContent = (g.hostname || g.agent_id) + ' · ' + vram + (g.gpu_model ? ' · ' + g.gpu_model : '') + (g.dpp_eligible_note ? ' (' + g.dpp_eligible_note + ')' : '');
+          s.appendChild(o);
+        });
+      });
+    } catch {}
+  }
+
+  /* Toggle DPP-only options based on backend select + pool.  Also
+     disables the "dpp" option when the pool clearly can't run a
+     distributed chain — a pool needs ≥2 eligible rigs for DPP to even
+     plan. */
+  function syncDPPOpts() {
+    const backSel = $('#studio-backend');
+    const back = backSel.value;
+    const opts = $('#studio-dpp-opts');
+    if (!opts) return;
+    opts.style.display = back === 'comfy' ? 'none' : '';
+    if (back !== 'comfy') loadDPPRigs().then(() => {
+      const dppOpt = backSel.querySelector('option[value="dpp"]');
+      if (!dppOpt) return;
+      const eligible = (dppRigs || []).filter(g => g.dpp_eligible).length;
+      if (eligible < 2) {
+        dppOpt.disabled = true;
+        dppOpt.textContent = 'Distributed pipeline (need ≥2 rigs in pool)';
+        if (back === 'dpp') { backSel.value = 'auto'; syncDPPOpts(); }
+      } else {
+        dppOpt.disabled = false;
+        dppOpt.textContent = 'Distributed pipeline (DPP)';
+      }
+    });
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const backSel = $('#studio-backend'); if (backSel) backSel.addEventListener('change', syncDPPOpts);
+    const poolSel = $('#studio-pool');    if (poolSel) poolSel.addEventListener('change', syncDPPOpts);
+    const pickBtn = $('#studio-pick-prev');
+    if (pickBtn) pickBtn.addEventListener('click', () => {
+      // Find the most-recent done job card and pull its image URL.
+      const card = document.querySelector('#studio-jobs .job-card[data-real="1"] img');
+      if (card && card.src) {
+        $('#studio-init-url').value = card.src;
+      }
+    });
+    const fileIn = $('#studio-init-file');
+    if (fileIn) fileIn.addEventListener('change', () => {
+      const f = fileIn.files && fileIn.files[0];
+      if (!f) return;
+      if (f.size > 8 * 1024 * 1024) {
+        alert('Image too large (8 MiB cap).  Host it and paste a URL instead.');
+        fileIn.value = '';
+        return;
+      }
+      const fr = new FileReader();
+      fr.onload = () => { $('#studio-init-url').value = String(fr.result || ''); };
+      fr.readAsDataURL(f);
+    });
+  });
 
   const activeJobs = new Map(); // jobId -> DOMnode
 
@@ -897,12 +1123,29 @@ button { cursor: pointer; }
       const seed = parseInt($('#studio-seed').value, 10);
       if (!isNaN(seed)) params.seed = seed;
 
+      const backend = $('#studio-backend') ? $('#studio-backend').value : 'auto';
+      const initURL = ($('#studio-init-url') && $('#studio-init-url').value.trim()) || '';
+      const strength = parseFloat($('#studio-strength') && $('#studio-strength').value) || 0;
+      const unetStages = parseInt(($('#studio-unet-stages') && $('#studio-unet-stages').value) || '0', 10) || 0;
+      const roles = {};
+      const teV = ($('#studio-role-te') && $('#studio-role-te').value) || '';
+      const unV = ($('#studio-role-unet') && $('#studio-role-unet').value) || '';
+      const vaV = ($('#studio-role-vae') && $('#studio-role-vae').value) || '';
+      if (teV) roles.text_encoder = teV;
+      if (unV) roles.unet         = unV;
+      if (vaV) roles.vae          = vaV;
+
       const body = {
         prompt,
         params,
         workflow_id: parseInt($('#studio-workflow').value, 10) || undefined,
         model: $('#studio-model').value.trim() || undefined,
         pool_id: parseInt($('#studio-pool').value, 10) || undefined,
+        backend: (backend && backend !== 'auto') ? backend : undefined,
+        unet_stages: unetStages > 1 ? unetStages : undefined,
+        roles: Object.keys(roles).length ? roles : undefined,
+        init_image_url: initURL || undefined,
+        strength: strength > 0 ? strength : undefined,
       };
       const r = await fetch('/api/comfy/generate', {
         method: 'POST',
@@ -920,6 +1163,199 @@ button { cursor: pointer; }
       btn.removeAttribute('disabled');
     }
   });
+
+  /* ─────────────────────────────────────────────────── DPP LIVE STREAM
+     Subscribes to /api/dpp/stream (per-user SSE).  Each event is a stage
+     transition emitted by a worker on some agent: enter/step/exit on
+     text_encoder, unet (possibly block-split into multiple sub-stages),
+     or vae.  We render one row per (req_id, stage_idx) seen recently,
+     with a progress bar driven by step_idx/total_steps for UNet stages.
+
+     Rows are garbage-collected ~20s after their last activity so the
+     panel doesn't accumulate forever during a long session.  */
+  (function dppLive() {
+    const stagesEl = document.getElementById('dpp-stages');
+    const emptyEl  = document.getElementById('dpp-stages-empty');
+    const logEl    = document.getElementById('dpp-log');
+    const statEl   = document.getElementById('dpp-live-stat');
+    if (!stagesEl || !logEl) return;
+
+    /** keyed "req|stage" → {el, lastSeen, role, range, total, step, event} */
+    const rows = new Map();
+    const STALE_MS = 20000;
+
+    function stageKey(ev) { return ev.req_id + '|' + ev.stage_idx; }
+    function roleLabel(ev) {
+      if (ev.role === 'unet' && ev.block_lo >= 0) {
+        return 'unet[' + ev.block_lo + '..' + ev.block_hi + ')';
+      }
+      return ev.role || '?';
+    }
+
+    function ensureRow(ev) {
+      const k = stageKey(ev);
+      let r = rows.get(k);
+      if (r) return r;
+      const el = document.createElement('div');
+      el.className = 'dpp-stage';
+      el.innerHTML =
+        '<div class="role"></div>' +
+        '<div class="bar"><i></i></div>' +
+        '<div class="count"></div>';
+      stagesEl.appendChild(el);
+      r = { el, lastSeen: Date.now(), step: -1, total: 0, event: '' };
+      rows.set(k, r);
+      emptyEl.style.display = 'none';
+      return r;
+    }
+
+    function paint(ev) {
+      const r = ensureRow(ev);
+      r.lastSeen = Date.now();
+      r.event = ev.event;
+      r.step  = ev.step_idx;
+      r.total = ev.total_steps;
+      r.role  = ev.role;
+      r.block_lo = ev.block_lo;
+      r.block_hi = ev.block_hi;
+      r.stage_idx = ev.stage_idx;
+      r.req_id = ev.req_id;
+      r.agent_id = ev.agent_id;
+      r.el.querySelector('.role').textContent =
+        '#' + ev.req_id + ' ' + roleLabel(ev) + ' · s' + ev.stage_idx;
+      const pct = (r.total > 0 && r.step >= 0)
+        ? Math.round(((r.step + 1) / r.total) * 100)
+        : (ev.event === 'enter' ? 5 : (ev.event === 'exit' ? 100 : 50));
+      r.pct = pct;
+      r.el.querySelector('.bar > i').style.width = pct + '%';
+      const cnt = r.total > 0 ? (r.step + 1) + '/' + r.total : ev.event;
+      r.el.querySelector('.count').textContent = cnt;
+      r.el.classList.toggle('active', ev.event !== 'exit' && ev.event !== 'error');
+      r.el.classList.toggle('done',   ev.event === 'exit');
+      drawGraph();
+    }
+
+    /* SVG graph: lay rows out by req_id (one row of nodes per request),
+       columns by stage_idx.  Edge between (n, n+1) is hot when both stages
+       are active.  We pin colours by role: TE=cyan, UNet=accent, VAE=teal. */
+    const graph = document.getElementById('dpp-graph');
+    const graphEmpty = document.getElementById('dpp-graph-empty');
+    function drawGraph() {
+      if (!graph) return;
+      const byReq = new Map();
+      for (const [k, r] of rows) {
+        const arr = byReq.get(r.req_id) || [];
+        arr.push(r); byReq.set(r.req_id, arr);
+      }
+      if (byReq.size === 0) { graph.innerHTML = ''; if (graphEmpty) graphEmpty.style.display = ''; return; }
+      if (graphEmpty) graphEmpty.style.display = 'none';
+
+      // Pick the most-recently-active request to render (single chain).
+      let activeReq = null, latest = 0;
+      for (const [req, arr] of byReq) {
+        const t = Math.max(...arr.map(r => r.lastSeen));
+        if (t > latest) { latest = t; activeReq = req; }
+      }
+      const stages = (byReq.get(activeReq) || []).slice().sort((a, b) => a.stage_idx - b.stage_idx);
+      const n = stages.length;
+      if (n === 0) { graph.innerHTML = ''; return; }
+
+      const W = 800, H = 140;
+      const pad = 40;
+      const dx = n > 1 ? (W - 2*pad) / (n - 1) : 0;
+      const cy = H / 2;
+      const colour = (role) => {
+        if (role === 'text_encoder' || role === 'unet_cond') return '#22d3ee';
+        if (role === 'vae') return '#34d399';
+        if (role && role.startsWith('unet')) return '#f59e0b';
+        return '#a78bfa';
+      };
+      let svg = '';
+      // Edges (chain).
+      for (let i = 0; i < n - 1; i++) {
+        const x1 = pad + i * dx, x2 = pad + (i+1) * dx;
+        const hot = stages[i].event !== 'exit' || stages[i+1].event === 'enter' || stages[i+1].event === 'step';
+        svg += `<line x1="${x1+22}" y1="${cy}" x2="${x2-22}" y2="${cy}" stroke="${hot ? '#f59e0b' : '#3f3f46'}" stroke-width="${hot ? 2.5 : 1.5}" ${hot ? 'stroke-dasharray="4 4"' : ''}>
+                  ${hot ? '<animate attributeName="stroke-dashoffset" from="0" to="-16" dur="0.7s" repeatCount="indefinite"/>' : ''}
+                </line>`;
+      }
+      // Loopback arc: last UNet → first UNet (when UNet shards exist).
+      const unetIdx = stages.map((s, i) => (s.role === 'unet' ? i : -1)).filter(i => i >= 0);
+      if (unetIdx.length >= 2) {
+        const i0 = unetIdx[0], iN = unetIdx[unetIdx.length - 1];
+        const x1 = pad + i0 * dx, x2 = pad + iN * dx;
+        const midY = cy - 50;
+        const stillStepping = stages[iN] && stages[iN].step + 1 < stages[iN].total;
+        const col = stillStepping ? '#22d3ee' : '#52525b';
+        svg += `<path d="M ${x2-10} ${cy-12} Q ${(x1+x2)/2} ${midY} ${x1+10} ${cy-12}" stroke="${col}" stroke-width="${stillStepping ? 2 : 1}" fill="none" ${stillStepping ? 'stroke-dasharray="3 3"' : ''}>
+                  ${stillStepping ? '<animate attributeName="stroke-dashoffset" from="0" to="-12" dur="0.6s" repeatCount="indefinite"/>' : ''}
+                </path>`;
+      }
+      // Nodes.
+      for (let i = 0; i < n; i++) {
+        const s = stages[i];
+        const x = pad + i * dx;
+        const c = colour(s.role || '');
+        const ring = s.event === 'exit' ? '#22c55e' : (s.event === 'error' ? '#ef4444' : c);
+        const label = (s.role || '?');
+        const sub = (s.role === 'unet' && s.block_lo >= 0) ? `[${s.block_lo}..${s.block_hi})` : '';
+        const host = (s.agent_id || '').slice(0, 10);
+        const pctStr = (s.total > 0 && s.step >= 0) ? Math.round(((s.step + 1) / s.total) * 100) + '%' : '';
+        svg += `<g>
+          <circle cx="${x}" cy="${cy}" r="22" fill="#18181b" stroke="${ring}" stroke-width="2.5"/>
+          ${s.total > 0 && s.step >= 0 ? `<circle cx="${x}" cy="${cy}" r="22" fill="none" stroke="${c}" stroke-width="2.5" stroke-dasharray="${((s.step+1)/s.total)*138.2} 138.2" transform="rotate(-90 ${x} ${cy})"/>` : ''}
+          <text x="${x}" y="${cy+4}" text-anchor="middle" font-size="10" fill="#e4e4e7" font-weight="600">${pctStr || label.slice(0,4)}</text>
+          <text x="${x}" y="${cy+38}" text-anchor="middle" font-size="10" fill="#a1a1aa">${label}${sub ? ' '+sub : ''}</text>
+          <text x="${x}" y="${cy+52}" text-anchor="middle" font-size="9" fill="#52525b">${host}</text>
+        </g>`;
+      }
+      graph.innerHTML = svg;
+    }
+
+    function log(ev) {
+      const line = document.createElement('div');
+      const t = new Date(ev.ts || Date.now()).toISOString().slice(11, 23);
+      let suffix = ev.event;
+      if (ev.event === 'step' && ev.total_steps > 0) {
+        suffix += ' ' + (ev.step_idx + 1) + '/' + ev.total_steps;
+      }
+      line.textContent =
+        t + '  #' + ev.req_id + '  ' + (ev.agent_id || '?') +
+        '  ' + roleLabel(ev) + '  ' + suffix +
+        (ev.msg ? '  — ' + ev.msg : '');
+      logEl.appendChild(line);
+      while (logEl.childElementCount > 80) logEl.removeChild(logEl.firstChild);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function reap() {
+      const now = Date.now();
+      for (const [k, r] of rows) {
+        if (now - r.lastSeen > STALE_MS && r.event === 'exit') {
+          r.el.remove(); rows.delete(k);
+        }
+      }
+      drawGraph();
+    }
+    setInterval(reap, 5000);
+
+    let es;
+    function connect() {
+      try {
+        es = new EventSource('/api/dpp/stream', { withCredentials: true });
+      } catch (e) { statEl.textContent = 'unavailable'; return; }
+      es.onopen = () => { statEl.textContent = 'live'; statEl.classList.add('ok'); };
+      es.onerror = () => {
+        statEl.textContent = 'reconnecting…'; statEl.classList.remove('ok');
+        // EventSource auto-reconnects; nothing else to do.
+      };
+      es.onmessage = (m) => {
+        let ev; try { ev = JSON.parse(m.data); } catch { return; }
+        if (ev && ev.event) { paint(ev); log(ev); }
+      };
+    }
+    connect();
+  })();
 
   /* ─────────────────────────────────────────────────── DISCOVER */
   // Curated tag chips per category — clicking adds to ?tags=

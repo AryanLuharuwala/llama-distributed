@@ -67,12 +67,32 @@ type dppPlan struct {
 
 // dppPeer is registered on each stage's agentConn for the duration of a
 // single DPP request.  Identical control-flow shape to ppPeer.
+//
+// When one agent owns multiple non-adjacent stages (e.g. TE on stage 0 +
+// VAE on stage 2 with someone else's UNet at stage 1), the same dppPeer is
+// shared across both stages.  Dispatch must therefore decide routing from
+// the *frame's* destination stage (worker.py emits with stage=frame.stage+1)
+// rather than from a single "next agent" recorded on the peer — otherwise
+// the VAE's image ACT would follow the TE→UNet next-hop and be lost.
 type dppPeer struct {
 	reqID      uint16
-	stageIdx   uint16
 	isTerminal bool
 
-	nextAgent *agentConn // stage (idx+1), or nil for the last stage
+	// chain[i] is the agentConn that hosts stage i in the plan; len(chain)
+	// is the total stage count.  A frame whose destination stage equals
+	// len(chain) (or higher) is terminal output for the server.  All peers
+	// share the same chain slice.
+	chain []*agentConn
+
+	// Loopback target: if non-nil and the inbound frame has
+	// actvFlagDPPLoop set, route to this agent instead of the per-stage
+	// nextAgent.  Used for multi-step UNet where the last UNet stage's
+	// per-step noise prediction goes back to the first UNet stage rather
+	// than forward to VAE.  loopbackStage names the stage index to set on
+	// the forwarded frame so the receiving agent's runtime resolves the
+	// right per-req runtime slot.
+	loopbackAgent *agentConn
+	loopbackStage uint16
 
 	// Terminal stage forwards image bytes (or error/done) here.
 	tokens chan *ActvFrame
@@ -115,7 +135,7 @@ func (ac *agentConn) dispatchDPPFromAgent(data []byte) bool {
 	}
 	// Only consume DPP-tagged frames here; bare ACTV without any DPP flag
 	// belongs to the LLM pipeline path (which already passed).
-	dppFlags := actvFlagDPPLatent | actvFlagDPPFinal | actvFlagDPPImage
+	dppFlags := actvFlagDPPLatent | actvFlagDPPFinal | actvFlagDPPImage | actvFlagDPPLoop
 	if frame.Type == actvTypeAct && (frame.Flags&dppFlags) == 0 {
 		ac.peerMu.RUnlock()
 		return false
@@ -127,7 +147,32 @@ func (ac *agentConn) dispatchDPPFromAgent(data []byte) bool {
 
 	switch frame.Type {
 	case actvTypeAct:
-		if dpp.nextAgent == nil {
+		// Loopback handling — last UNet stage emits this to send noise
+		// prediction back to the first UNet stage for scheduler.step +
+		// next-step kickoff.  Routes to loopbackAgent regardless of
+		// where we are in the chain.  Override stage to the loopback
+		// target's stage_idx so the receiving worker resolves the
+		// correct per-req runtime.
+		if frame.Flags&actvFlagDPPLoop != 0 && dpp.loopbackAgent != nil {
+			fwd = &ActvFrame{
+				Type:    frame.Type,
+				ReqID:   frame.ReqID,
+				Stage:   dpp.loopbackStage,
+				TokSeq:  frame.TokSeq,
+				DType:   frame.DType,
+				Flags:   frame.Flags,
+				Dims:    frame.Dims,
+				Payload: frame.Payload,
+			}
+			nextAgent = dpp.loopbackAgent
+			break
+		}
+		// Route by the frame's destination stage (worker.py emits with
+		// stage=frame.stage+1).  Frames whose destination is past the
+		// chain are terminal output for the server — even when this
+		// agent also hosts an earlier stage in the chain.
+		destStage := int(frame.Stage)
+		if destStage >= len(dpp.chain) {
 			if frame.Flags&actvFlagDPPImage != 0 || frame.Flags&actvFlagDPPFinal != 0 {
 				select {
 				case <-dpp.closed:
@@ -145,11 +190,10 @@ func (ac *agentConn) dispatchDPPFromAgent(data []byte) bool {
 			ac.peerMu.RUnlock()
 			return true
 		}
-		// Intermediate stage — forward to next agent.  The python worker
-		// already bumps Stage on emit (worker.py: stage=frame.stage + 1)
-		// so the incoming frame's Stage already names the destination
-		// stage.  Bumping again here would shift it past the registered
-		// runtime and trigger "no runtime for req=X" on the next agent.
+		// Intermediate destination — forward to the agent that hosts the
+		// destination stage.  If that agent is this same agent the local
+		// dpp_adapter already routed in-process; only frames crossing
+		// agents reach us over the WS.
 		fwd = &ActvFrame{
 			Type:    frame.Type,
 			ReqID:   frame.ReqID,
@@ -160,7 +204,7 @@ func (ac *agentConn) dispatchDPPFromAgent(data []byte) bool {
 			Dims:    frame.Dims,
 			Payload: frame.Payload,
 		}
-		nextAgent = dpp.nextAgent
+		nextAgent = dpp.chain[destStage]
 	case actvTypeToken, actvTypeDone, actvTypeError:
 		select {
 		case <-dpp.closed:
@@ -230,9 +274,51 @@ func (s *server) planDPP(poolID int64, model string, roles map[string]string, co
 	if v, ok := config["cfg_split"].(bool); ok && v {
 		cfgSplit = true
 	}
+	// unet_stages: number of pipeline-parallel UNet stages.  Default 1.
+	// When > 1, the single logical "unet" role expands into N stages each
+	// owning a contiguous block range of the linearised UNet.  Block
+	// ranges are computed by partitionUNetBlocks() using the model's
+	// known topology (knownUNetTopologies).  Mutually exclusive with
+	// cfg_split — the wire shape would have ambiguous (cond, uncond) ×
+	// (stage_i, stage_j) pairings.  An unknown model falls back to a
+	// single stage so generation still succeeds.
+	unetStages := 1
+	if v, ok := config["unet_stages"].(int); ok && v > 1 {
+		unetStages = v
+	} else if vf, ok := config["unet_stages"].(float64); ok && int(vf) > 1 {
+		unetStages = int(vf)
+	}
+	var unetBlocks []uNetBlockRange
+	if unetStages > 1 {
+		if cfgSplit {
+			return nil, errMsg("dpp plan: unet_stages and cfg_split are mutually exclusive")
+		}
+		topo, ok := lookupUNetTopology(model)
+		if !ok {
+			// Unknown model — silently degrade to single UNet stage.
+			unetStages = 1
+		} else if unetStages > topo.TotalBlocks {
+			return nil, errMsg("dpp plan: unet_stages exceeds model block count")
+		} else {
+			unetBlocks = partitionUNetBlocks(topo.TotalBlocks, unetStages)
+			if unetBlocks == nil {
+				return nil, errMsg("dpp plan: partition failed")
+			}
+		}
+	}
 	order := []string{"text_encoder", "unet", "vae"}
 	if cfgSplit {
 		order = []string{"text_encoder", "unet_cond", "unet_uncond", "vae"}
+	} else if unetStages > 1 {
+		// One logical "unet" role expands to N stages.  Role names are
+		// "unet_0", "unet_1", ...; the runtime treats them identically
+		// to plain "unet" but uses block_lo/block_hi from the control
+		// frame to pick which torch modules to load.
+		order = []string{"text_encoder"}
+		for i := 0; i < unetStages; i++ {
+			order = append(order, "unet_"+strconv.Itoa(i))
+		}
+		order = append(order, "vae")
 	}
 	plan := &dppPlan{Model: model, Config: config}
 
@@ -275,6 +361,15 @@ func (s *server) planDPP(poolID int64, model string, roles map[string]string, co
 		autoOrder := []string{"unet", "text_encoder", "vae"}
 		if cfgSplit {
 			autoOrder = []string{"unet_cond", "unet_uncond", "text_encoder", "vae"}
+		} else if unetStages > 1 {
+			// Assign all UNet stages first (VRAM-led), then TE, then VAE.
+			// Stage 0 ("unet_0") gets the biggest rig because it holds
+			// conv_in + time_embedding in addition to its block share.
+			autoOrder = nil
+			for i := 0; i < unetStages; i++ {
+				autoOrder = append(autoOrder, "unet_"+strconv.Itoa(i))
+			}
+			autoOrder = append(autoOrder, "text_encoder", "vae")
 		}
 		for _, role := range autoOrder {
 			if roles[role] != "" {
@@ -309,12 +404,26 @@ func (s *server) planDPP(poolID int64, model string, roles map[string]string, co
 				partner = roles["unet_cond"]
 			}
 		}
+		blockLo, blockHi := -1, -1
+		// Surface role: the runtime sees just "unet" + block range, so it
+		// dispatches to the same code path regardless of how many UNet
+		// stages there are.  unet_N is purely a planner-side label.
+		emittedRole := role
+		if unetStages > 1 && len(role) >= 5 && role[:5] == "unet_" {
+			idx, err := strconv.Atoi(role[5:])
+			if err != nil || idx < 0 || idx >= len(unetBlocks) {
+				return nil, errMsg("dpp plan: invalid unet stage index " + role)
+			}
+			blockLo = unetBlocks[idx].Lo
+			blockHi = unetBlocks[idx].Hi
+			emittedRole = "unet"
+		}
 		plan.Stages = append(plan.Stages, dppStage{
 			AgentID:  ag,
 			StageIdx: i,
-			Role:     role,
-			BlockLo:  -1,
-			BlockHi:  -1,
+			Role:     emittedRole,
+			BlockLo:  blockLo,
+			BlockHi:  blockHi,
 			Partner:  partner,
 		})
 	}
@@ -337,6 +446,23 @@ type dppRequestBody struct {
 	// rigs in parallel (per denoise step).  Falls back to the same rig
 	// for both halves when only one UNet-capable rig is available.
 	CFGSplit bool `json:"cfg_split,omitempty"`
+	// UnetStages > 1 splits the denoiser into N pipeline-parallel stages
+	// each owning a contiguous block range of the linearised UNet.  Each
+	// rig only loads its share of blocks (plus conv_in/time_embedding on
+	// stage 0 and conv_norm_out/conv_out on the last stage), making it
+	// possible to run models that don't fit on any single rig.  Mutually
+	// exclusive with CFGSplit.
+	UnetStages int `json:"unet_stages,omitempty"`
+	// UnetAgents pins specific agents to the N UNet stages, in order
+	// (stage 0 first).  Optional; if empty the planner auto-picks the N
+	// most VRAM-rich rigs.  Length must match UnetStages when set.
+	UnetAgents []string `json:"unet_agents,omitempty"`
+	// InitImageURL is the URL of an existing image to seed an img2img run.
+	// When set, the text_encoder stage fetches it and the UNet starts from
+	// its VAE-encoded latent + diffusion noise per `strength` instead of
+	// pure noise.
+	InitImageURL string  `json:"init_image_url,omitempty"`
+	Strength     float64 `json:"strength,omitempty"` // 0..1; default 0.6 for img2img
 }
 
 // POST /api/infer_dpp — kick off a diffusion-PP generation across N stages.
@@ -378,10 +504,37 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 	if body.Height == 0 {
 		body.Height = 1024
 	}
-	if len(body.Roles) == 0 {
-		writeErr(w, 400, "roles map required (e.g. {\"text_encoder\":\"rig-a\",\"unet\":\"rig-b\",\"vae\":\"rig-a\"})")
+	if body.UnetStages < 0 {
+		writeErr(w, 400, "unet_stages must be ≥ 0")
 		return
 	}
+	if body.UnetStages > 1 && body.CFGSplit {
+		writeErr(w, 400, "unet_stages and cfg_split are mutually exclusive")
+		return
+	}
+	if body.UnetStages > 1 && len(body.UnetAgents) > 0 && len(body.UnetAgents) != body.UnetStages {
+		writeErr(w, 400, "unet_agents length must match unet_stages")
+		return
+	}
+	// Expand pinned unet_agents into role map slots "unet_0", "unet_1",
+	// ... so the planner sees them as already-assigned and doesn't
+	// auto-pick a different rig.
+	if body.UnetStages > 1 && len(body.UnetAgents) > 0 {
+		if body.Roles == nil {
+			body.Roles = map[string]string{}
+		}
+		// If caller also supplied a legacy "unet" pin, treat it as the
+		// first stage hint when no per-stage pins are given (already
+		// handled above by len check — at this point both arrays exist
+		// and are correctly sized).
+		delete(body.Roles, "unet")
+		for i, a := range body.UnetAgents {
+			body.Roles["unet_"+strconv.Itoa(i)] = a
+		}
+	}
+	// Empty roles map is fine — planDPP auto-picks by VRAM cost when slots
+	// are blank.  We keep partial maps working too (caller pins one role,
+	// auto-pick fills the rest).
 
 	vis, _, ok := s.poolVisibility(body.PoolID)
 	if !ok {
@@ -406,19 +559,61 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	img, err := s.executeDPPInference(ctx, u.ID, body)
+	if err != nil {
+		if err == errDPPTimeout {
+			writeErr(w, 504, "dpp timeout")
+			return
+		}
+		writeErr(w, 503, err.Error())
+		return
+	}
+	reqID16 := nextReqID() // for the on-disk filename only; the inference path already minted its own
+	outPath, perr := s.persistDPPImage(u.ID, reqID16, img)
+	if perr != nil {
+		writeErr(w, 500, "persist: "+perr.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"created": nowUnix(),
+		"data":    []map[string]string{{"url": outPath}},
+	})
+	slotBilled = true
+	return
+}
+
+// errDPPTimeout signals the run exceeded its deadline.  The HTTP handler
+// translates it to 504; the comfy-job goroutine translates it to status=failed.
+var errDPPTimeout = errMsg("dpp timeout")
+
+// executeDPPInference is the shared execution body used by both
+// handleInferDPP and the comfy-routed DPP path.  It plans the stages,
+// attaches dpp peers, sends dpp_route control frames, kicks off stage 0,
+// and waits for the terminal stage to emit either a final image or an
+// error.  Rate-limit + persistence are caller responsibilities.
+func (s *server) executeDPPInference(ctx context.Context, userID int64, body dppRequestBody) ([]byte, error) {
 	config := map[string]any{
-		"steps":     body.Steps,
-		"cfg_scale": body.CFG,
-		"width":     body.Width,
-		"height":    body.Height,
-		"seed":      body.Seed,
-		"prompt":    body.Prompt,
-		"cfg_split": body.CFGSplit,
+		"steps":       body.Steps,
+		"cfg_scale":   body.CFG,
+		"width":       body.Width,
+		"height":      body.Height,
+		"seed":        body.Seed,
+		"prompt":      body.Prompt,
+		"cfg_split":   body.CFGSplit,
+		"unet_stages": body.UnetStages,
+	}
+	if body.InitImageURL != "" {
+		config["init_image_url"] = body.InitImageURL
+	}
+	if body.Strength > 0 {
+		config["strength"] = body.Strength
 	}
 	plan, err := s.planDPP(body.PoolID, body.Model, body.Roles, config)
 	if err != nil {
-		writeErr(w, 503, err.Error())
-		return
+		return nil, err
 	}
 
 	// Resolve every stage's agentConn.  Same agentID across stages → same conn.
@@ -428,20 +623,21 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 	}
 	refs := make([]stageRef, len(plan.Stages))
 	for i, st := range plan.Stages {
-		ac, ok := s.hub.findAgent(u.ID, st.AgentID)
+		ac, ok := s.hub.findAgent(userID, st.AgentID)
 		if !ok {
-			writeErr(w, 503, "stage "+st.AgentID+" offline")
-			return
+			return nil, errMsg("stage " + st.AgentID + " offline")
 		}
-		st.UserID = u.ID
+		st.UserID = userID
 		refs[i] = stageRef{stage: st, conn: ac}
 	}
 
 	reqID16 := nextReqID()
 
-	// Attach a dppPeer to each *distinct* agentConn (dedupe; one agent can
-	// own multiple roles).  Same-agent stages share the same peer because
-	// the dispatch only checks ac.dppPeer.
+	chain := make([]*agentConn, len(refs))
+	for i := range refs {
+		chain[i] = refs[i].conn
+	}
+
 	peers := make([]*dppPeer, len(refs))
 	attached := make(map[*agentConn]*dppPeer)
 	cleanup := func() {
@@ -451,17 +647,7 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range refs {
 		ac := refs[i].conn
-		var next *agentConn
-		// Find the next *distinct* conn after i.
-		for j := i + 1; j < len(refs); j++ {
-			if refs[j].conn != ac {
-				next = refs[j].conn
-				break
-			}
-		}
 		if existing, ok := attached[ac]; ok {
-			// Same agent doing multiple roles — re-use the peer but flag it
-			// as terminal if any of its stages is terminal.
 			peers[i] = existing
 			if i == len(refs)-1 {
 				existing.isTerminal = true
@@ -470,9 +656,8 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		}
 		dp := &dppPeer{
 			reqID:      reqID16,
-			stageIdx:   uint16(i),
 			isTerminal: i == len(refs)-1,
-			nextAgent:  next,
+			chain:      chain,
 			closed:     make(chan struct{}),
 		}
 		if i == len(refs)-1 {
@@ -480,27 +665,33 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		}
 		if !ac.attachDPPPeer(dp) {
 			cleanup()
-			writeErr(w, 503, "stage "+refs[i].stage.AgentID+" is busy")
-			return
+			return nil, errMsg("stage " + refs[i].stage.AgentID + " is busy")
 		}
 		peers[i] = dp
 		attached[ac] = dp
 	}
 	defer cleanup()
 
-	// Terminal peer is whichever peer wraps the last conn.  If the last
-	// stage shares an agent with an earlier stage, the same peer covers it
-	// and its tokens channel is already wired.
 	termPeer := peers[len(peers)-1]
 	if termPeer.tokens == nil {
-		// We deduped earlier — promote it to terminal now.
 		termPeer.tokens = make(chan *ActvFrame, 16)
 		termPeer.isTerminal = true
 	}
 
-	// Send each stage its dpp_route control frame.  Same agent receiving
-	// multiple control frames is fine — the runtime indexes by req_id +
-	// stage_idx.
+	firstUnet, lastUnet := -1, -1
+	for i, ref := range refs {
+		if ref.stage.Role == "unet" && ref.stage.BlockLo >= 0 {
+			if firstUnet < 0 {
+				firstUnet = i
+			}
+			lastUnet = i
+		}
+	}
+	if firstUnet >= 0 && lastUnet > firstUnet {
+		peers[lastUnet].loopbackAgent = refs[firstUnet].conn
+		peers[lastUnet].loopbackStage = uint16(refs[firstUnet].stage.StageIdx)
+	}
+
 	for i, ref := range refs {
 		var nextID, prevID string
 		if i+1 < len(refs) {
@@ -529,9 +720,6 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("dpp: sent dpp_route req=%d stage=%d role=%s to agent=%s", reqID16, ref.stage.StageIdx, ref.stage.Role, ref.stage.AgentID)
 	}
 
-	// Kick off stage 0 with the prompt as a utf-8 byte ACTV.  The stage's
-	// runtime interprets it as the diffusion prompt (vs an LLM token stream)
-	// because it just got a `dpp_route` control with role=text_encoder.
 	kick := &ActvFrame{
 		Type:    actvTypeAct,
 		ReqID:   reqID16,
@@ -542,52 +730,28 @@ func (s *server) handleInferDPP(w http.ResponseWriter, r *http.Request) {
 		Payload: []byte(body.Prompt),
 	}
 	if !refs[0].conn.sendBin(kick.Encode()) {
-		writeErr(w, 503, "stage 0 buffer full")
-		return
+		return nil, errMsg("stage 0 buffer full")
 	}
-
-	// Wait for the terminal stage to emit either an image, a done, or an
-	// error.  Diffusion takes a while — give it 5 minutes.
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-	defer cancel()
 
 	for {
 		select {
 		case f, ok := <-termPeer.tokens:
 			if !ok {
-				writeErr(w, 500, "stage closed before image")
-				return
+				return nil, errMsg("stage closed before image")
 			}
 			switch f.Type {
 			case actvTypeAct:
-				// Final image bytes from the VAE stage.
 				if f.Flags&actvFlagDPPImage == 0 {
 					continue
 				}
-				outPath, err := s.persistDPPImage(u.ID, reqID16, f.Payload)
-				if err != nil {
-					writeErr(w, 500, "persist: "+err.Error())
-					return
-				}
-				writeJSON(w, 200, map[string]any{
-					"created": nowUnix(),
-					"data": []map[string]string{
-						{"url": outPath},
-					},
-				})
-				slotBilled = true
-				return
+				return f.Payload, nil
 			case actvTypeDone:
-				writeJSON(w, 200, map[string]any{"done": true})
-				slotBilled = true
-				return
+				return nil, errMsg("dpp stage emitted done before image")
 			case actvTypeError:
-				writeErr(w, 500, string(f.Payload))
-				return
+				return nil, errMsg(string(f.Payload))
 			}
 		case <-ctx.Done():
-			writeErr(w, 504, "dpp timeout")
-			return
+			return nil, errDPPTimeout
 		}
 	}
 }

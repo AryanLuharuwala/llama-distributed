@@ -49,10 +49,10 @@ def dist_go_image(
       entrypoint_args: extra args to bake into ENTRYPOINT
     """
     pkg_tar(
-        name        = name + "_layer",
-        srcs        = [binary],
+        name = name + "_layer",
+        srcs = [binary],
         package_dir = "/usr/local/bin",
-        mode        = "0755",
+        mode = "0755",
     )
 
     layers = [":" + name + "_layer"]
@@ -65,13 +65,13 @@ def dist_go_image(
 
     for arch in ("amd64", "arm64"):
         oci_image(
-            name       = name + "_image_" + arch,
-            base       = base + "_linux_" + arch,
+            name = name + "_image_" + arch,
+            base = base + "_linux_" + arch,
             entrypoint = entrypoint,
-            tars       = layers,
+            tars = layers,
             exposed_ports = ports,
-            env           = env,
-            labels        = labels,
+            env = env,
+            labels = labels,
             # SOURCE_DATE_EPOCH=0 (set in .bazelrc) makes layer mtimes
             # deterministic, which means image digests are stable
             # across rebuilds — a precondition for cosign to keep
@@ -79,7 +79,7 @@ def dist_go_image(
         )
 
     oci_image_index(
-        name   = name,
+        name = name,
         images = [
             ":" + name + "_image_amd64",
             ":" + name + "_image_arm64",
@@ -92,24 +92,24 @@ def dist_go_image(
     # the cosign binary using either keyless OIDC (CI) or a key file
     # (local).  See deploy/sign/README.md for the threat model.
     native.genrule(
-        name    = name + "_image_signed",
-        srcs    = [":" + name],
-        outs    = [name + "_sig.json"],
-        cmd     = """
+        name = name + "_image_signed",
+        srcs = [":" + name],
+        outs = [name + "_sig.json"],
+        cmd = """
             $(location //deploy/sign:cosign-sign) \\
                 --image $(SRCS) \\
                 --repository """ + repository + """ \\
                 --output $@
         """,
-        tools   = ["//deploy/sign:cosign-sign"],
+        tools = ["//deploy/sign:cosign-sign"],
         executable = False,
         visibility = visibility,
         tags = ["manual", "no-sandbox"],  # needs network to call OIDC
     )
 
     oci_push(
-        name       = name + "_push",
-        image      = ":" + name,
+        name = name + "_push",
+        image = ":" + name,
         repository = repository,
         visibility = visibility,
     )
@@ -117,12 +117,12 @@ def dist_go_image(
     # Alias the index as `:image` so the root BUILD's all_images
     # filegroup can refer to `//pkg:image` without the binary's name.
     native.alias(
-        name       = "image",
-        actual     = ":" + name,
+        name = "image",
+        actual = ":" + name,
         visibility = visibility,
     )
     native.alias(
-        name       = "image_signed",
-        actual     = ":" + name + "_image_signed",
+        name = "image_signed",
+        actual = ":" + name + "_image_signed",
         visibility = visibility,
     )

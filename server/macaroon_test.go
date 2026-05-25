@@ -85,16 +85,23 @@ func TestCapKeyRotation(t *testing.T) {
 // produce a verify failure.  Macaroon HMAC chain guarantees this; the
 // test pins the property so a future refactor can't accidentally trade
 // it away.
+//
+// Implementation note: we flip a *middle* char rather than the last
+// one.  Go's base64.RawURLEncoding is non-strict by default — it
+// ignores trailing padding bits during decode — so toggling the lowest
+// bit of the trailing char can decode to the same bytes when the
+// encoded payload length isn't divisible by 3.  Middle chars always
+// occupy canonical (non-padding) bit ranges, so a flip there is
+// guaranteed to change the decoded byte stream and thus the HMAC.
 func TestCapTamperRejection(t *testing.T) {
 	s := newMacaroonTestServer(t)
 	tok, _ := s.mintShardCap(1, "f", time.Hour)
-	// Flip the last char.  Base64 url-safe alphabet; toggling between
-	// 'A' and 'B' is always a valid character but different bits.
 	tampered := []byte(tok)
-	if tampered[len(tampered)-1] == 'A' {
-		tampered[len(tampered)-1] = 'B'
+	mid := len(tampered) / 2
+	if tampered[mid] == 'A' {
+		tampered[mid] = 'B'
 	} else {
-		tampered[len(tampered)-1] = 'A'
+		tampered[mid] = 'A'
 	}
 	if err := s.verifyShardCap(string(tampered), 1, "f"); err == nil {
 		t.Fatalf("expected tamper rejection")

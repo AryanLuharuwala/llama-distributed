@@ -5,14 +5,14 @@ load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 # OCI image after Bazel builds it.  The actual cosign binary is found
 # on $PATH at runtime; we don't vendor it.  See README.md for why.
 sh_binary(
-    name       = "cosign-sign",
-    srcs       = ["cosign-sign.sh"],
+    name = "cosign-sign",
+    srcs = ["cosign-sign.sh"],
     visibility = ["//visibility:public"],
 )
 
 sh_binary(
-    name       = "cosign-verify",
-    srcs       = ["cosign-verify.sh"],
+    name = "cosign-verify",
+    srcs = ["cosign-verify.sh"],
     visibility = ["//visibility:public"],
 )
 

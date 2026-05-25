@@ -109,6 +109,9 @@ func (s *server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeCounter(&b, "distinf_comfy_jobs_failed_total",
 		"Total comfy jobs that ended in failed or cancelled state (lifetime).",
 		float64(cFailed), nil)
+	writeCounter(&b, "distinf_comfy_legacy_url_rejected_total",
+		"Lifetime count of comfy output URLs rejected because their v1 signature aged past the grace window.",
+		float64(s.comfyLegacyURLRejected.Load()), nil)
 	writeGauge(&b, "distinf_relay_assignments_active",
 		"Currently-attributed relay sessions awaiting release.",
 		float64(activeRelaysCount), nil)

@@ -62,6 +62,15 @@ func migrateComfy(db *sql.DB, d sqlDialect) error {
 		// Comfy models: a checkpoint that one or more rigs know how to load.
 		// Unlike llama models we don't split — comfy checkpoints live whole
 		// on the rig's local disk and are referenced by name.
+		//
+		// NOTE on visibility: this table is intentionally a *shared catalog*
+		// (no user_id column).  Any logged-in user can see and reference
+		// every registered model — the assumption is that checkpoints are
+		// non-secret artifacts (SDXL base, public LoRAs, etc.).  This is
+		// inconsistent with comfy_workflows which is per-user, but matches
+		// the typical operator-curated catalog mental model.  If you want
+		// per-user scoping, add `user_id INTEGER REFERENCES users(id)` and
+		// update handleComfyListModels + comfyModelRegistered to filter.
 		`CREATE TABLE IF NOT EXISTS comfy_models (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			name        TEXT UNIQUE NOT NULL,
@@ -158,6 +167,76 @@ func (j *comfyJobs) cancel(id int64) bool {
 	}
 	cj.cancel()
 	return true
+}
+
+// ─── Pre-flight helpers shared by handleComfyGenerate + handleOAIImageGen ─
+
+// comfyInflightForUser returns the count of jobs currently in queued/
+// running/streaming state for uid.  Used by the inflight cap.
+func (s *server) comfyInflightForUser(uid int64) int {
+	var n int
+	_ = s.dbQueryRow(
+		`SELECT COUNT(*) FROM comfy_jobs
+		 WHERE user_id = ? AND status IN ('queued','running','streaming')`,
+		uid).Scan(&n)
+	return n
+}
+
+// comfyInflightCap is the per-user cap on simultaneous comfy jobs.  The
+// number is small on purpose — image jobs are GPU-heavy and there is no
+// admission queue today, so letting one user fan out 50 jobs would
+// effectively DoS the comfy fleet for everyone else.  Tunable via
+// DIST_COMFY_USER_INFLIGHT if we discover an operator workload that
+// genuinely needs more — but see audit notes: bump this only after
+// adding per-pool admission control (P21-C3).
+const comfyInflightCap = 4
+
+// comfyModelRegistered returns true if name is in the comfy_models
+// catalog.  Empty name returns true (the default workflow handles it).
+func (s *server) comfyModelRegistered(name string) bool {
+	if name == "" {
+		return true
+	}
+	var ok int
+	_ = s.dbQueryRow(
+		`SELECT 1 FROM comfy_models WHERE name = ?`, name,
+	).Scan(&ok)
+	return ok == 1
+}
+
+// ─── Authorization helpers ────────────────────────────────────────────────
+
+// authorizePoolForComfy returns true if uid is allowed to dispatch a comfy
+// job onto poolID.  poolID == 0 means "no pool — use my own rigs", which is
+// always allowed.  Otherwise the user must be a pool member OR the pool
+// must be public.  Returns false and writes the HTTP error if not allowed
+// (404 pool not found, 403 not a member).
+//
+// Why this exists: handleComfyGenerate and handleOAIImageGen both accept
+// pool_id from the request body / params.  Without this check, a logged-in
+// user could submit jobs against any pool's rigs by guessing pool IDs — a
+// straight IDOR — and the macaroon-signed output URLs would come back to
+// them while strangers paid the GPU cycles.  Audited 2026-05-25.
+func (s *server) authorizePoolForComfy(w http.ResponseWriter, uid, poolID int64) bool {
+	if poolID == 0 {
+		return true
+	}
+	vis, _, ok := s.poolVisibility(poolID)
+	if !ok {
+		// 404 — not 403 — so we don't enumerate the existence of pools the
+		// user isn't a member of via a status-code oracle.  An IDOR scan
+		// gets 404 for both "doesn't exist" and "not your pool."
+		writeErr(w, 404, "pool not found")
+		return false
+	}
+	if vis == "public" {
+		return true
+	}
+	if _, member := s.userIsMember(poolID, uid); member {
+		return true
+	}
+	writeErr(w, 404, "pool not found")
+	return false
 }
 
 // ─── Handlers ──────────────────────────────────────────────────────────────
@@ -349,6 +428,19 @@ type comfyGenerateReq struct {
 	PoolID     int64           `json:"pool_id"`
 	Prompt     string          `json:"prompt"`
 	Params     json.RawMessage `json:"params"` // free-form overrides ({"seed": ..., "steps": ...})
+	// Backend explicitly selects execution path.
+	//   ""      — auto: route to DPP when model is dpp-eligible AND pool has
+	//             ≥2 online rigs; otherwise fall through to single-rig comfy.
+	//   "comfy" — force single-rig ComfyUI (legacy / safe path).
+	//   "dpp"   — force distributed pipeline.  Errors out if the model isn't
+	//             dpp-eligible or the pool lacks the rigs.
+	Backend string `json:"backend,omitempty"`
+	// Optional DPP-only hints — passed through to executeDPPInference.
+	UnetStages   int               `json:"unet_stages,omitempty"`
+	Roles        map[string]string `json:"roles,omitempty"`
+	UnetAgents   []string          `json:"unet_agents,omitempty"`
+	InitImageURL string            `json:"init_image_url,omitempty"`
+	Strength     float64           `json:"strength,omitempty"`
 }
 
 func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
@@ -370,16 +462,19 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "prompt too long (>8KB)")
 		return
 	}
-	// Bound concurrency: each user gets up to 4 in-flight comfy jobs.  Past
-	// that we reject so a slow rig can't be hammered into oblivion from one
-	// browser tab.
-	var inflight int
-	_ = s.dbQueryRow(
-		`SELECT COUNT(*) FROM comfy_jobs
-		 WHERE user_id = ? AND status IN ('queued','running','streaming')`,
-		u.ID).Scan(&inflight)
-	if inflight >= 4 {
-		writeErr(w, 429, "too many in-flight comfy jobs (limit 4); wait for one to finish")
+	// IDOR guard: body.PoolID comes straight from JSON.  Without this
+	// check, any logged-in user could pin a stranger's GPUs by guessing
+	// pool IDs.  See authorizePoolForComfy.
+	if !s.authorizePoolForComfy(w, u.ID, body.PoolID) {
+		return
+	}
+	// Bound concurrency: each user gets up to comfyInflightCap in-flight
+	// comfy jobs.  Past that we reject so a slow rig can't be hammered
+	// into oblivion from one browser tab.  Shared with handleOAIImageGen
+	// — the audit found that the OAI path was previously skipping this
+	// gate entirely (P21-CF3).
+	if s.comfyInflightForUser(u.ID) >= comfyInflightCap {
+		writeErr(w, 429, fmt.Sprintf("too many in-flight comfy jobs (limit %d); wait for one to finish", comfyInflightCap))
 		return
 	}
 	// Charge a request slot against the rolling-minute cap so a tight
@@ -433,21 +528,61 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		wfKind = "image"
 	}
 
-	// Resolve model name if provided (informational; agent loads on demand).
-	if body.ModelName != "" {
-		var ok int
-		_ = s.dbQueryRow(
-			`SELECT 1 FROM comfy_models WHERE name = ?`, body.ModelName,
-		).Scan(&ok)
-		if ok == 0 {
+	// Resolve model name if provided.  DPP backend skips the comfy registry
+	// because models resolve through the HF cache instead — but if the
+	// caller didn't pin backend=dpp, we still enforce comfy registration so
+	// the auto-router can fall back to single-rig comfy below.
+	if body.Backend != "dpp" {
+		if !s.comfyModelRegistered(body.ModelName) {
 			writeErr(w, 404, "model not registered: "+body.ModelName)
 			return
 		}
 	}
 
+	// ── Backend routing ────────────────────────────────────────────────
+	//
+	// Decide between single-rig ComfyUI (legacy) and DPP (text_encoder →
+	// UNet[stages] → VAE staged across rigs).  The decision is:
+	//
+	//   backend=="comfy"  → single-rig comfy
+	//   backend=="dpp"    → DPP (or error if not feasible)
+	//   backend==""       → DPP if model is dpp-eligible AND pool has
+	//                       ≥2 online rigs; otherwise single-rig comfy.
+	useDPP := false
+	switch body.Backend {
+	case "dpp":
+		if !isDPPEligible(body.ModelName) {
+			writeErr(w, 400, "backend=dpp requested but model is not DPP-eligible: "+body.ModelName)
+			return
+		}
+		if n := s.countDPPRigsInPool(body.PoolID); n < 1 {
+			writeErr(w, 503, "backend=dpp requested but no online rigs in pool")
+			return
+		}
+		useDPP = true
+	case "", "auto":
+		if isDPPEligible(body.ModelName) && s.countDPPRigsInPool(body.PoolID) >= 2 {
+			useDPP = true
+		}
+	case "comfy":
+		useDPP = false
+	default:
+		writeErr(w, 400, "unknown backend: "+body.Backend)
+		return
+	}
+
 	params := string(body.Params)
 	if params == "" || params == "null" {
 		params = "{}"
+	}
+
+	// Stamp a marker into params_json so the UI / job-detail endpoint can
+	// surface which path actually ran (handy for the live-pipeline graph).
+	paramsForDB := params
+	if useDPP {
+		paramsForDB = stampParamsBackend(params, "dpp")
+	} else {
+		paramsForDB = stampParamsBackend(params, "comfy")
 	}
 
 	res, err := s.dbExec(
@@ -456,7 +591,7 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		 VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
 		u.ID, sql.NullInt64{Int64: body.PoolID, Valid: body.PoolID != 0},
 		sql.NullInt64{Int64: wfID, Valid: wfID != 0},
-		body.Prompt, params, nowUnix(), nowUnix(),
+		body.Prompt, paramsForDB, nowUnix(), nowUnix(),
 	)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -467,9 +602,25 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	s.comfyJobs.register(jobID, cancel)
 	jobAdmitted = true
+	if useDPP {
+		dppBody := dppRequestBody{
+			PoolID:       body.PoolID,
+			Model:        body.ModelName,
+			Prompt:       body.Prompt,
+			Roles:        body.Roles,
+			UnetStages:   body.UnetStages,
+			UnetAgents:   body.UnetAgents,
+			InitImageURL: body.InitImageURL,
+			Strength:     body.Strength,
+		}
+		applyComfyParamsToDPPBody(params, &dppBody)
+		go s.runDPPComfyJob(jobCtx, u.ID, jobID, dppBody)
+		writeJSON(w, 200, map[string]any{"job_id": jobID, "status": "queued", "kind": "image", "backend": "dpp"})
+		return
+	}
 	go s.runComfyJob(jobCtx, u.ID, jobID, body.PoolID, graph, wfKind, body.Prompt, params, body.ModelName, nRigs)
 
-	writeJSON(w, 200, map[string]any{"job_id": jobID, "status": "queued", "kind": wfKind})
+	writeJSON(w, 200, map[string]any{"job_id": jobID, "status": "queued", "kind": wfKind, "backend": "comfy"})
 }
 
 // GET /api/comfy/jobs/{id}
@@ -548,6 +699,25 @@ func (s *server) handleComfyJobCancel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "not your job")
 		return
 	}
+	// Two-step cancel (audit P21-CF10c):
+	//
+	//   1. UPDATE the DB row so a runComfyJob goroutine that hasn't yet
+	//      finished its register() — or is running on a different
+	//      replica — still sees the cancellation when it checks the row.
+	//   2. Call the in-process cancel so a live goroutine on this
+	//      replica trips ctx.Done() immediately.
+	//
+	// We guard the UPDATE with the status filter so we don't downgrade a
+	// 'done' or 'failed' row to 'cancelled' — that would corrupt the
+	// audit trail.
+	_, _ = s.dbExec(
+		`UPDATE comfy_jobs
+		   SET status = 'cancelled',
+		       error  = 'cancelled by user',
+		       updated_at = ?
+		 WHERE id = ? AND status IN ('queued','running','streaming')`,
+		nowUnix(), id,
+	)
 	s.comfyJobs.cancel(id)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -688,6 +858,7 @@ func (s *server) handleComfyOutput(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			if time.Since(s.startedAt) > comfyV1GraceWindow {
+				s.comfyLegacyURLRejected.Add(1)
 				writeErr(w, 401, "legacy url no longer accepted; please refresh")
 				return
 			}
@@ -735,10 +906,26 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var body struct {
-		Prompt string `json:"prompt"`
-		Model  string `json:"model"`
-		Size   string `json:"size"`
-		N      int    `json:"n"`
+		Prompt   string `json:"prompt"`
+		Model    string `json:"model"`
+		Size     string `json:"size"`
+		N        int    `json:"n"`
+		Quality  string `json:"quality,omitempty"`  // OAI-compat, unused
+		Style    string `json:"style,omitempty"`    // OAI-compat, unused
+		User     string `json:"user,omitempty"`     // OAI-compat, unused
+		Response string `json:"response_format,omitempty"`
+		// Extras beyond OpenAI's schema — passed through to the runner.
+		Steps          int               `json:"steps,omitempty"`
+		CFGScale       float64           `json:"cfg_scale,omitempty"`
+		Seed           int64             `json:"seed,omitempty"`
+		Negative       string            `json:"negative_prompt,omitempty"`
+		PoolID         int64             `json:"pool_id,omitempty"`
+		Backend        string            `json:"backend,omitempty"` // "", "comfy", "dpp", "auto"
+		UnetStages     int               `json:"unet_stages,omitempty"`
+		Roles          map[string]string `json:"roles,omitempty"`
+		UnetAgents     []string          `json:"unet_agents,omitempty"`
+		InitImageURL   string            `json:"init_image_url,omitempty"`
+		Strength       float64           `json:"strength,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -759,6 +946,53 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 	if body.N == 0 {
 		body.N = 1
 	}
+	// IDOR + visibility guard.  Body.PoolID is a free-form JSON int; without
+	// this an API-key caller could pin a stranger's GPUs by guessing pools.
+	if body.PoolID != 0 {
+		if !s.authorizePoolForComfy(w, u.ID, body.PoolID) {
+			return
+		}
+	}
+	// In-flight cap.  Previously this handler only enforced the rolling-
+	// minute rate limit, which let a steady stream of API-key calls pin
+	// every comfy rig (audit P21-CF3).  Cap on simultaneous jobs is the
+	// real backpressure here.
+	if s.comfyInflightForUser(u.ID) >= comfyInflightCap {
+		oaiErr(w, 429, "rate_limit_exceeded",
+			fmt.Sprintf("too many in-flight comfy jobs (limit %d); wait for one to finish", comfyInflightCap))
+		return
+	}
+	// Backend routing — same rules as handleComfyGenerate.
+	useDPP := false
+	switch body.Backend {
+	case "dpp":
+		if !isDPPEligible(body.Model) {
+			oaiErr(w, 400, "invalid_backend", "backend=dpp requires a dpp-eligible model")
+			return
+		}
+		if n := s.countDPPRigsInPool(body.PoolID); n < 1 {
+			oaiErr(w, 503, "no_rigs", "no online rigs in pool")
+			return
+		}
+		useDPP = true
+	case "", "auto":
+		if isDPPEligible(body.Model) && s.countDPPRigsInPool(body.PoolID) >= 2 {
+			useDPP = true
+		}
+	case "comfy":
+		useDPP = false
+	default:
+		oaiErr(w, 400, "invalid_backend", "unknown backend: "+body.Backend)
+		return
+	}
+	// Single-rig comfy path requires the model to be registered.  DPP path
+	// resolves via the HF cache instead, so we skip the comfy registry check.
+	if !useDPP {
+		if !s.comfyModelRegistered(body.Model) {
+			oaiErr(w, 404, "model_not_found", "model not registered: "+body.Model)
+			return
+		}
+	}
 	// Same rolling-minute admission as /api/comfy/generate.  Without it,
 	// API-key callers can pin every comfy rig with a tight curl loop.
 	admitted, _, _ := s.reserveRequestSlot(u.ID)
@@ -772,16 +1006,33 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 			s.refundRequestSlot(u.ID)
 		}
 	}()
+	// Parse OpenAI's "size":"WxH" into width/height — only used when caller
+	// didn't supply explicit width/height extras.
+	w_, h_ := parseOAISize(body.Size)
 	params := map[string]any{
-		"size": body.Size,
-		"n":    body.N,
+		"size":            body.Size,
+		"n":               body.N,
+		"steps":           body.Steps,
+		"cfg_scale":       body.CFGScale,
+		"seed":            body.Seed,
+		"negative_prompt": body.Negative,
+		"width":           w_,
+		"height":          h_,
+		"_backend":        ifElseStr(useDPP, "dpp", "comfy"),
+	}
+	if body.InitImageURL != "" {
+		params["init_image_url"] = body.InitImageURL
+	}
+	if body.Strength > 0 {
+		params["strength"] = body.Strength
 	}
 	pj, _ := json.Marshal(params)
 	res, err := s.dbExec(
 		`INSERT INTO comfy_jobs
-		 (user_id, prompt, params_json, status, created_at, updated_at)
-		 VALUES (?, ?, ?, 'queued', ?, ?)`,
-		u.ID, body.Prompt, string(pj), nowUnix(), nowUnix(),
+		 (user_id, pool_id, prompt, params_json, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'queued', ?, ?)`,
+		u.ID, sql.NullInt64{Int64: body.PoolID, Valid: body.PoolID != 0},
+		body.Prompt, string(pj), nowUnix(), nowUnix(),
 	)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -791,12 +1042,40 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	s.comfyJobs.register(jobID, cancel)
 	jobAdmitted = true
-	go s.runComfyJob(jobCtx, u.ID, jobID, 0, defaultComfyWorkflowJSON, "image", body.Prompt, string(pj), body.Model, 1)
+	if useDPP {
+		dppBody := dppRequestBody{
+			PoolID:       body.PoolID,
+			Model:        body.Model,
+			Prompt:       body.Prompt,
+			Roles:        body.Roles,
+			Steps:        body.Steps,
+			CFG:          body.CFGScale,
+			Width:        w_,
+			Height:       h_,
+			Seed:         body.Seed,
+			UnetStages:   body.UnetStages,
+			UnetAgents:   body.UnetAgents,
+			InitImageURL: body.InitImageURL,
+			Strength:     body.Strength,
+		}
+		go s.runDPPComfyJob(jobCtx, u.ID, jobID, dppBody)
+	} else {
+		go s.runComfyJob(jobCtx, u.ID, jobID, body.PoolID, defaultComfyWorkflowJSON, "image", body.Prompt, string(pj), body.Model, 1)
+	}
 
-	// Block until the job completes or 60s elapse — OpenAI clients expect
-	// synchronous response.  For longer renders the dashboard's async API
-	// (/api/comfy/jobs/{id}) should be used instead.
-	deadline := time.After(60 * time.Second)
+	// Block until the job completes or 5 min elapse — OpenAI clients
+	// expect a synchronous response.  60s was the original bound and
+	// almost every SDXL render at 20 steps blew past it (P21-CF10b).  For
+	// renders that need longer than 5 min the dashboard's async API
+	// (/api/comfy/jobs/{id}) is still the right path; the 504 body
+	// includes the job_id so the SDK caller can poll.  Operator tunable
+	// via DIST_COMFY_OAI_DEADLINE_SECS if 5 min is the wrong number for
+	// a given fleet.
+	oaiDeadline := 5 * time.Minute
+	if s.cfg.comfyOAIDeadlineSecs > 0 {
+		oaiDeadline = time.Duration(s.cfg.comfyOAIDeadlineSecs) * time.Second
+	}
+	deadline := time.After(oaiDeadline)
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -853,6 +1132,17 @@ func (s *server) runComfyJob(
 	nRigs int,
 ) {
 	defer s.comfyJobs.finish(jobID)
+
+	// Pre-check: did handleComfyJobCancel beat us to the start?  The
+	// register-before-INSERT race is narrow (caller can't see job_id
+	// until after this handler returns) but the row could already be
+	// 'cancelled' if a different replica wrote it.  Bail out before we
+	// touch any rigs.  Audit P21-CF10c.
+	var preStatus string
+	_ = s.dbQueryRow(`SELECT status FROM comfy_jobs WHERE id = ?`, jobID).Scan(&preStatus)
+	if preStatus == "cancelled" {
+		return
+	}
 	s.comfySetStatus(jobID, uid, "running", "")
 
 	// Pick rig(s).
@@ -869,12 +1159,14 @@ func (s *server) runComfyJob(
 		return
 	}
 
-	// Materialise the workflow with the user's prompt + params substituted in.
-	finalGraph, err := substituteComfyParams(graphJSON, prompt, paramsJSON, modelName)
-	if err != nil {
-		s.comfyFail(jobID, uid, "graph build: "+err.Error())
-		return
-	}
+	// Resolve the base seed once so the user-supplied params.seed (if any)
+	// is honoured, and so that fan-out is reproducible from (job_id, seed).
+	// Each rig then gets a *distinct* derived seed — without this, a
+	// user asking for n_rigs=4 would get four identical images back
+	// (the original bug was that substituteComfyParams ran once before
+	// the fan-out loop, baking the same seed into every rig's graph).
+	baseSeed, seedSrc := resolveBaseSeed(paramsJSON, jobID)
+	_ = seedSrc // reserved for future logging
 
 	// Dispatch over WS to each chosen rig.
 	type rigResult struct {
@@ -883,10 +1175,24 @@ func (s *server) runComfyJob(
 		err    error
 	}
 	resultsCh := make(chan rigResult, len(rigs))
-	for _, ag := range rigs {
+	for i, ag := range rigs {
 		ag := ag
+		// Derive a per-rig seed.  XOR-mix the base seed with the rig
+		// index so seeds are spread across the int63 space but stay
+		// deterministic for a given (job, rig_idx).
+		rigSeed := baseSeed ^ int64(uint64(i+1)*0x9E3779B97F4A7C15)
+		if rigSeed < 0 {
+			rigSeed = -rigSeed
+		}
+		rigGraph, err := substituteComfyParamsWithSeed(graphJSON, prompt, paramsJSON, modelName, rigSeed)
+		if err != nil {
+			// One rig's graph failed to materialise — drop the rig with a
+			// synthetic result so the collector loop still terminates.
+			resultsCh <- rigResult{agent: ag, err: fmt.Errorf("rig %d graph build: %w", i, err)}
+			continue
+		}
 		go func() {
-			files, err := s.dispatchComfyToAgent(ctx, ag, jobID, kind, finalGraph)
+			files, err := s.dispatchComfyToAgent(ctx, ag, jobID, kind, rigGraph)
 			resultsCh <- rigResult{agent: ag, files: files, err: err}
 		}()
 	}
@@ -952,10 +1258,24 @@ func (s *server) dispatchComfyToAgent(ctx context.Context, a *agentConn, jobID i
 	resultCh := a.subscribeComfy(jobID)
 	defer a.unsubscribeComfy(jobID)
 
-	a.send(req)
+	// Fail fast if the rig is gone or its outbound queue is wedged
+	// (audit P21-CF8 — previously discarded send error meant the
+	// dispatcher would sit on resultCh for the full 10-min deadline
+	// before noticing).
+	if !a.trySend(req) {
+		return nil, errors.New("comfy: rig outbound queue full or closed; dropping job")
+	}
 
 	outDir := filepath.Join(s.cfg.comfyOutDir, strconv.FormatInt(jobID, 10))
 	var written []string
+	var bytesWritten int64
+	// Size + count caps to keep a malicious or buggy rig from writing
+	// the disk to death (audit P21-CF5).  Values come from config so
+	// operators can override per fleet.  Sensible defaults: 64 MiB per
+	// file, 1 GiB per job, 64 files per job.
+	maxFile := s.cfg.comfyMaxFileBytes
+	maxJob := s.cfg.comfyMaxJobBytes
+	maxFiles := s.cfg.comfyMaxJobFiles
 	deadline := time.NewTimer(10 * time.Minute)
 	defer deadline.Stop()
 	// On any non-completion exit, signal the rig so it can free GPU
@@ -979,15 +1299,27 @@ func (s *server) dispatchComfyToAgent(ctx context.Context, a *agentConn, jobID i
 			if msg.Final {
 				return written, msg.Err
 			}
-			// Write file from base64.
 			name := msg.FileName
 			if !isSafeOutputFile(name) {
 				continue
+			}
+			if maxFile > 0 && int64(len(msg.Data)) > maxFile {
+				sendAbort()
+				return written, fmt.Errorf("comfy: rig sent oversize file %q (%d bytes, cap %d)", name, len(msg.Data), maxFile)
+			}
+			if maxJob > 0 && bytesWritten+int64(len(msg.Data)) > maxJob {
+				sendAbort()
+				return written, fmt.Errorf("comfy: job total size exceeded cap (%d bytes)", maxJob)
+			}
+			if maxFiles > 0 && len(written) >= maxFiles {
+				sendAbort()
+				return written, fmt.Errorf("comfy: job file count exceeded cap (%d files)", maxFiles)
 			}
 			dst := filepath.Join(outDir, name)
 			if err := os.WriteFile(dst, msg.Data, 0o644); err != nil {
 				return written, err
 			}
+			bytesWritten += int64(len(msg.Data))
 			written = append(written, name)
 			s.hub.broadcastToUser(a.userID, "comfy_progress", map[string]any{
 				"job_id": jobID,
@@ -1000,21 +1332,50 @@ func (s *server) dispatchComfyToAgent(ctx context.Context, a *agentConn, jobID i
 
 // pickComfyRigs returns up to nRigs comfy-capable agents.  If poolID is set,
 // scoped to that pool; otherwise across the user's own rigs.
+//
+// Single JOIN: the previous implementation did a full table scan +
+// ORDER BY RANDOM() plus an N+1 SELECT against comfy_caps for every
+// candidate.  We now filter cap-gated rigs in the same query and apply
+// LIMIT so the engine stops once nRigs candidates are scanned.  The
+// scheduler still randomises ordering (each call hashes against a
+// per-request salt) but does so on a much smaller post-filter set —
+// see comfy_pick_order_salt below.  Audited 2026-05-25 (P21-CF9).
 func (s *server) pickComfyRigs(uid, poolID int64, nRigs int) []*agentConn {
 	if nRigs < 1 {
 		nRigs = 1
+	}
+	// Light over-fetch so we still hit nRigs picks even when some
+	// candidates aren't in s.hub (rig connected to another replica) —
+	// 3x is a generous-but-bounded margin.
+	limit := nRigs * 3
+	if limit < 8 {
+		limit = 8
 	}
 	var rows *sql.Rows
 	var err error
 	if poolID > 0 {
 		rows, err = s.dbQuery(`
-			SELECT r.user_id, r.agent_id FROM pool_rigs pr
-			JOIN rigs r ON r.id = pr.rig_id
-			WHERE pr.pool_id = ?
-			ORDER BY RANDOM()`, poolID)
+			SELECT r.user_id, r.agent_id
+			  FROM pool_rigs pr
+			  JOIN rigs r ON r.id = pr.rig_id
+			  JOIN comfy_caps cc
+			    ON cc.user_id = r.user_id
+			   AND cc.agent_id = r.agent_id
+			   AND cc.ok = 1
+			 WHERE pr.pool_id = ?
+			 ORDER BY RANDOM()
+			 LIMIT ?`, poolID, limit)
 	} else {
 		rows, err = s.dbQuery(`
-			SELECT user_id, agent_id FROM rigs WHERE user_id = ? ORDER BY RANDOM()`, uid)
+			SELECT r.user_id, r.agent_id
+			  FROM rigs r
+			  JOIN comfy_caps cc
+			    ON cc.user_id = r.user_id
+			   AND cc.agent_id = r.agent_id
+			   AND cc.ok = 1
+			 WHERE r.user_id = ?
+			 ORDER BY RANDOM()
+			 LIMIT ?`, uid, limit)
 	}
 	if err != nil {
 		return nil
@@ -1029,15 +1390,6 @@ func (s *server) pickComfyRigs(uid, poolID int64, nRigs int) []*agentConn {
 		}
 		a, ok := s.hub.findAgent(ru, aid)
 		if !ok {
-			continue
-		}
-		// Capability gate: rig must have advertised comfy_ok = 1.
-		var ok2 int
-		_ = s.dbQueryRow(
-			`SELECT ok FROM comfy_caps WHERE user_id = ? AND agent_id = ?`,
-			ru, aid,
-		).Scan(&ok2)
-		if ok2 != 1 {
 			continue
 		}
 		picks = append(picks, a)
@@ -1117,6 +1469,43 @@ func (s *server) comfyFail(jobID, uid int64, msg string) {
 // row with a stale timestamp is by definition orphaned.
 func (s *server) reapStaleComfyJobs(maxIdleSec int64) (int64, error) {
 	cutoff := nowUnix() - maxIdleSec
+
+	// Step 1: find candidate IDs first so we can also cancel any
+	// matching in-process job goroutines.  Without the in-memory cancel,
+	// the runner would keep streaming and last-writer-wins on
+	// comfySetStatus would silently overwrite our 'failed' verdict with
+	// 'done' (audit P21-CF4).  Doing the SELECT before the UPDATE means
+	// a job that finishes naturally in the window between the two
+	// queries won't get cancelled — its row's updated_at advanced past
+	// `cutoff` so it would no longer match anyway.
+	rows, err := s.dbQuery(
+		`SELECT id FROM comfy_jobs
+		   WHERE status IN ('queued','running')
+		     AND updated_at < ?`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, err
+	}
+	var stale []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			stale = append(stale, id)
+		}
+	}
+	rows.Close()
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	// Step 2: cancel the in-process goroutines first so they don't write
+	// 'done' after our UPDATE.  cancel() is a no-op if the job isn't
+	// tracked on this replica (cross-replica reaping is fine — the DB
+	// row update is still authoritative).
+	for _, id := range stale {
+		s.comfyJobs.cancel(id)
+	}
+	// Step 3: persist the verdict.
 	res, err := s.dbExec(
 		`UPDATE comfy_jobs
 		   SET status = 'failed',
@@ -1208,15 +1597,49 @@ func (s *server) signedURLsFor(uid, id int64, files []string, ttl time.Duration)
 // after this server booted, then no."
 const comfyV1GraceWindow = 24 * time.Hour
 
+// isSafeOutputFile validates a filename a rig wants the coordinator to
+// write under comfy-out/<job_id>/.  The coordinator serves these files
+// via /comfy/out/<id>/<file>, so a hostile or buggy name here is both a
+// disk-write hazard AND an open-redirect / file-disclosure hazard once
+// the URL ships.  We require:
+//
+//   - non-empty, length ≤ 200 (well above any legitimate render name)
+//   - no path separators or path-traversal pieces (no slash/backslash,
+//     no leading dot — Linux hidden file, also blocks "." / "..")
+//   - no NUL or other ASCII control characters
+//   - no Windows-reserved basenames (CON/PRN/AUX/NUL/COM1-9/LPT1-9)
+//     because operators on cross-platform setups (Docker on Windows
+//     with bind mounts) would otherwise hit "filename or extension is
+//     too long" errors that look like coordinator bugs
+//   - no leading or trailing whitespace (rsync/tar surprises)
+//   - allowed extension: png, jpg, jpeg, webp, gif, mp4, webm
 func isSafeOutputFile(f string) bool {
-	if f == "" || strings.Contains(f, "/") || strings.Contains(f, "\\") {
+	if f == "" || len(f) > 200 {
 		return false
 	}
-	// Defense-in-depth against NUL truncation in any downstream consumer.
-	if strings.ContainsRune(f, 0) {
+	if strings.Contains(f, "/") || strings.Contains(f, "\\") {
 		return false
 	}
-	if f == "." || f == ".." {
+	if f[0] == '.' { // ".", "..", ".hidden"
+		return false
+	}
+	if f != strings.TrimSpace(f) {
+		return false
+	}
+	for _, r := range f {
+		// All ASCII controls (including NUL) and DEL.  Unicode controls
+		// pass — rendering libraries may legitimately use them in
+		// generated names, and the path is already segmented above.
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	// Windows-reserved names (case-insensitive, basename only).
+	base := strings.ToUpper(strings.TrimSuffix(f, filepath.Ext(f)))
+	switch base {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
 		return false
 	}
 	switch strings.ToLower(filepath.Ext(f)) {
@@ -1226,14 +1649,48 @@ func isSafeOutputFile(f string) bool {
 	return false
 }
 
-// substituteComfyParams rewrites the workflow JSON to insert the user's
-// prompt and override params (seed, steps, size) into the right nodes.
-// Conventions:
-//   - Any string field equal to "$PROMPT" is replaced with the prompt.
-//   - Any string field equal to "$MODEL"  is replaced with modelName.
-//   - "$SEED" → random int (or params.seed if provided).
-//   - "$WIDTH" / "$HEIGHT" → from params.size = "WxH" (defaults 1024x1024).
+// resolveBaseSeed picks the seed shared by all rigs in a fan-out.  If
+// the user pinned one via params.seed we honour it; otherwise we derive
+// one from (jobID, wall-clock-ns) so the chosen seed is captured in the
+// job row and reruns are deterministic.
+//
+// Returns (seed, source) where source is "user" or "auto" — exposed
+// for future logging.
+func resolveBaseSeed(paramsJSON string, jobID int64) (int64, string) {
+	var params map[string]any
+	_ = json.Unmarshal([]byte(paramsJSON), &params)
+	if sv, ok := params["seed"].(float64); ok {
+		return int64(sv), "user"
+	}
+	// Mix jobID into the nanosecond clock so n_rigs simultaneous jobs
+	// don't collide on the same UnixNano() bucket.
+	base := time.Now().UnixNano() ^ (jobID * 0x100000001B3)
+	if base < 0 {
+		base = -base
+	}
+	return base & 0x7fffffff, "auto"
+}
+
+// substituteComfyParams is the legacy entry point — kept for tests that
+// don't care about fan-out.  Forwards to the seed-aware variant.
 func substituteComfyParams(graph, prompt, paramsJSON, modelName string) (string, error) {
+	seed, _ := resolveBaseSeed(paramsJSON, 0)
+	return substituteComfyParamsWithSeed(graph, prompt, paramsJSON, modelName, seed)
+}
+
+// substituteComfyParamsWithSeed rewrites the workflow JSON to insert
+// the user's prompt and override params (seed, steps, size) into the
+// right nodes.  Substitution is restricted to values inside "inputs"
+// maps — anywhere else in the tree a literal "$PROMPT" / "$SEED" /
+// etc. is left alone so a user-supplied prompt template can contain
+// these strings without being silently clobbered into integers.
+//
+// Conventions (inside inputs maps only):
+//   - Any string field equal to "$PROMPT" → the prompt.
+//   - Any string field equal to "$MODEL"  → modelName.
+//   - "$SEED" → the seed argument (per-rig in fan-out).
+//   - "$WIDTH" / "$HEIGHT" → from params.size = "WxH" (defaults 1024x1024).
+func substituteComfyParamsWithSeed(graph, prompt, paramsJSON, modelName string, seed int64) (string, error) {
 	var node any
 	if err := json.Unmarshal([]byte(graph), &node); err != nil {
 		return "", fmt.Errorf("graph not valid JSON: %w", err)
@@ -1246,12 +1703,6 @@ func substituteComfyParams(graph, prompt, paramsJSON, modelName string) (string,
 		if _, err := fmt.Sscanf(sz, "%dx%d", &wv, &hv); err == nil && wv > 0 && hv > 0 {
 			width, height = wv, hv
 		}
-	}
-	var seed int64
-	if sv, ok := params["seed"].(float64); ok {
-		seed = int64(sv)
-	} else {
-		seed = time.Now().UnixNano() & 0x7fffffff
 	}
 	subst := func(s string) any {
 		switch s {
@@ -1268,17 +1719,20 @@ func substituteComfyParams(graph, prompt, paramsJSON, modelName string) (string,
 		}
 		return s
 	}
-	var walk func(v any) any
-	walk = func(v any) any {
+	// substIn rewrites a subtree, but only descends into "inputs" maps
+	// (and arrays/objects rooted inside them).  Top-level node maps —
+	// the ComfyUI graph itself — keep their structure unchanged.
+	var rewriteInputs func(v any) any
+	rewriteInputs = func(v any) any {
 		switch x := v.(type) {
 		case map[string]any:
 			for k, vv := range x {
-				x[k] = walk(vv)
+				x[k] = rewriteInputs(vv)
 			}
 			return x
 		case []any:
 			for i, vv := range x {
-				x[i] = walk(vv)
+				x[i] = rewriteInputs(vv)
 			}
 			return x
 		case string:
@@ -1286,7 +1740,18 @@ func substituteComfyParams(graph, prompt, paramsJSON, modelName string) (string,
 		}
 		return v
 	}
-	walk(node)
+	// Walk only the "inputs" sub-maps of each top-level node.  A
+	// ComfyUI API-format graph looks like {"3":{"class_type":"...",
+	// "inputs":{...}}, "4":{...}}; we substitute inside inputs only.
+	if root, ok := node.(map[string]any); ok {
+		for _, n := range root {
+			if nm, ok := n.(map[string]any); ok {
+				if in, ok := nm["inputs"]; ok {
+					nm["inputs"] = rewriteInputs(in)
+				}
+			}
+		}
+	}
 	out, _ := json.Marshal(node)
 	return string(out), nil
 }

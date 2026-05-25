@@ -207,6 +207,13 @@ type agentConn struct {
 	comfyMu      sync.Mutex
 	comfyResults map[int64]chan comfyResultMsg
 
+	// ComfyUI native-API proxy responses — keyed by correlation id.  See
+	// CF11: the control plane wraps ComfyUI's metadata endpoints
+	// (system_stats/object_info/queue/embeddings/interrupt/free) so SDK
+	// clients don't need direct rig access.  Each request gets a fresh
+	// uuid; the rig echoes it back in the comfy_meta_result frame.
+	comfyMetaResults map[string]chan comfyMetaMsg
+
 	// Latest telemetry snapshot, populated from `status` frames.  Read by
 	// the swarm dashboard aggregator.  Server-derived fields (remoteIP,
 	// pairedAt) are written once at connect; agent-reported fields are
@@ -297,6 +304,77 @@ type comfyResultMsg struct {
 	Err      error
 }
 
+// comfyMetaMsg is a single ComfyUI native-API proxy response.  Body
+// holds the raw response body bytes; HTTPStatus is the upstream HTTP
+// status (0 if the rig couldn't reach its local ComfyUI).  Err is
+// populated when the rig itself fails (queue full, panic, parse error)
+// — distinct from upstream non-2xx, which carries a body + status.
+type comfyMetaMsg struct {
+	HTTPStatus int
+	Body       []byte
+	Err        error
+}
+
+func (a *agentConn) subscribeComfyMeta(corrID string) chan comfyMetaMsg {
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	if a.comfyMetaResults == nil {
+		a.comfyMetaResults = make(map[string]chan comfyMetaMsg)
+	}
+	ch := make(chan comfyMetaMsg, 1)
+	a.comfyMetaResults[corrID] = ch
+	return ch
+}
+
+func (a *agentConn) unsubscribeComfyMeta(corrID string) {
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	if ch, ok := a.comfyMetaResults[corrID]; ok {
+		delete(a.comfyMetaResults, corrID)
+		close(ch)
+	}
+}
+
+// deliverComfyMetaResult routes a comfy_meta_result frame to its
+// subscriber.  Same close-safety pattern as deliverComfyResult.
+func (a *agentConn) deliverComfyMetaResult(msg map[string]any) bool {
+	corr, _ := msg["corr_id"].(string)
+	if corr == "" {
+		return false
+	}
+	out := comfyMetaMsg{}
+	if v, ok := msg["status"].(float64); ok {
+		out.HTTPStatus = int(v)
+	}
+	if b64, ok := msg["body_b64"].(string); ok && b64 != "" {
+		if data, err := b64DecodeStd(b64); err == nil {
+			out.Body = data
+		} else {
+			out.Err = err
+		}
+	} else if body, ok := msg["body"].(string); ok {
+		// Backwards-compat path: rigs that haven't shipped the b64
+		// variant inline a UTF-8 string.  Metadata responses (JSON)
+		// are always UTF-8 so this is safe; binary responses always
+		// take the b64 path.
+		out.Body = []byte(body)
+	}
+	if errMsg, ok := msg["error"].(string); ok && errMsg != "" {
+		out.Err = errors.New(errMsg)
+	}
+	a.comfyMu.Lock()
+	defer a.comfyMu.Unlock()
+	ch, ok := a.comfyMetaResults[corr]
+	if !ok {
+		return false
+	}
+	select {
+	case ch <- out:
+	default:
+	}
+	return true
+}
+
 func (a *agentConn) subscribeComfy(jobID int64) chan comfyResultMsg {
 	a.comfyMu.Lock()
 	defer a.comfyMu.Unlock()
@@ -374,6 +452,26 @@ func (a *agentConn) send(v any) {
 	}
 }
 
+// trySend is like send but returns false when the outbound queue is
+// full or the agent has been closed.  Callers that can't tolerate
+// silent drops (comfy dispatch, infer PP) should prefer this so they
+// can fail fast instead of waiting for a timeout.  See audit P21-CF8.
+func (a *agentConn) trySend(v any) bool {
+	select {
+	case <-a.closed:
+		return false
+	default:
+	}
+	select {
+	case a.outCh <- v:
+		return true
+	case <-a.closed:
+		return false
+	default:
+		return false
+	}
+}
+
 func (a *agentConn) sendBin(b []byte) bool {
 	select {
 	case a.binCh <- b:
@@ -432,8 +530,13 @@ func (a *agentConn) close() {
 		a.comfyMu.Lock()
 		jobs := a.comfyResults
 		a.comfyResults = nil
+		meta := a.comfyMetaResults
+		a.comfyMetaResults = nil
 		a.comfyMu.Unlock()
 		for _, ch := range jobs {
+			close(ch)
+		}
+		for _, ch := range meta {
 			close(ch)
 		}
 	})
@@ -1066,6 +1169,15 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
+			if kind == "comfy_meta_result" {
+				if ac.deliverComfyMetaResult(msg) {
+					continue
+				}
+			}
+			if kind == "dpp_progress" {
+				s.ingestDPPProgress(uid, hello.AgentID, msg)
+				continue
+			}
 			if kind == "comfy_caps" {
 				s.upsertComfyCaps(uid, hello.AgentID, msg)
 				continue
@@ -1091,6 +1203,14 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 					0,
 					nowUnix(),
 				)
+				continue
+			}
+			if kind == "sdcpp_caps" {
+				// CF12-W4: per-role sd.cpp capability claim.  Stored in
+				// the sdcpp_caps table so the dispatcher can pick a
+				// TE/UNet/VAE chain (or fall back to "full"-pipeline
+				// routing on a single rig).
+				s.upsertSdcppCaps(uid, hello.AgentID, msg)
 				continue
 			}
 			if kind == "spec_caps" {

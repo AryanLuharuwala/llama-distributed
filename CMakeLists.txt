@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(llama-distributed VERSION 0.1.0 LANGUAGES CXX)
+project(llama-distributed VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ option(DIST_USE_VULKAN   "Enable Vulkan acceleration"             OFF)
 option(DIST_BUILD_TESTS  "Build unit tests"                       OFF)
 option(DIST_BUILD_VM     "Build the experimental VM layer"        OFF)
 option(DIST_USE_P2P      "Build with libdatachannel-backed P2P ACTV transport (WebRTC + ICE)" OFF)
+option(DIST_USE_SDCPP    "Vendor stable-diffusion.cpp and build dist-sdcpp-worker (whole-pipeline C++ diffusion backend for rigs without python+diffusers)" OFF)
 
 # Where to find llama.cpp.
 #   AUTO    — use third_party/llama.cpp submodule (default)
@@ -325,6 +326,76 @@ if(DIST_BUILD_CLI)
     endif()
 endif()
 
+# ─── dist-sdcpp-worker — C++ diffusion backend ──────────────────────────────
+#
+# Vendored stable-diffusion.cpp wrapped as a standalone worker binary.  This
+# is the fallback path for rigs that can't run python+diffusers (e.g.
+# paramshakti cn01 — conda py3.7, no sudo, stripped image).  The DppAdapter
+# forks this binary the same way it forks `python -m dpp_runtime`, so the
+# WS / wire surface in dist-node is unchanged.
+#
+# Built as a *separate executable* on purpose: sd.cpp ships its own ggml fork
+# (leejet/ggml) which would symbol-collide with the llama.cpp ggml linked
+# into dist_common.  Keeping them in different processes sidesteps the issue
+# and matches the existing python launch pattern.
+#
+# Phase A (this build): worker handles role="full" — single-rig whole-pipeline
+# generation (text-encode + unet + vae all local).  Phase B (task #254) adds
+# per-role entrypoints so sd.cpp can fill a stage in a DPP chain.
+if(DIST_USE_SDCPP)
+    set(_SDCPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stable-diffusion.cpp")
+    if(NOT EXISTS "${_SDCPP_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "DIST_USE_SDCPP=ON but third_party/stable-diffusion.cpp is empty.\n"
+            "Run:  git submodule update --init --recursive third_party/stable-diffusion.cpp")
+    endif()
+
+    # Suppress sd.cpp's own examples; we only want the library.
+    set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+    # Backend mirrors dist's selection — sd.cpp owns the ggml fork inside its
+    # own subtree, so its SD_CUDA / SD_VULKAN flags drive a *separate* ggml
+    # build that won't link into dist_common.
+    if(DIST_USE_CUDA)
+        set(SD_CUDA ON CACHE BOOL "" FORCE)
+    endif()
+    if(DIST_USE_HIP)
+        set(SD_HIPBLAS ON CACHE BOOL "" FORCE)
+    endif()
+    if(DIST_USE_METAL)
+        set(SD_METAL ON CACHE BOOL "" FORCE)
+    endif()
+    if(DIST_USE_VULKAN)
+        set(SD_VULKAN ON CACHE BOOL "" FORCE)
+    endif()
+
+    add_subdirectory(third_party/stable-diffusion.cpp EXCLUDE_FROM_ALL)
+
+    add_executable(dist-sdcpp-worker
+        src/sdcpp_worker.cpp
+        src/sdcpp_roles.cpp
+        src/sdt_codec.cpp
+    )
+    target_include_directories(dist-sdcpp-worker PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${_SDCPP_DIR}/include
+        ${_SDCPP_DIR}/thirdparty
+    )
+    target_link_libraries(dist-sdcpp-worker PRIVATE
+        stable-diffusion
+        ${_PLATFORM_LIBS}
+    )
+    target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP=1)
+
+    # Expose to dist_common via compile definition — used by capability probe.
+    target_compile_definitions(dist_common PUBLIC DIST_HAVE_SDCPP=1)
+
+    message(STATUS "[llama-distributed] dist-sdcpp-worker enabled (vendored sd.cpp)")
+else()
+    message(STATUS "[llama-distributed] dist-sdcpp-worker disabled (DIST_USE_SDCPP=OFF)")
+endif()
+
 # ─── Install ─────────────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
@@ -336,6 +407,9 @@ set(_DIST_INSTALL_TARGETS
 if(DIST_BUILD_VM)
     list(APPEND _DIST_INSTALL_TARGETS
         dist_vm dist-vm-coordinator dist-vm-node)
+endif()
+if(DIST_USE_SDCPP)
+    list(APPEND _DIST_INSTALL_TARGETS dist-sdcpp-worker)
 endif()
 
 install(TARGETS ${_DIST_INSTALL_TARGETS}
@@ -360,6 +434,7 @@ message(STATUS "║  HIP/ROCm          : ${DIST_USE_HIP}")
 message(STATUS "║  Metal             : ${DIST_USE_METAL}")
 message(STATUS "║  Vulkan            : ${DIST_USE_VULKAN}")
 message(STATUS "║  Tests             : ${DIST_BUILD_TESTS}")
+message(STATUS "║  sd.cpp worker     : ${DIST_USE_SDCPP}")
 message(STATUS "╠══════════════════════════════════════════════╣")
 message(STATUS "║  Targets built:                              ║")
 message(STATUS "║    dist-coordinator   (base pipeline)        ║")

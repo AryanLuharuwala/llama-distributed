@@ -70,7 +70,7 @@ func newFakeBytesServer(data map[string][]byte, flipFirst map[string]bool) *fake
 	return fs
 }
 
-func sha256Hex(b []byte) string {
+func sha256HexTest(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -82,7 +82,7 @@ func TestVerifyFileSHA256(t *testing.T) {
 	if err := os.WriteFile(dst, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	want := sha256Hex(content)
+	want := sha256HexTest(content)
 
 	// Match (lowercase).
 	if err := verifyFileSHA256(dst, want); err != nil {
@@ -113,7 +113,7 @@ func TestVerifyFileSHA256(t *testing.T) {
 // and the sha hash mismatches.
 func TestDownloadOneAndVerify_ReFetchOnSHAMismatch(t *testing.T) {
 	content := []byte("hello world repeated 100 times. " + strings.Repeat("A", 1000))
-	want := sha256Hex(content)
+	want := sha256HexTest(content)
 
 	srv := newFakeBytesServer(
 		map[string][]byte{"file.bin": content},
@@ -156,7 +156,7 @@ func TestDownloadFilesParallel_FansOut(t *testing.T) {
 		name := fmt.Sprintf("part-%d.bin", i)
 		b := []byte(strings.Repeat(fmt.Sprintf("%d", i), 4096))
 		data[name] = b
-		files = append(files, hfFileInfo{Path: name, Size: int64(len(b)), SHA256: sha256Hex(b)})
+		files = append(files, hfFileInfo{Path: name, Size: int64(len(b)), SHA256: sha256HexTest(b)})
 	}
 	srv := newFakeBytesServer(data, nil)
 	defer srv.Close()
@@ -193,7 +193,7 @@ func TestDownloadFilesParallel_FansOut(t *testing.T) {
 // Pool must short-circuit files already on disk with the right content.
 func TestDownloadFilesParallel_ResumeShortCircuit(t *testing.T) {
 	b := []byte(strings.Repeat("Z", 256))
-	files := []hfFileInfo{{Path: "x.bin", Size: int64(len(b)), SHA256: sha256Hex(b)}}
+	files := []hfFileInfo{{Path: "x.bin", Size: int64(len(b)), SHA256: sha256HexTest(b)}}
 	srv := newFakeBytesServer(map[string][]byte{"x.bin": b}, nil)
 	defer srv.Close()
 
@@ -220,7 +220,7 @@ func TestDownloadFilesParallel_ResumeShortCircuit(t *testing.T) {
 // If a pre-existing file fails sha verify, the pool must re-fetch it.
 func TestDownloadFilesParallel_RefetchCorruptedResumeFile(t *testing.T) {
 	good := []byte(strings.Repeat("G", 1024))
-	files := []hfFileInfo{{Path: "y.bin", Size: int64(len(good)), SHA256: sha256Hex(good)}}
+	files := []hfFileInfo{{Path: "y.bin", Size: int64(len(good)), SHA256: sha256HexTest(good)}}
 	srv := newFakeBytesServer(map[string][]byte{"y.bin": good}, nil)
 	defer srv.Close()
 
@@ -287,8 +287,8 @@ func TestDownloadFilesParallel_CancelPropagates(t *testing.T) {
 		big[i] = byte(i & 0xFF)
 	}
 	files := []hfFileInfo{
-		{Path: "a.bin", Size: int64(len(big)), SHA256: sha256Hex(big)},
-		{Path: "b.bin", Size: int64(len(big)), SHA256: sha256Hex(big)},
+		{Path: "a.bin", Size: int64(len(big)), SHA256: sha256HexTest(big)},
+		{Path: "b.bin", Size: int64(len(big)), SHA256: sha256HexTest(big)},
 	}
 	srv := newFakeBytesServer(map[string][]byte{
 		"a.bin": big,

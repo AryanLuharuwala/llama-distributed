@@ -72,6 +72,18 @@ public:
 
     const std::string& base_url() const { return base_; }
 
+    // Raw proxy — invoked from the agent's WS reader when a
+    // `comfy_meta` frame arrives.  Method must be GET or POST; the
+    // path is validated against an allowlist on the server side
+    // before reaching us (see server/comfy_meta.go), and we re-check
+    // here for defence-in-depth.  Returns body + *status (0 on
+    // transport failure / non-allowed path).
+    std::string proxy(const std::string& method,
+                      const std::string& path,
+                      const std::string& body,
+                      int timeout_ms,
+                      int* status);
+
 private:
     std::string base_;
     std::string host_;

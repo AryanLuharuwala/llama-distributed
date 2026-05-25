@@ -431,6 +431,59 @@ std::string ComfyClient::http_post(const std::string& path,
     return resp.body;
 }
 
+// proxy forwards a coordinator-originated comfy_meta request to the
+// local ComfyUI.  The set of permitted paths is mirrored from
+// server/comfy_meta.go::comfyMetaAllowed — both sides enforce it so a
+// future server bug that lets a bad path through still hits this
+// agent-side fence.  Returns body; *status holds the HTTP status (0
+// on transport failure or disallowed path).
+//
+// Anything mutating that isn't /interrupt or /free is blocked because
+// the coordinator owns the /prompt + /upload + /history surface and
+// applies user/pool authorisation there.
+static bool comfy_meta_path_allowed(const std::string& method,
+                                    const std::string& path) {
+    // GET reads are introspection-only.
+    if (method == "GET") {
+        if (path == "/system_stats" ||
+            path == "/features" ||
+            path == "/embeddings" ||
+            path == "/models" ||
+            path == "/object_info" ||
+            path == "/prompt" ||
+            path == "/queue" ||
+            path == "/history") return true;
+        if (path.rfind("/object_info/", 0) == 0) return true;
+        if (path.rfind("/models/", 0) == 0)      return true;
+        if (path.rfind("/history/", 0) == 0)     return true;
+        return false;
+    }
+    // POST is locked to two control endpoints.
+    if (method == "POST") {
+        return path == "/interrupt" || path == "/free";
+    }
+    return false;
+}
+
+std::string ComfyClient::proxy(const std::string& method,
+                               const std::string& path,
+                               const std::string& body,
+                               int timeout_ms,
+                               int* status) {
+    if (!comfy_meta_path_allowed(method, path)) {
+        if (status) *status = 0;
+        return "";
+    }
+    if (method == "GET") {
+        return http_get(path, timeout_ms, status);
+    }
+    // POST.  ComfyUI accepts application/json for both /interrupt and
+    // /free; an empty body is fine — ComfyUI defaults the unload flags
+    // to false (matching its own behaviour when called with no body).
+    std::string b = body.empty() ? std::string("{}") : body;
+    return http_post(path, "application/json", b, timeout_ms, status);
+}
+
 ComfyProbe ComfyClient::probe(int timeout_ms) {
     ComfyProbe out;
     int st = 0;
