@@ -130,6 +130,12 @@ def test_daemon_handshake_and_caps():
         assert "vae" in resp["roles"]
         assert resp["sdt_ver"] >= 1
         assert resp["upld_ver"] >= 1
+        # CF12-W6c — split-capability advert
+        assert "block_split" in resp
+        assert "block_total" in resp
+        assert isinstance(resp["block_split"], bool)
+        assert isinstance(resp["block_total"], int)
+        assert resp["block_total"] >= 1
     finally:
         d.close()
 

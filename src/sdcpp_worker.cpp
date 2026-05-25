@@ -481,6 +481,8 @@ void handle_role_sample_blocks(DaemonState& st, const std::string& line) {
     std::string sched   = json_str(line, "scheduler");
     in.sampler          = sampler.c_str();
     in.scheduler        = sched.empty() ? nullptr : sched.c_str();
+    in.step_idx         = (int)json_int(line, "step_idx", -1);
+    in.timestep         = (float)json_dbl(line, "timestep", 0.0);
 
     sd_role_buf_t buf{};
     sd_role_status_t s = sd_role_sample_blocks(st.ctx, &in, &buf);
@@ -492,13 +494,24 @@ void handle_role_sample_blocks(DaemonState& st, const std::string& line) {
 
 void handle_role_caps(const std::string& line) {
     int req_id = (int)json_int(line, "req_id", 0);
-    // Static caps until backbone inference lands.
+    // CF12-W6c: block_split reflects compile-time gate.  The actual
+    // backbone tag still requires a loaded ctx (sd_loaded_backbone_tag);
+    // until then we report "unknown" but a non-zero block_total advert
+    // tells the planner the worker CAN do split if a UNet model loads.
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    const char* block_split = "true";
+    const int   block_total = 2;
+#else
+    const char* block_split = "false";
+    const int   block_total = 1;
+#endif
     std::fprintf(stdout,
                  "{\"kind\":\"sdcpp_caps\",\"req_id\":%d,"
                  "\"roles\":[\"te\",\"unet\",\"vae\"],"
-                 "\"block_split\":false,"
+                 "\"block_split\":%s,"
+                 "\"block_total\":%d,"
                  "\"backbone\":\"unknown\",\"sdt_ver\":1,\"upld_ver\":1}\n",
-                 req_id);
+                 req_id, block_split, block_total);
     std::fflush(stdout);
 }
 
