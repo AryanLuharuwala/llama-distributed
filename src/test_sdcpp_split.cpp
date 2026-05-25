@@ -230,6 +230,32 @@ void test_cond_lifecycle() {
     sd_cond_free(nullptr);  // null free must be a no-op
 }
 
+void test_x_sdcd_roundtrip() {
+    std::printf("== test_x_sdcd_roundtrip ==\n");
+    // 1×4×8×8 latent shape (SD1.x at 64×64)
+    int64_t shape[4] = {1, 4, 8, 8};
+    std::vector<float> x = fill_random(1 * 4 * 8 * 8, 42);
+
+    std::vector<uint8_t> wire;
+    std::string err;
+    CHECK(dist::sdcpp_x_to_sdcd(x.data(), shape, 4, /*step=*/7, /*ts=*/250.5f,
+                                wire, err), "encode x");
+    CHECK(wire.size() > 0, "non-empty wire");
+
+    dist::SdcdFrame frame;
+    const float* gx = nullptr;
+    std::vector<int64_t> gshape;
+    int gstep = 0;
+    float gts = 0.f;
+    CHECK(dist::sdcpp_sdcd_to_x(wire.data(), wire.size(), frame,
+                                &gx, gshape, &gstep, &gts, err),
+          "decode x");
+    CHECK(gstep == 7 && std::abs(gts - 250.5f) < 1e-4f, "step/ts roundtrip");
+    CHECK(gshape.size() == 4 && gshape[1] == 4, "x shape roundtrip");
+    CHECK(std::memcmp(gx, x.data(), x.size() * sizeof(float)) == 0,
+          "x bytes equal");
+}
+
 void test_vae_decode_null_ctx() {
     std::printf("== test_vae_decode_null_ctx ==\n");
     float latent[4] = {0.f, 0.f, 0.f, 0.f};
@@ -254,6 +280,7 @@ int main() {
     test_sdcd_carry_roundtrip();
     test_block_count_no_ctx();
     test_cond_lifecycle();
+    test_x_sdcd_roundtrip();
     test_vae_decode_null_ctx();
 
     if (g_fails == 0) {

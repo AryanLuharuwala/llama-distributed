@@ -163,6 +163,15 @@ typedef struct {
     int64_t        seed;
     const char*    sampler;
     const char*    scheduler;
+
+    // CF12-W6c per-step driver fields.  When the worker holds only the
+    // half0 or half1 block range, the caller (coordinator) drives the
+    // schedule and calls sd_role_sample_blocks once per (step, range).
+    // step_idx is 0-indexed; timestep is the sigma/t at that step (worker
+    // can derive it from `scheduler` + step_idx, but accepting it here
+    // avoids re-deriving the schedule on every rig).
+    int            step_idx;           // -1 = single-shot (legacy whole-UNet path)
+    float          timestep;           // 0 = ignored; caller's scheduler sigma
 } sd_role_sample_blocks_in_t;
 
 // out_payload: UPLD on intermediate stages; SDT (final latent) on the last

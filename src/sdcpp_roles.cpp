@@ -60,7 +60,7 @@ const char* MSG_NULL_OUT        = "output buf is NULL";
 const char* MSG_BAD_SDCD        = "failed to decode SDCD cond frame";
 const char* MSG_BAD_SDT         = "failed to decode SDT frame";
 const char* MSG_GEN_NULL        = "generate_image returned NULL";
-const char* MSG_NOTIMPL_BLOCKS  = "sd_role_sample_blocks: half0/half1 C API present (sd_compute_unet_split_step); per-step cross-rig driver pending CF12-W6c";
+const char* MSG_NOTIMPL_BLOCKS  = "sd_role_sample_blocks: split path requires DIST_HAVE_SDCPP_SPLIT (sdcpp-block-split.patch)";
 const char* MSG_PNG_FAIL        = "in-memory PNG encode failed";
 const char* MSG_VAE_FAIL        = "VAE decode bridge unavailable (needs sd_internal_decode_first_stage patch)";
 
@@ -359,11 +359,167 @@ extern "C" sd_role_status_t sd_role_sample_blocks(
         return sd_role_sample(sd_ctx, &s, out_payload);
     }
 
-    // Partial block range — needs sliceable UNet forward, gated behind
-    // CF12-W6a upstream patch.  Returning ENOTIMPL keeps the wire
-    // contract honest; the planner sees the error and falls back to a
-    // single-rig "full" or three-rig "te/unet/vae" route.
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    // ── CF12-W6c per-step block-split dispatch ─────────────────────────
+    // The role bridge handles the 2-way case (block_total == 2).  Caller
+    // (coordinator) drives the sampler loop; each step issues TWO calls:
+    //   1) block_lo=0, block_hi=1, upld_in = SDCD "sdcpp_step_x"     → SDCD half0-carry
+    //   2) block_lo=1, block_hi=2, upld_in = SDCD "upld_sdcpp_half0" → SDT noise_pred
+    if (in->block_total < 2) {
+        return fail(SDR_EINVAL, "block_total < 2");
+    }
+    const int half_cut = in->block_total / 2;
+    const bool is_half0 = (in->block_lo == 0 && in->block_hi == half_cut);
+    const bool is_half1 = (in->block_lo == half_cut && in->block_hi == in->block_total);
+    if (!is_half0 && !is_half1) {
+        return fail(SDR_ENOTIMPL, "block range must be [0,N/2) or [N/2,N)");
+    }
+    if (in->upld_in == nullptr || in->upld_in_nbytes == 0) {
+        return fail(SDR_EINVAL, "upld_in required for partial range");
+    }
+
+    std::lock_guard<std::mutex> lk(g_role_mutex);
+
+    // Decode the conditioner frame — for the real path it must be
+    // a non-deferred SDCD with cond.crossattn / cond.vector / cond.concat.
+    dist::SdcdFrame cond;
+    if (in->sdcd_cond != nullptr && in->sdcd_cond_nbytes > 0) {
+        std::string err;
+        if (!dist::sdcd_decode(in->sdcd_cond, in->sdcd_cond_nbytes, cond, err)) {
+            static thread_local std::string m;
+            m = std::string("blocks/sdcd_decode cond: ") + err;
+            return fail(SDR_EBADSDCD, m.c_str());
+        }
+        const std::string* deferred = cond.find_meta("deferred");
+        if (deferred && *deferred == "1") {
+            return fail(SDR_ENOTIMPL, "blocks/cond: deferred-prompt cond unsupported here — TE must emit real embeds");
+        }
+    }
+
+    sd_split_state_t* state = sd_split_state_new();
+    if (state == nullptr) return fail(SDR_EINVAL, "blocks/state alloc");
+    int rc = SD_SPLIT_OK;
+
+    auto set_cond_tensor = [&](const char* sdcd_name, const char* unet_name) {
+        const dist::SdtTensor* t = cond.find(sdcd_name);
+        if (t == nullptr || t->dims.empty()) return;
+        std::vector<int64_t> shape(t->dims.begin(), t->dims.end());
+        sd_split_state_set_input(
+            state, unet_name,
+            reinterpret_cast<const float*>(t->data.data()),
+            shape.data(), static_cast<int>(shape.size()));
+    };
+    set_cond_tensor("cond.crossattn", "context");
+    set_cond_tensor("cond.vector",    "y");
+    set_cond_tensor("cond.concat",    "c_concat");
+
+    // Stage timesteps as a 1-D tensor [B] with the requested sigma.  The
+    // backbone-specific scaling (sigma→t for the diffusion params) happens
+    // inside the half0 graph.
+    {
+        float    ts_data[1]  = { in->timestep };
+        int64_t  ts_shape[1] = { 1 };
+        sd_split_state_set_input(state, "timesteps", ts_data, ts_shape, 1);
+    }
+
+    int which_half = is_half0 ? 0 : 1;
+
+    if (is_half0) {
+        // upld_in is an SDCD-step-x frame carrying x and step metadata.
+        dist::SdcdFrame xframe;
+        const float* x_data = nullptr;
+        std::vector<int64_t> x_shape;
+        int step_idx_in = 0;
+        float ts_in = 0.f;
+        std::string err;
+        if (!dist::sdcpp_sdcd_to_x(in->upld_in, in->upld_in_nbytes,
+                                   xframe, &x_data, x_shape,
+                                   &step_idx_in, &ts_in, err)) {
+            sd_split_state_free(state);
+            static thread_local std::string m;
+            m = std::string("blocks/half0 decode x: ") + err;
+            return fail(SDR_EBADSDCD, m.c_str());
+        }
+        sd_split_state_set_input(state, "x", x_data,
+                                 x_shape.data(),
+                                 static_cast<int>(x_shape.size()));
+
+        rc = sd_compute_unet_split_step(sd_ctx, which_half,
+                                        in->step_idx, in->steps, state);
+        if (rc != SD_SPLIT_OK) {
+            sd_split_state_free(state);
+            static thread_local std::string m;
+            m = "blocks/half0 compute rc=" + std::to_string(rc);
+            return fail(SDR_EGEN, m.c_str());
+        }
+
+        std::vector<uint8_t> enc;
+        std::string carry_err;
+        if (!dist::sdcpp_carry_to_sdcd(state, enc, carry_err)) {
+            sd_split_state_free(state);
+            static thread_local std::string m;
+            m = "blocks/half0 carry_to_sdcd: " + carry_err;
+            return fail(SDR_EBADSDCD, m.c_str());
+        }
+        sd_split_state_free(state);
+        *out_payload = make_buf(std::move(enc));
+        return ok();
+    }
+
+    // half1: upld_in is SDCD half0-carry; output is SDT noise_pred.
+    {
+        std::string err;
+        if (!dist::sdcpp_sdcd_to_carry(in->upld_in, in->upld_in_nbytes, state, err)) {
+            sd_split_state_free(state);
+            static thread_local std::string m;
+            m = std::string("blocks/half1 decode carry: ") + err;
+            return fail(SDR_EBADSDCD, m.c_str());
+        }
+    }
+
+    rc = sd_compute_unet_split_step(sd_ctx, which_half,
+                                    in->step_idx, in->steps, state);
+    if (rc != SD_SPLIT_OK) {
+        sd_split_state_free(state);
+        static thread_local std::string m;
+        m = "blocks/half1 compute rc=" + std::to_string(rc);
+        return fail(SDR_EGEN, m.c_str());
+    }
+
+    const float*   np_data  = nullptr;
+    const int64_t* np_shape = nullptr;
+    int            np_ndims = 0;
+    rc = sd_split_state_get_output(state, &np_data, &np_shape, &np_ndims);
+    if (rc != SD_SPLIT_OK || np_data == nullptr) {
+        sd_split_state_free(state);
+        return fail(SDR_EGEN, "blocks/half1 get_output empty");
+    }
+
+    dist::SdtTensor np;
+    np.dtype = dist::SdtDType::F32;
+    size_t numel = 1;
+    np.dims.reserve(np_ndims);
+    for (int i = 0; i < np_ndims; ++i) {
+        np.dims.push_back(static_cast<uint32_t>(np_shape[i]));
+        numel *= static_cast<size_t>(np_shape[i]);
+    }
+    np.data.assign(reinterpret_cast<const uint8_t*>(np_data),
+                   reinterpret_cast<const uint8_t*>(np_data) + numel * sizeof(float));
+    sd_split_state_free(state);
+
+    std::vector<uint8_t> enc;
+    std::string err;
+    if (!dist::sdt_encode(np, enc, err)) {
+        static thread_local std::string m;
+        m = "blocks/half1 sdt_encode: " + err;
+        return fail(SDR_EBADSDT, m.c_str());
+    }
+    *out_payload = make_buf(std::move(enc));
+    return ok();
+#else
+    // Patch not applied — planner will fall back.
     return fail(SDR_ENOTIMPL, MSG_NOTIMPL_BLOCKS);
+#endif
 }
 
 extern "C" sd_role_status_t sd_role_decode_latent(

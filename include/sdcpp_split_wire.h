@@ -26,7 +26,74 @@
 
 namespace dist {
 
-inline constexpr const char* SDCPP_HALF0_KIND = "upld_sdcpp_half0";
+inline constexpr const char* SDCPP_HALF0_KIND  = "upld_sdcpp_half0";
+inline constexpr const char* SDCPP_STEP_X_KIND = "sdcpp_step_x";
+
+// ─── SDCD step-input (x tensor + step metadata) ──────────────────────────
+// kind = "sdcpp_step_x"
+//   meta:    kind, step_idx, timestep
+//   tensors: "x"  fp32, dims = (N, C, H, W)
+
+inline bool sdcpp_x_to_sdcd(const float* x,
+                            const int64_t* shape, int ndims,
+                            int step_idx, float timestep,
+                            std::vector<uint8_t>& out,
+                            std::string& err) {
+    if (x == nullptr || shape == nullptr || ndims <= 0) {
+        err = "sdcpp_x_to_sdcd: bad args";
+        return false;
+    }
+    SdcdFrame f;
+    f.kv.push_back({"kind", SDCPP_STEP_X_KIND});
+    f.kv.push_back({"step_idx", std::to_string(step_idx)});
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(timestep));
+        f.kv.push_back({"timestep", buf});
+    }
+    SdcdNamed t;
+    t.name           = "x";
+    t.tensor.dtype   = SdtDType::F32;
+    size_t nbytes    = sizeof(float);
+    t.tensor.dims.reserve(ndims);
+    for (int i = 0; i < ndims; ++i) {
+        t.tensor.dims.push_back(static_cast<uint32_t>(shape[i]));
+        nbytes *= static_cast<size_t>(shape[i]);
+    }
+    t.tensor.data.assign(reinterpret_cast<const uint8_t*>(x),
+                         reinterpret_cast<const uint8_t*>(x) + nbytes);
+    f.tensors.push_back(std::move(t));
+    return sdcd_encode(f, out, err);
+}
+
+// Borrowed view into the decoded frame; the SdcdFrame must outlive `out_x`.
+inline bool sdcpp_sdcd_to_x(const uint8_t* buf, size_t n,
+                            SdcdFrame& frame_out,
+                            const float** out_x,
+                            std::vector<int64_t>& shape_out,
+                            int* out_step_idx,
+                            float* out_timestep,
+                            std::string& err) {
+    if (!sdcd_decode(buf, n, frame_out, err)) return false;
+    const std::string* kv_kind = frame_out.find_meta("kind");
+    if (kv_kind == nullptr || *kv_kind != SDCPP_STEP_X_KIND) {
+        err = "sdcpp_sdcd_to_x: wrong/missing kind";
+        return false;
+    }
+    if (out_step_idx) {
+        const std::string* s = frame_out.find_meta("step_idx");
+        *out_step_idx = s ? std::atoi(s->c_str()) : 0;
+    }
+    if (out_timestep) {
+        const std::string* s = frame_out.find_meta("timestep");
+        *out_timestep = s ? static_cast<float>(std::atof(s->c_str())) : 0.f;
+    }
+    const SdtTensor* t = frame_out.find("x");
+    if (t == nullptr) { err = "sdcpp_sdcd_to_x: missing 'x'"; return false; }
+    *out_x = reinterpret_cast<const float*>(t->data.data());
+    shape_out.assign(t->dims.begin(), t->dims.end());
+    return true;
+}
 
 inline bool sdcpp_carry_to_sdcd(const sd_split_state_t* st,
                                 std::vector<uint8_t>& out,
