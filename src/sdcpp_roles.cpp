@@ -28,6 +28,9 @@
 
 #include "stable-diffusion.h"
 #include "sdt_codec.h"
+#ifdef DIST_HAVE_SDCPP_SPLIT
+#  include "sdcpp_split_wire.h"
+#endif
 
 #include <cstdlib>
 #include <cstring>
@@ -57,7 +60,7 @@ const char* MSG_NULL_OUT        = "output buf is NULL";
 const char* MSG_BAD_SDCD        = "failed to decode SDCD cond frame";
 const char* MSG_BAD_SDT         = "failed to decode SDT frame";
 const char* MSG_GEN_NULL        = "generate_image returned NULL";
-const char* MSG_NOTIMPL_BLOCKS  = "sd_role_sample_blocks: needs CF12-W6a sd.cpp UNet block-slice patch";
+const char* MSG_NOTIMPL_BLOCKS  = "sd_role_sample_blocks: half0/half1 C API present (sd_compute_unet_split_step); per-step cross-rig driver pending CF12-W6c";
 const char* MSG_PNG_FAIL        = "in-memory PNG encode failed";
 const char* MSG_VAE_FAIL        = "VAE decode bridge unavailable (needs sd_internal_decode_first_stage patch)";
 

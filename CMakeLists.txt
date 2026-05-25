@@ -433,6 +433,26 @@ if(DIST_USE_SDCPP)
     # the model filename.
     if(EXISTS "${_SDCPP_PATCH}")
         target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP_SPLIT=1)
+
+        # Smoke test for the CF12-W6a C surface — no model load, just exercises
+        # the sd_split_state_t setter/getter/serialize/SDCD wire roundtrip.
+        add_executable(test_sdcpp_split
+            src/test_sdcpp_split.cpp
+            src/sdt_codec.cpp
+        )
+        target_include_directories(test_sdcpp_split PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${_SDCPP_DIR}/include
+            ${_SDCPP_DIR}/thirdparty
+        )
+        target_link_libraries(test_sdcpp_split PRIVATE
+            stable-diffusion
+            ${_PLATFORM_LIBS}
+        )
+        target_compile_definitions(test_sdcpp_split PRIVATE
+            DIST_HAVE_SDCPP=1
+            DIST_HAVE_SDCPP_SPLIT=1
+        )
     endif()
 
     # Expose to dist_common via compile definition — used by capability probe.

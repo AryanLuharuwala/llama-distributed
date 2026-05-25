@@ -1,8 +1,8 @@
 diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
-index f8b2c2f..2b0c628 100644
+index f8b2c2f..966f8b7 100644
 --- a/include/stable-diffusion.h
 +++ b/include/stable-diffusion.h
-@@ -480,6 +480,69 @@ SD_API bool preprocess_canny(sd_image_t image,
+@@ -480,6 +480,118 @@ SD_API bool preprocess_canny(sd_image_t image,
  SD_API const char* sd_commit(void);
  SD_API const char* sd_version(void);
  
@@ -34,21 +34,70 @@ index f8b2c2f..2b0c628 100644
 +
 +// Allocate / free the opaque carry-state.  An sd_split_state_t holds the
 +// hidden state `h` + skip stack `hs[]` + sampler/sigma cursor between the
-+// two halves of a denoise step.
++// two halves of a denoise step, plus the per-step UNet inputs (x,
++// timesteps, context, c_concat, y) staged before calling half=0.
 +SD_API sd_split_state_t* sd_split_state_new(void);
 +SD_API void              sd_split_state_free(sd_split_state_t* state);
 +
++// Stage UNet inputs for an upcoming half=0 call.  All shapes are row-major;
++// pass `data=NULL, shape=NULL, ndims=0` for optional inputs (context,
++// c_concat, y) that the loaded backbone doesn't need.  Data is COPIED into
++// the state and may be freed by the caller after this returns.
++SD_API int sd_split_state_set_input(
++    sd_split_state_t* state,
++    const char*       name,        // "x" | "timesteps" | "context" | "c_concat" | "y"
++    const float*      data,
++    const int64_t*    shape,
++    int               ndims);
++
++// Read the half=1 noise-pred output produced by the most recent
++// which_half=1 invocation.  Returns a borrowed pointer to internal storage
++// (valid until the next call that mutates the state).  Pass non-NULL
++// pointers for shape/ndims; the function fills them and returns the data.
++SD_API int sd_split_state_get_output(
++    const sd_split_state_t* state,
++    const float**           data,
++    const int64_t**         shape,
++    int*                    ndims);
++
++// Read carry-state tensors h / hs.i / emb.  Used by the role bridge to
++// repack the carry into an SDCD UPLD-half wire frame for cross-rig
++// transport.  Same borrow semantics as sd_split_state_get_output.
++SD_API int sd_split_state_get_carry_count(const sd_split_state_t* state, int* hs_count);
++SD_API int sd_split_state_get_carry_tensor(
++    const sd_split_state_t* state,
++    const char*             name,        // "h" | "emb" | "hs.0" .. "hs.N-1"
++    const float**           data,
++    const int64_t**         shape,
++    int*                    ndims);
++
++// Set a carry-state tensor (used on the receiving rig after deserialising
++// an SDCD UPLD-half frame).  hs_count must be set first via
++// sd_split_state_set_hs_count.  Data is COPIED.
++SD_API int sd_split_state_set_hs_count(sd_split_state_t* state, int hs_count);
++SD_API int sd_split_state_set_carry_tensor(
++    sd_split_state_t* state,
++    const char*       name,
++    const float*      data,
++    const int64_t*    shape,
++    int               ndims);
++
 +// Serialise / deserialise the carry-state.  The returned buffer is owned
-+// by the library and must be freed with free().  Format is an SDCD blob —
-+// callers can also assemble/parse it themselves (see CF12-W6a design doc).
++// by the library and must be freed with free().  Format is a simple raw
++// blob (magic "SDSP" + version + step idx + hs count + length-prefixed
++// fp32 tensors); the role bridge wraps this in an SDCD container for
++// cross-rig transport, but in-process callers can use this directly.
 +SD_API int sd_split_state_serialize  (const sd_split_state_t* state, uint8_t** out, size_t* nbytes);
 +SD_API int sd_split_state_deserialize(const uint8_t* in, size_t nbytes, sd_split_state_t** out);
 +
-+// Run `which_half` (0 = input_blocks + middle, 1 = output_blocks + final +
-+// scheduler step) of the UNet for `step_idx` of a `total_steps`-long
-+// denoise schedule.  Inputs the role bridge provides up front (SDCD cond,
-+// latent x_t at step 0, sampler config) live on the sd_ctx_t; only the
-+// carry-state crosses between calls.
++// Run `which_half` (0 = input_blocks + middle, 1 = output_blocks + final) of
++// the UNet for `step_idx` of a `total_steps`-long denoise schedule.  Caller
++// must have staged inputs via sd_split_state_set_input before calling
++// which_half=0 (the carry tensors h/hs/emb are produced into the state and
++// available via sd_split_state_get_carry_tensor).  For which_half=1, caller
++// must populate h/hs/emb via sd_split_state_set_* (typically from the
++// previous half=0 call on this rig or an SDCD UPLD-half frame from a peer);
++// the output noise-pred is available via sd_split_state_get_output.
 +//
 +// Returns 0 (SD_SPLIT_OK) on success, or one of the SD_SPLIT_E* codes.
 +SD_API int sd_compute_unet_split_step(
@@ -72,63 +121,356 @@ index f8b2c2f..2b0c628 100644
  #ifdef __cplusplus
  }
  #endif
+diff --git a/src/diffusion_model.hpp b/src/diffusion_model.hpp
+index 9e4e444..ca2704c 100644
+--- a/src/diffusion_model.hpp
++++ b/src/diffusion_model.hpp
+@@ -50,6 +50,15 @@ static inline const sd::Tensor<T>& tensor_or_empty(const sd::Tensor<T>* tensor)
+     return tensor != nullptr ? *tensor : kEmpty;
+ }
+ 
++// CF12-W6a: host-side carry-state extracted at the UNet middle-block boundary.
++// Other diffusion backbones (DiT/MMDiT/Flux/Wan/...) do not currently expose a
++// split surface — compute_half0/compute_half1 below return false on them.
++struct DiffusionHalfCarry {
++    sd::Tensor<float>              h;
++    std::vector<sd::Tensor<float>> hs;
++    sd::Tensor<float>              emb;
++};
++
+ struct DiffusionModel {
+     virtual std::string get_desc()                                               = 0;
+     virtual sd::Tensor<float> compute(int n_threads,
+@@ -64,6 +73,23 @@ struct DiffusionModel {
+     virtual void set_flash_attention_enabled(bool enabled)           = 0;
+     virtual void set_max_graph_vram_bytes(size_t max_vram_bytes)     = 0;
+     virtual void set_circular_axes(bool circular_x, bool circular_y) = 0;
++
++    // CF12-W6a: cross-rig block-split surface. Default returns false (not
++    // supported) so non-UNet backbones don't need to implement it.
++    virtual bool supports_block_split() const { return false; }
++    virtual bool compute_half0(int n_threads,
++                               const DiffusionParams& diffusion_params,
++                               DiffusionHalfCarry& carry_out) {
++        (void)n_threads; (void)diffusion_params; (void)carry_out;
++        return false;
++    }
++    virtual sd::Tensor<float> compute_half1(int n_threads,
++                                            const DiffusionParams& diffusion_params,
++                                            const DiffusionHalfCarry& carry) {
++        (void)n_threads; (void)diffusion_params; (void)carry;
++        return {};
++    }
++    virtual ~DiffusionModel() = default;
+ };
+ 
+ struct UNetModel : public DiffusionModel {
+@@ -135,6 +161,52 @@ struct UNetModel : public DiffusionModel {
+                             diffusion_params.controls ? *diffusion_params.controls : empty_controls,
+                             diffusion_params.control_strength);
+     }
++
++    bool supports_block_split() const override { return true; }
++
++    bool compute_half0(int n_threads,
++                       const DiffusionParams& diffusion_params,
++                       DiffusionHalfCarry& carry_out) override {
++        GGML_ASSERT(diffusion_params.x != nullptr);
++        GGML_ASSERT(diffusion_params.timesteps != nullptr);
++        static const std::vector<sd::Tensor<float>> empty_controls;
++        UNetModelRunner::SplitCarry runner_carry;
++        const bool ok = unet.compute_half0(n_threads,
++                                           *diffusion_params.x,
++                                           *diffusion_params.timesteps,
++                                           tensor_or_empty(diffusion_params.context),
++                                           tensor_or_empty(diffusion_params.c_concat),
++                                           tensor_or_empty(diffusion_params.y),
++                                           diffusion_params.num_video_frames,
++                                           diffusion_params.controls ? *diffusion_params.controls : empty_controls,
++                                           diffusion_params.control_strength,
++                                           runner_carry);
++        if (!ok) {
++            return false;
++        }
++        carry_out.h   = std::move(runner_carry.h);
++        carry_out.hs  = std::move(runner_carry.hs);
++        carry_out.emb = std::move(runner_carry.emb);
++        return true;
++    }
++
++    sd::Tensor<float> compute_half1(int n_threads,
++                                    const DiffusionParams& diffusion_params,
++                                    const DiffusionHalfCarry& carry) override {
++        GGML_ASSERT(diffusion_params.x != nullptr);
++        static const std::vector<sd::Tensor<float>> empty_controls;
++        UNetModelRunner::SplitCarry runner_carry;
++        runner_carry.h   = carry.h;
++        runner_carry.hs  = carry.hs;
++        runner_carry.emb = carry.emb;
++        return unet.compute_half1(n_threads,
++                                  runner_carry,
++                                  tensor_or_empty(diffusion_params.context),
++                                  diffusion_params.num_video_frames,
++                                  diffusion_params.controls ? *diffusion_params.controls : empty_controls,
++                                  diffusion_params.control_strength,
++                                  diffusion_params.x->dim());
++    }
+ };
+ 
+ struct MMDiTModel : public DiffusionModel {
 diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
-index 9e8e474..316f97c 100644
+index 9e8e474..5773ba2 100644
 --- a/src/stable-diffusion.cpp
 +++ b/src/stable-diffusion.cpp
-@@ -2857,6 +2857,113 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
+@@ -2857,6 +2857,344 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
      free(sd_ctx);
  }
  
 +// ─── CF12-W6a: UNet block-split surface (llama-distributed extension) ──────
 +//
-+// Phase-1 stubs.  The public API exists so the llama-distributed role
-+// bridge can link against the patched library today; the bodies switch to
-+// the real forward_half-driven path in a follow-up patch.  Until then
-+// callers get SD_SPLIT_ENOTSUP and fall back to the role chain.
++// Phase-2 — real cross-rig split.  The split-state holds host-side copies
++// of (x, timesteps, context, c_concat, y) staged before half=0, the carry
++// tuple (h, hs[], emb) produced by half=0, and the noise-pred produced by
++// half=1.  Bridge dispatches to diffusion_model->compute_half0/half1,
++// which currently exist on the UNet path only — other backbones return
++// SD_SPLIT_ENOTSUP via DiffusionModel's default implementation.
 +
 +struct sd_split_state_t {
-+    // Phase-2 carry-state:
-+    //   sd::Tensor<float>            h;        // hidden state after middle_block
-+    //   std::vector<sd::Tensor<float>> hs;    // skip residual stack
-+    //   sd::Tensor<float>            emb;      // time + label embedding
-+    //   int                          step_idx;
-+    //   int                          sigma_idx;
-+    //   bool                         is_final_step;
-+    // For Phase 1 the struct is empty — bodies return ENOTSUP before
-+    // touching it.
-+    int  phase1_placeholder;
++    sd::Tensor<float>              x;
++    sd::Tensor<float>              timesteps;
++    sd::Tensor<float>              context;
++    sd::Tensor<float>              c_concat;
++    sd::Tensor<float>              y;
++    sd::Tensor<float>              h;
++    std::vector<sd::Tensor<float>> hs;
++    sd::Tensor<float>              emb;
++    sd::Tensor<float>              noise_pred;
++    int                            step_idx     = 0;
++    int                            total_steps  = 0;
++    int                            last_half    = -1;  // -1 = uninitialised, 0 = h ready, 1 = noise_pred ready
 +};
 +
 +sd_split_state_t* sd_split_state_new(void) {
-+    sd_split_state_t* st = (sd_split_state_t*)calloc(1, sizeof(sd_split_state_t));
-+    return st;
++    return new sd_split_state_t();
 +}
 +
 +void sd_split_state_free(sd_split_state_t* state) {
-+    if (state != nullptr) {
-+        free(state);
-+    }
++    delete state;
 +}
 +
-+int sd_split_state_serialize(const sd_split_state_t* state, uint8_t** out, size_t* nbytes) {
-+    (void)state;
-+    if (out == nullptr || nbytes == nullptr) {
++static std::vector<int64_t> shape_from_c(const int64_t* shape, int ndims) {
++    std::vector<int64_t> out;
++    if (shape == nullptr || ndims <= 0) return out;
++    out.assign(shape, shape + ndims);
++    return out;
++}
++
++static int copy_into_tensor(sd::Tensor<float>& dst,
++                            const float* data,
++                            const int64_t* shape,
++                            int ndims) {
++    if (data == nullptr || shape == nullptr || ndims <= 0) {
++        dst = sd::Tensor<float>();
++        return SD_SPLIT_OK;
++    }
++    auto shape_v = shape_from_c(shape, ndims);
++    sd::Tensor<float> t(shape_v);
++    if (t.numel() > 0) {
++        std::memcpy(t.data(), data, static_cast<size_t>(t.numel()) * sizeof(float));
++    }
++    dst = std::move(t);
++    return SD_SPLIT_OK;
++}
++
++int sd_split_state_set_input(sd_split_state_t* state,
++                             const char* name,
++                             const float* data,
++                             const int64_t* shape,
++                             int ndims) {
++    if (state == nullptr || name == nullptr) return SD_SPLIT_EINVAL;
++    std::string n = name;
++    if (n == "x")         return copy_into_tensor(state->x,         data, shape, ndims);
++    if (n == "timesteps") return copy_into_tensor(state->timesteps, data, shape, ndims);
++    if (n == "context")   return copy_into_tensor(state->context,   data, shape, ndims);
++    if (n == "c_concat")  return copy_into_tensor(state->c_concat,  data, shape, ndims);
++    if (n == "y")         return copy_into_tensor(state->y,         data, shape, ndims);
++    return SD_SPLIT_EINVAL;
++}
++
++int sd_split_state_get_output(const sd_split_state_t* state,
++                              const float** data,
++                              const int64_t** shape,
++                              int* ndims) {
++    if (state == nullptr || data == nullptr || shape == nullptr || ndims == nullptr) {
 +        return SD_SPLIT_EINVAL;
 +    }
-+    *out    = nullptr;
++    if (state->noise_pred.empty()) {
++        return SD_SPLIT_ESTATE;
++    }
++    *data  = state->noise_pred.data();
++    *shape = state->noise_pred.shape().data();
++    *ndims = static_cast<int>(state->noise_pred.shape().size());
++    return SD_SPLIT_OK;
++}
++
++int sd_split_state_get_carry_count(const sd_split_state_t* state, int* hs_count) {
++    if (state == nullptr || hs_count == nullptr) return SD_SPLIT_EINVAL;
++    *hs_count = static_cast<int>(state->hs.size());
++    return SD_SPLIT_OK;
++}
++
++int sd_split_state_get_carry_tensor(const sd_split_state_t* state,
++                                    const char* name,
++                                    const float** data,
++                                    const int64_t** shape,
++                                    int* ndims) {
++    if (state == nullptr || name == nullptr || data == nullptr ||
++        shape == nullptr || ndims == nullptr) {
++        return SD_SPLIT_EINVAL;
++    }
++    const sd::Tensor<float>* src = nullptr;
++    std::string n = name;
++    if      (n == "h")   src = &state->h;
++    else if (n == "emb") src = &state->emb;
++    else if (n.rfind("hs.", 0) == 0) {
++        int idx = std::atoi(n.c_str() + 3);
++        if (idx < 0 || static_cast<size_t>(idx) >= state->hs.size()) {
++            return SD_SPLIT_EINVAL;
++        }
++        src = &state->hs[static_cast<size_t>(idx)];
++    } else {
++        return SD_SPLIT_EINVAL;
++    }
++    if (src->empty()) return SD_SPLIT_ESTATE;
++    *data  = src->data();
++    *shape = src->shape().data();
++    *ndims = static_cast<int>(src->shape().size());
++    return SD_SPLIT_OK;
++}
++
++int sd_split_state_set_hs_count(sd_split_state_t* state, int hs_count) {
++    if (state == nullptr || hs_count < 0) return SD_SPLIT_EINVAL;
++    state->hs.clear();
++    state->hs.resize(static_cast<size_t>(hs_count));
++    return SD_SPLIT_OK;
++}
++
++int sd_split_state_set_carry_tensor(sd_split_state_t* state,
++                                    const char* name,
++                                    const float* data,
++                                    const int64_t* shape,
++                                    int ndims) {
++    if (state == nullptr || name == nullptr) return SD_SPLIT_EINVAL;
++    std::string n = name;
++    if (n == "h")   return copy_into_tensor(state->h,   data, shape, ndims);
++    if (n == "emb") return copy_into_tensor(state->emb, data, shape, ndims);
++    if (n.rfind("hs.", 0) == 0) {
++        int idx = std::atoi(n.c_str() + 3);
++        if (idx < 0 || static_cast<size_t>(idx) >= state->hs.size()) {
++            return SD_SPLIT_EINVAL;
++        }
++        return copy_into_tensor(state->hs[static_cast<size_t>(idx)], data, shape, ndims);
++    }
++    return SD_SPLIT_EINVAL;
++}
++
++namespace {
++constexpr uint32_t kSplitMagic   = 0x50534453u; // 'SDSP' little-endian
++constexpr uint16_t kSplitVersion = 1;
++
++void buf_push_bytes(std::vector<uint8_t>& buf, const void* p, size_t n) {
++    auto* b = static_cast<const uint8_t*>(p);
++    buf.insert(buf.end(), b, b + n);
++}
++
++template <typename T>
++void buf_push(std::vector<uint8_t>& buf, T v) {
++    buf_push_bytes(buf, &v, sizeof(T));
++}
++
++void buf_push_tensor(std::vector<uint8_t>& buf, const sd::Tensor<float>& t) {
++    uint32_t nd = static_cast<uint32_t>(t.shape().size());
++    buf_push<uint32_t>(buf, nd);
++    for (int64_t d : t.shape()) buf_push<int64_t>(buf, d);
++    buf_push_bytes(buf, t.data(), static_cast<size_t>(t.numel()) * sizeof(float));
++}
++
++bool buf_read_bytes(const uint8_t*& p, const uint8_t* end, void* out, size_t n) {
++    if (p + n > end) return false;
++    std::memcpy(out, p, n);
++    p += n;
++    return true;
++}
++
++template <typename T>
++bool buf_read(const uint8_t*& p, const uint8_t* end, T& v) {
++    return buf_read_bytes(p, end, &v, sizeof(T));
++}
++
++bool buf_read_tensor(const uint8_t*& p, const uint8_t* end, sd::Tensor<float>& out) {
++    uint32_t nd = 0;
++    if (!buf_read<uint32_t>(p, end, nd)) return false;
++    std::vector<int64_t> shape(nd);
++    for (uint32_t i = 0; i < nd; ++i) {
++        if (!buf_read<int64_t>(p, end, shape[i])) return false;
++    }
++    sd::Tensor<float> t(shape);
++    if (t.numel() > 0) {
++        if (!buf_read_bytes(p, end, t.data(),
++                            static_cast<size_t>(t.numel()) * sizeof(float))) {
++            return false;
++        }
++    }
++    out = std::move(t);
++    return true;
++}
++} // namespace
++
++int sd_split_state_serialize(const sd_split_state_t* state, uint8_t** out, size_t* nbytes) {
++    if (state == nullptr || out == nullptr || nbytes == nullptr) return SD_SPLIT_EINVAL;
++    *out = nullptr;
 +    *nbytes = 0;
-+    return SD_SPLIT_ENOTSUP;
++    std::vector<uint8_t> buf;
++    buf.reserve(state->h.numel() * sizeof(float) + 256);
++    buf_push<uint32_t>(buf, kSplitMagic);
++    buf_push<uint16_t>(buf, kSplitVersion);
++    buf_push<uint32_t>(buf, static_cast<uint32_t>(state->step_idx));
++    buf_push<uint32_t>(buf, static_cast<uint32_t>(state->total_steps));
++    buf_push<uint32_t>(buf, static_cast<uint32_t>(state->hs.size()));
++    buf_push_tensor(buf, state->h);
++    buf_push_tensor(buf, state->emb);
++    for (const auto& t : state->hs) buf_push_tensor(buf, t);
++    uint8_t* malloc_buf = (uint8_t*)std::malloc(buf.size());
++    if (malloc_buf == nullptr) return SD_SPLIT_EALLOC;
++    if (!buf.empty()) std::memcpy(malloc_buf, buf.data(), buf.size());
++    *out    = malloc_buf;
++    *nbytes = buf.size();
++    return SD_SPLIT_OK;
 +}
 +
 +int sd_split_state_deserialize(const uint8_t* in, size_t nbytes, sd_split_state_t** out) {
-+    (void)in;
-+    (void)nbytes;
-+    if (out == nullptr) {
-+        return SD_SPLIT_EINVAL;
-+    }
++    if (in == nullptr || nbytes == 0 || out == nullptr) return SD_SPLIT_EINVAL;
 +    *out = nullptr;
-+    return SD_SPLIT_ENOTSUP;
++    const uint8_t* p   = in;
++    const uint8_t* end = in + nbytes;
++    uint32_t magic = 0;  uint16_t version = 0;
++    uint32_t step_idx = 0, total_steps = 0, hs_count = 0;
++    if (!buf_read<uint32_t>(p, end, magic) || magic != kSplitMagic) return SD_SPLIT_EINVAL;
++    if (!buf_read<uint16_t>(p, end, version) || version != kSplitVersion) return SD_SPLIT_EINVAL;
++    if (!buf_read<uint32_t>(p, end, step_idx))    return SD_SPLIT_EINVAL;
++    if (!buf_read<uint32_t>(p, end, total_steps)) return SD_SPLIT_EINVAL;
++    if (!buf_read<uint32_t>(p, end, hs_count))    return SD_SPLIT_EINVAL;
++    auto st = std::unique_ptr<sd_split_state_t>(new sd_split_state_t());
++    st->step_idx    = static_cast<int>(step_idx);
++    st->total_steps = static_cast<int>(total_steps);
++    if (!buf_read_tensor(p, end, st->h))   return SD_SPLIT_EINVAL;
++    if (!buf_read_tensor(p, end, st->emb)) return SD_SPLIT_EINVAL;
++    st->hs.resize(hs_count);
++    for (uint32_t i = 0; i < hs_count; ++i) {
++        if (!buf_read_tensor(p, end, st->hs[i])) return SD_SPLIT_EINVAL;
++    }
++    *out = st.release();
++    return SD_SPLIT_OK;
 +}
 +
 +int sd_compute_unet_split_step(sd_ctx_t* sd_ctx,
@@ -145,10 +487,45 @@ index 9e8e474..316f97c 100644
 +    if (step_idx < 0 || total_steps <= 0 || step_idx >= total_steps) {
 +        return SD_SPLIT_EINVAL;
 +    }
-+    // Phase-1 stub.  The follow-up patch routes this through
-+    // diffusion_model->compute_half() — UNetModel implements, other
-+    // backbones return ENOTSUP at the bridge level.
-+    return SD_SPLIT_ENOTSUP;
++    auto& sd = *sd_ctx->sd;
++    if (!sd.diffusion_model || !sd.diffusion_model->supports_block_split()) {
++        return SD_SPLIT_ENOTSUP;
++    }
++
++    state->step_idx    = step_idx;
++    state->total_steps = total_steps;
++
++    DiffusionParams params{};
++    params.x         = &state->x;
++    params.timesteps = &state->timesteps;
++    params.context   = state->context.empty()  ? nullptr : &state->context;
++    params.c_concat  = state->c_concat.empty() ? nullptr : &state->c_concat;
++    params.y         = state->y.empty()        ? nullptr : &state->y;
++
++    if (which_half == 0) {
++        if (state->x.empty() || state->timesteps.empty()) return SD_SPLIT_ESTATE;
++        DiffusionHalfCarry carry;
++        const bool ok = sd.diffusion_model->compute_half0(sd.n_threads, params, carry);
++        if (!ok) return SD_SPLIT_ENOTSUP;
++        state->h         = std::move(carry.h);
++        state->hs        = std::move(carry.hs);
++        state->emb       = std::move(carry.emb);
++        state->last_half = 0;
++        return SD_SPLIT_OK;
++    }
++    // which_half == 1
++    if (state->h.empty() || state->emb.empty() || state->hs.empty()) {
++        return SD_SPLIT_ESTATE;
++    }
++    DiffusionHalfCarry carry;
++    carry.h   = state->h;
++    carry.hs  = state->hs;
++    carry.emb = state->emb;
++    sd::Tensor<float> out = sd.diffusion_model->compute_half1(sd.n_threads, params, carry);
++    if (out.empty()) return SD_SPLIT_ENOTSUP;
++    state->noise_pred = std::move(out);
++    state->last_half  = 1;
++    return SD_SPLIT_OK;
 +}
 +
 +int sd_unet_block_count(const sd_ctx_t* sd_ctx) {
@@ -191,10 +568,28 @@ index 9e8e474..316f97c 100644
                                          const sd::Tensor<float>& waveform) {
      if (sd == nullptr || waveform.empty()) {
 diff --git a/src/unet.hpp b/src/unet.hpp
-index a67fe07..8ae0072 100644
+index a67fe07..feaeef6 100644
 --- a/src/unet.hpp
 +++ b/src/unet.hpp
-@@ -424,6 +424,42 @@ public:
+@@ -185,6 +185,17 @@ public:
+     int model_channels  = 320;
+     int adm_in_channels = 2816;  // only for VERSION_SDXL/SVD
+ 
++    // CF12-W6a: ds factor at the middle-block boundary, derived from the
++    // channel-mult ladder (each non-final level doubles ds). Used by the
++    // split-runner's half1 graph to reconstruct the carry-state.
++    int boundary_ds() const {
++        int ds = 1;
++        for (size_t i = 0; i + 1 < channel_mult.size(); ++i) {
++            ds *= 2;
++        }
++        return ds;
++    }
++
+     UnetModelBlock(SDVersion version = VERSION_SD1, const String2TensorStorage& tensor_storage_map = {})
+         : version(version) {
+         if (sd_version_is_sd2(version)) {
+@@ -424,6 +435,42 @@ public:
          }
      }
  
@@ -237,7 +632,7 @@ index a67fe07..8ae0072 100644
      ggml_tensor* forward(GGMLRunnerContext* ctx,
                           ggml_tensor* x,
                           ggml_tensor* timesteps,
-@@ -439,31 +475,48 @@ public:
+@@ -439,31 +486,48 @@ public:
          // c_concat: [N, in_channels, h, w] or [1, in_channels, h, w]
          // y: [N, adm_in_channels] or [1, adm_in_channels]
          // return: [N, out_channels, h, w]
@@ -305,7 +700,7 @@ index a67fe07..8ae0072 100644
  
          auto t_emb = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, model_channels);  // [N, model_channels]
  
-@@ -540,7 +593,26 @@ public:
+@@ -540,7 +604,26 @@ public:
              auto cs = ggml_ext_scale(ctx->ggml_ctx, controls[controls.size() - 1], control_strength, true);
              h       = ggml_add(ctx->ggml_ctx, h, cs);  // middle control
          }
@@ -333,7 +728,7 @@ index a67fe07..8ae0072 100644
  
          // output_blocks
          int output_block_idx = 0;
-@@ -596,8 +668,7 @@ public:
+@@ -596,8 +679,7 @@ public:
          h = out_2->forward(ctx, h);
          ggml_set_name(h, "bench-end");
          return h;  // [N, out_channels, h, w]
@@ -343,3 +738,171 @@ index a67fe07..8ae0072 100644
  
  struct UNetModelRunner : public GGMLRunner {
      UnetModelBlock unet;
+@@ -682,6 +764,167 @@ struct UNetModelRunner : public GGMLRunner {
+         return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false), x.dim());
+     }
+ 
++    // ─── CF12-W6a: cross-rig UNet split runner methods ──────────────────────
++    //
++    // Carry-state extracted at the middle-block boundary. Stored host-side
++    // (sd::Tensor<float>) so it can be serialized over the wire to a peer
++    // rig that owns the output_blocks weights. The `ds` (downsample factor)
++    // is reconstructible from `channel_mult.size()` and is not serialized.
++    struct SplitCarry {
++        sd::Tensor<float>              h;
++        std::vector<sd::Tensor<float>> hs;
++        sd::Tensor<float>              emb;
++    };
++
++    static constexpr const char* kSplitCacheH   = "unet.split.h";
++    static constexpr const char* kSplitCacheEmb = "unet.split.emb";
++
++    static std::string split_hs_key(size_t i) {
++        return std::string("unet.split.hs.") + std::to_string(i);
++    }
++
++    ggml_cgraph* build_graph_half0(const sd::Tensor<float>& x_tensor,
++                                   const sd::Tensor<float>& timesteps_tensor,
++                                   const sd::Tensor<float>& context_tensor               = {},
++                                   const sd::Tensor<float>& c_concat_tensor              = {},
++                                   const sd::Tensor<float>& y_tensor                     = {},
++                                   int num_video_frames                                  = -1,
++                                   const std::vector<sd::Tensor<float>>& controls_tensor = {},
++                                   float control_strength                                = 0.f) {
++        ggml_cgraph* gf = new_graph_custom(UNET_GRAPH_SIZE);
++
++        ggml_tensor* x         = make_input(x_tensor);
++        ggml_tensor* timesteps = make_input(timesteps_tensor);
++        ggml_tensor* context   = make_optional_input(context_tensor);
++        ggml_tensor* c_concat  = make_optional_input(c_concat_tensor);
++        ggml_tensor* y         = make_optional_input(y_tensor);
++        std::vector<ggml_tensor*> controls;
++        controls.reserve(controls_tensor.size());
++        for (const auto& control_tensor : controls_tensor) {
++            controls.push_back(make_input(control_tensor));
++        }
++        if (num_video_frames == -1) {
++            num_video_frames = static_cast<int>(x->ne[3]);
++        }
++
++        auto runner_ctx = get_context();
++        auto st         = unet.forward_half0(&runner_ctx, x, timesteps, context, c_concat, y,
++                                             num_video_frames, controls, control_strength);
++
++        runner_ctx.persist_cache_tensor(kSplitCacheH, st.h);
++        runner_ctx.persist_cache_tensor(kSplitCacheEmb, st.emb);
++        for (size_t i = 0; i < st.hs.size(); ++i) {
++            runner_ctx.persist_cache_tensor(split_hs_key(i), st.hs[i]);
++        }
++
++        ggml_build_forward_expand(gf, st.h);
++        return gf;
++    }
++
++    ggml_cgraph* build_graph_half1(const SplitCarry& carry,
++                                   const sd::Tensor<float>& context_tensor               = {},
++                                   int num_video_frames                                  = -1,
++                                   const std::vector<sd::Tensor<float>>& controls_tensor = {},
++                                   float control_strength                                = 0.f) {
++        ggml_cgraph* gf = new_graph_custom(UNET_GRAPH_SIZE);
++
++        ggml_tensor* h       = make_input(carry.h);
++        ggml_tensor* emb     = make_input(carry.emb);
++        ggml_tensor* context = make_optional_input(context_tensor);
++        std::vector<ggml_tensor*> hs;
++        hs.reserve(carry.hs.size());
++        for (const auto& hs_tensor : carry.hs) {
++            hs.push_back(make_input(hs_tensor));
++        }
++        std::vector<ggml_tensor*> controls;
++        controls.reserve(controls_tensor.size());
++        for (const auto& control_tensor : controls_tensor) {
++            controls.push_back(make_input(control_tensor));
++        }
++        if (num_video_frames == -1) {
++            num_video_frames = static_cast<int>(h->ne[3]);
++        }
++
++        UnetModelBlock::UnetHalfState st;
++        st.h   = h;
++        st.hs  = hs;
++        st.emb = emb;
++        st.ds  = unet.boundary_ds();
++
++        auto runner_ctx  = get_context();
++        ggml_tensor* out = unet.forward_half1(&runner_ctx, st, context,
++                                              num_video_frames, controls, control_strength);
++        ggml_build_forward_expand(gf, out);
++        return gf;
++    }
++
++    bool read_cache_sd_tensor(const std::string& name, sd::Tensor<float>& out) {
++        ggml_tensor* t = get_cache_tensor_by_name(name);
++        if (t == nullptr) {
++            return false;
++        }
++        out = sd::make_sd_tensor_from_ggml<float>(t);
++        return true;
++    }
++
++    bool compute_half0(int n_threads,
++                       const sd::Tensor<float>& x,
++                       const sd::Tensor<float>& timesteps,
++                       const sd::Tensor<float>& context,
++                       const sd::Tensor<float>& c_concat,
++                       const sd::Tensor<float>& y,
++                       int num_video_frames,
++                       const std::vector<sd::Tensor<float>>& controls,
++                       float control_strength,
++                       SplitCarry& carry_out) {
++        auto get_graph = [&]() -> ggml_cgraph* {
++            return build_graph_half0(x, timesteps, context, c_concat, y,
++                                     num_video_frames, controls, control_strength);
++        };
++        auto result = GGMLRunner::compute<float>(get_graph, n_threads, false);
++        if (!result.has_value()) {
++            return false;
++        }
++        // result already corresponds to st.h via final_result; but we want the
++        // host copy from cache_ctx for the explicit carry-state. Read all
++        // persisted tensors back from cache.
++        sd::Tensor<float> h_host;
++        if (!read_cache_sd_tensor(kSplitCacheH, h_host)) {
++            return false;
++        }
++        sd::Tensor<float> emb_host;
++        if (!read_cache_sd_tensor(kSplitCacheEmb, emb_host)) {
++            return false;
++        }
++        std::vector<sd::Tensor<float>> hs_host;
++        for (size_t i = 0;; ++i) {
++            sd::Tensor<float> hs_i;
++            if (!read_cache_sd_tensor(split_hs_key(i), hs_i)) {
++                break;
++            }
++            hs_host.push_back(std::move(hs_i));
++        }
++        carry_out.h   = std::move(h_host);
++        carry_out.emb = std::move(emb_host);
++        carry_out.hs  = std::move(hs_host);
++        return true;
++    }
++
++    sd::Tensor<float> compute_half1(int n_threads,
++                                    const SplitCarry& carry,
++                                    const sd::Tensor<float>& context,
++                                    int num_video_frames,
++                                    const std::vector<sd::Tensor<float>>& controls,
++                                    float control_strength,
++                                    size_t output_dim_hint) {
++        auto get_graph = [&]() -> ggml_cgraph* {
++            return build_graph_half1(carry, context, num_video_frames, controls, control_strength);
++        };
++        return restore_trailing_singleton_dims(
++            GGMLRunner::compute<float>(get_graph, n_threads, false),
++            output_dim_hint);
++    }
++
+     void test() {
+         ggml_init_params params;
+         params.mem_size   = static_cast<size_t>(10 * 1024 * 1024);  // 10 MB
