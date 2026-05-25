@@ -73,10 +73,10 @@ index f8b2c2f..2b0c628 100644
  }
  #endif
 diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
-index 9e8e474..9a5f829 100644
+index 9e8e474..316f97c 100644
 --- a/src/stable-diffusion.cpp
 +++ b/src/stable-diffusion.cpp
-@@ -2857,6 +2857,104 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
+@@ -2857,6 +2857,113 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
      free(sd_ctx);
  }
  
@@ -155,9 +155,18 @@ index 9e8e474..9a5f829 100644
 +    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
 +        return 0;
 +    }
-+    // Phase 1: 0 means "split not yet wired"; the planner falls back to
-+    // the role chain.  When forward_half lands the SD1/SDXL paths return
-+    // 2 (two halves), Phase 2 returns the finer subdivision count.
++    // The UnetModelBlock forward path is now split-capable (forward_half0
++    // ∘ forward_half1, see unet.hpp).  Logical block count = 2 (the two
++    // halves) for SD1/SD2/SDXL.  Other backbones (SD3/Flux/PixArt/etc.)
++    // use different runner classes that don't yet implement forward_half,
++    // so they return 0 and fall back to the role chain.
++    //
++    // Phase 2 will return the finer subdivision count (intra-input /
++    // intra-output) once partial hs[] serialization lands.
++    SDVersion v = sd_ctx->sd->version;
++    if (sd_version_is_sd1(v))  return 2;
++    if (sd_version_is_sd2(v))  return 2;
++    if (sd_version_is_sdxl(v)) return 2;
 +    return 0;
 +}
 +
@@ -181,3 +190,156 @@ index 9e8e474..9a5f829 100644
  static sd_audio_t* waveform_to_sd_audio(const StableDiffusionGGML* sd,
                                          const sd::Tensor<float>& waveform) {
      if (sd == nullptr || waveform.empty()) {
+diff --git a/src/unet.hpp b/src/unet.hpp
+index a67fe07..8ae0072 100644
+--- a/src/unet.hpp
++++ b/src/unet.hpp
+@@ -424,6 +424,42 @@ public:
+         }
+     }
+ 
++    // ─── CF12-W6a: UNet block-split carry-state ──────────────────────────
++    //
++    // forward_half0 runs prelude + input_blocks + middle_block.
++    // forward_half1 runs output_blocks + final out conv.
++    // When chained inline (same graph build), the result is byte-identical
++    // to the monolithic forward() that lived here before — see forward()
++    // below which simply wires the two halves back-to-back.
++    //
++    // The split exists so an external driver can build two graphs with
++    // independent compute-buffer footprints (one rig owns the input-side
++    // weights, another owns the output-side weights) and ferry the
++    // carry-state between them.
++    struct UnetHalfState {
++        ggml_tensor* h   = nullptr;            // hidden state after middle_block
++        std::vector<ggml_tensor*> hs;          // skip residual stack (LIFO)
++        ggml_tensor* emb = nullptr;            // time + label embedding
++        int ds           = 1;                  // downsample factor at boundary
++    };
++
++    UnetHalfState forward_half0(GGMLRunnerContext* ctx,
++                                ggml_tensor* x,
++                                ggml_tensor* timesteps,
++                                ggml_tensor* context,
++                                ggml_tensor* c_concat              = nullptr,
++                                ggml_tensor* y                     = nullptr,
++                                int num_video_frames               = -1,
++                                std::vector<ggml_tensor*> controls = {},
++                                float control_strength             = 0.f);
++
++    ggml_tensor* forward_half1(GGMLRunnerContext* ctx,
++                               const UnetHalfState& st,
++                               ggml_tensor* context,
++                               int num_video_frames               = -1,
++                               std::vector<ggml_tensor*> controls = {},
++                               float control_strength             = 0.f);
++
+     ggml_tensor* forward(GGMLRunnerContext* ctx,
+                          ggml_tensor* x,
+                          ggml_tensor* timesteps,
+@@ -439,31 +475,48 @@ public:
+         // c_concat: [N, in_channels, h, w] or [1, in_channels, h, w]
+         // y: [N, adm_in_channels] or [1, adm_in_channels]
+         // return: [N, out_channels, h, w]
+-        if (context != nullptr) {
+-            if (context->ne[2] != x->ne[3]) {
+-                context = ggml_repeat(ctx->ggml_ctx, context, ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, context->ne[0], context->ne[1], x->ne[3]));
+-            }
+-        }
++        UnetHalfState st = forward_half0(ctx, x, timesteps, context, c_concat, y,
++                                         num_video_frames, controls, control_strength);
++        return forward_half1(ctx, st, context, num_video_frames, controls, control_strength);
++    }
++};
+ 
+-        if (c_concat != nullptr) {
+-            if (c_concat->ne[3] != x->ne[3]) {
+-                c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
+-            }
+-            x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
++// ─── CF12-W6a: out-of-class definitions of forward_half0 / forward_half1 ──
++// Defined here (still in the header, since UNetModelRunner is header-only)
++// so the file stays a single translation-unit drop-in.
++
++inline UnetModelBlock::UnetHalfState UnetModelBlock::forward_half0(
++    GGMLRunnerContext* ctx,
++    ggml_tensor* x,
++    ggml_tensor* timesteps,
++    ggml_tensor* context,
++    ggml_tensor* c_concat,
++    ggml_tensor* y,
++    int num_video_frames,
++    std::vector<ggml_tensor*> controls,
++    float control_strength) {
++    if (context != nullptr) {
++        if (context->ne[2] != x->ne[3]) {
++            context = ggml_repeat(ctx->ggml_ctx, context, ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, context->ne[0], context->ne[1], x->ne[3]));
+         }
++    }
+ 
+-        if (y != nullptr) {
+-            if (y->ne[1] != x->ne[3]) {
+-                y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
+-            }
++    if (c_concat != nullptr) {
++        if (c_concat->ne[3] != x->ne[3]) {
++            c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
+         }
++        x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
++    }
+ 
+-        auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
+-        auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
+-        auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
++    if (y != nullptr) {
++        if (y->ne[1] != x->ne[3]) {
++            y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
++        }
++    }
+ 
+-        auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
+-        auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
++    auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
++    auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
++    auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
+ 
+         auto t_emb = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, model_channels);  // [N, model_channels]
+ 
+@@ -540,7 +593,26 @@ public:
+             auto cs = ggml_ext_scale(ctx->ggml_ctx, controls[controls.size() - 1], control_strength, true);
+             h       = ggml_add(ctx->ggml_ctx, h, cs);  // middle control
+         }
+-        int control_offset = static_cast<int>(controls.size() - 2);
++    return UnetHalfState{h, hs, emb, ds};
++}
++
++inline ggml_tensor* UnetModelBlock::forward_half1(
++    GGMLRunnerContext* ctx,
++    const UnetHalfState& st,
++    ggml_tensor* context,
++    int num_video_frames,
++    std::vector<ggml_tensor*> controls,
++    float control_strength) {
++    auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
++    auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
++
++    ggml_tensor* h               = st.h;
++    std::vector<ggml_tensor*> hs = st.hs;
++    ggml_tensor* emb             = st.emb;
++    int ds                       = st.ds;
++    size_t len_mults             = channel_mult.size();
++
++    int control_offset = static_cast<int>(controls.size() - 2);
+ 
+         // output_blocks
+         int output_block_idx = 0;
+@@ -596,8 +668,7 @@ public:
+         h = out_2->forward(ctx, h);
+         ggml_set_name(h, "bench-end");
+         return h;  // [N, out_channels, h, w]
+-    }
+-};
++}
+ 
+ struct UNetModelRunner : public GGMLRunner {
+     UnetModelBlock unet;
