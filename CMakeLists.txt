@@ -350,6 +350,46 @@ if(DIST_USE_SDCPP)
             "Run:  git submodule update --init --recursive third_party/stable-diffusion.cpp")
     endif()
 
+    # Apply our CF12-W6a block-split patch idempotently — adds the
+    # sd_compute_unet_split_step C surface so the role bridge can split a
+    # UNet forward pass across rigs.  Phase-1 bodies return SD_SPLIT_ENOTSUP;
+    # the follow-up patch swaps in the real forward_half implementation.
+    # Same pattern as the llama.cpp partial-layer-load patch above.
+    set(_SDCPP_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/sdcpp-block-split.patch")
+    if(EXISTS "${_SDCPP_PATCH}")
+        find_program(_GIT_EXE git)
+        if(_GIT_EXE)
+            execute_process(
+                COMMAND ${_GIT_EXE} apply --reverse --check "${_SDCPP_PATCH}"
+                WORKING_DIRECTORY "${_SDCPP_DIR}"
+                RESULT_VARIABLE _sdcpp_patch_reverse_rc
+                OUTPUT_QUIET ERROR_QUIET)
+            if(NOT _sdcpp_patch_reverse_rc EQUAL 0)
+                execute_process(
+                    COMMAND ${_GIT_EXE} apply --check "${_SDCPP_PATCH}"
+                    WORKING_DIRECTORY "${_SDCPP_DIR}"
+                    RESULT_VARIABLE _sdcpp_patch_check_rc
+                    OUTPUT_QUIET ERROR_QUIET)
+                if(_sdcpp_patch_check_rc EQUAL 0)
+                    message(STATUS "[llama-distributed] applying sdcpp-block-split.patch")
+                    execute_process(
+                        COMMAND ${_GIT_EXE} apply "${_SDCPP_PATCH}"
+                        WORKING_DIRECTORY "${_SDCPP_DIR}"
+                        RESULT_VARIABLE _sdcpp_patch_apply_rc)
+                    if(NOT _sdcpp_patch_apply_rc EQUAL 0)
+                        message(FATAL_ERROR "failed to apply sdcpp-block-split.patch")
+                    endif()
+                else()
+                    message(WARNING "[llama-distributed] sdcpp-block-split.patch neither applied nor applicable — submodule may be out of sync")
+                endif()
+            else()
+                message(STATUS "[llama-distributed] sdcpp-block-split.patch already applied")
+            endif()
+        else()
+            message(WARNING "git not found — cannot auto-apply sdcpp-block-split.patch")
+        endif()
+    endif()
+
     # Suppress sd.cpp's own examples; we only want the library.
     set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -387,6 +427,13 @@ if(DIST_USE_SDCPP)
         ${_PLATFORM_LIBS}
     )
     target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP=1)
+
+    # CF12-W6a: when the block-split patch is present, expose the symbol so
+    # the role bridge calls into the new C surface instead of guessing from
+    # the model filename.
+    if(EXISTS "${_SDCPP_PATCH}")
+        target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP_SPLIT=1)
+    endif()
 
     # Expose to dist_common via compile definition — used by capability probe.
     target_compile_definitions(dist_common PUBLIC DIST_HAVE_SDCPP=1)

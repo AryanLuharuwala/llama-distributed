@@ -15,9 +15,14 @@
 //
 // CF12-W6 block-range sampling (sd_role_sample_blocks) requires
 // patching `StableDiffusionGGML::sample()` to be sliceable by transformer
-// block index — see CF12-W6a.  Until then, the function returns a
-// `code=SDR_ENOTIMPL` status and the planner avoids scheduling sdcpp
-// block-split chains (CF12-W6c gates on `sdcpp_block_split:1` capability).
+// block index — see CF12-W6a.  Phase 1 (this commit): the C API surface
+// is patched into the submodule (patches/sdcpp-block-split.patch) and the
+// role bridge calls into sd_unet_block_count / sd_loaded_backbone_tag
+// when DIST_HAVE_SDCPP_SPLIT is defined.  The underlying body still
+// returns SD_SPLIT_ENOTSUP until the forward_half refactor lands, so
+// sd_role_sample_blocks returns SDR_ENOTIMPL and the planner falls back
+// to the role chain — CF12-W6c gates on `sdcpp_block_split:1` capability,
+// which stays false until the body is wired.
 
 #include "sdcpp_roles.h"
 
@@ -84,33 +89,34 @@ sd_role_status_t fail(int code, const char* msg) {
 
 // (PNG encode lives in the worker — roles ship raw NHWC.)
 
-// ─── Lightweight backbone tag inference ───────────────────────────────────
-// Without the upstream sd.cpp patch we don't get the SDVersion enum,
-// so fall back to inspecting the model file path.  This is a best-effort
-// hint — the *correct* answer comes from the patched API.
+// ─── Backbone tag / block-count inference ────────────────────────────────
+// When the CF12-W6a sdcpp-block-split.patch is applied to the submodule
+// (compile-time gate DIST_HAVE_SDCPP_SPLIT), we route to the real C API.
+// Without the patch we fall back to a "unknown" tag — the planner then
+// uses the role chain instead of trying to schedule a UNet block split.
 
-const char* backbone_tag_from_ctx(sd_ctx_t* /*ctx*/) {
-    // sd.cpp exposes sd_ctx_supports_image_generation() and version
-    // strings via sd_version(), but not the SDVersion enum.  We treat
-    // "unknown" as the safe fallback — the python side will branch on
-    // tensor shapes anyway.
+const char* backbone_tag_from_ctx(sd_ctx_t* ctx) {
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    if (ctx == nullptr) return "unknown";
+    const char* tag = sd_loaded_backbone_tag(ctx);
+    return tag ? tag : "unknown";
+#else
+    (void)ctx;
     return "unknown";
+#endif
 }
 
-// Currently sd.cpp doesn't expose its internal transformer-block count
-// through any public surface.  Hardcode the well-known counts so the
-// planner can still emit reasonable unet_split layouts; -1 means we
-// don't know (planner falls back to single-stage).
-int block_count_from_tag(const char* tag) {
-    if (!tag) return -1;
-    std::string t = tag;
-    if (t == "sd15"   ) return 12;
-    if (t == "sdxl"   ) return 7;
-    if (t == "sd3"    ) return 24;
-    if (t == "sd35"   ) return 38;
-    if (t == "flux"   ) return 57;
-    if (t == "pixart" ) return 28;
-    return -1;
+// Returns the number of logical UNet sub-blocks the loaded model supports
+// for split-mode.  Phase 1 returns 2 (two halves) for SD1/SDXL; 0 means
+// split is not yet wired and the planner falls back to the role chain.
+int block_count_from_ctx(sd_ctx_t* ctx) {
+#ifdef DIST_HAVE_SDCPP_SPLIT
+    if (ctx == nullptr) return 0;
+    return sd_unet_block_count(ctx);
+#else
+    (void)ctx;
+    return 0;
+#endif
 }
 
 }  // namespace
@@ -347,7 +353,7 @@ extern "C" sd_role_status_t sd_role_decode_latent(
 }
 
 extern "C" int sd_role_block_count(sd_ctx_t* sd_ctx) {
-    return block_count_from_tag(backbone_tag_from_ctx(sd_ctx));
+    return block_count_from_ctx(sd_ctx);
 }
 
 extern "C" const char* sd_role_backbone_tag(sd_ctx_t* sd_ctx) {
