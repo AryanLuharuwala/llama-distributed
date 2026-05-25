@@ -8,6 +8,8 @@ RUN go mod download
 
 COPY *.go ./
 COPY assets ./assets
+COPY ctrlpb ./ctrlpb
+COPY migrations ./migrations
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o distpool-server .
 
 # ── runtime ──────────────────────────────────────────────────────────────────
