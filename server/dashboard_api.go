@@ -27,6 +27,7 @@ import (
 // ─── /api/me/rigs (rich variant of /api/rigs) ─────────────────────────────
 
 type meRig struct {
+	ID        int64    `json:"id"`
 	AgentID   string   `json:"agent_id"`
 	Hostname  string   `json:"hostname"`
 	NGPUs     int      `json:"n_gpus"`
@@ -65,7 +66,7 @@ type meRig struct {
 
 func (s *server) collectMeRigs(uid int64) []meRig {
 	rows, err := s.dbQuery(
-		`SELECT agent_id, hostname, n_gpus, vram_bytes, last_seen
+		`SELECT id, agent_id, hostname, n_gpus, vram_bytes, last_seen
 		 FROM rigs WHERE user_id = ? ORDER BY last_seen DESC`,
 		uid,
 	)
@@ -76,7 +77,7 @@ func (s *server) collectMeRigs(uid int64) []meRig {
 	out := []meRig{}
 	for rows.Next() {
 		var r meRig
-		if err := rows.Scan(&r.AgentID, &r.Hostname, &r.NGPUs, &r.VRAMTotal, &r.LastSeen); err != nil {
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.Hostname, &r.NGPUs, &r.VRAMTotal, &r.LastSeen); err != nil {
 			continue
 		}
 		if ac, ok := s.hub.findAgent(uid, r.AgentID); ok {
@@ -218,9 +219,15 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "not logged in")
 		return
 	}
-	// We bucket the last 30 days by UTC date string and additionally roll up
-	// per-rig totals.  Both are cheap; UI renders a sparkline + per-rig bars.
-	since := time.Now().Add(-30 * 24 * time.Hour).Unix()
+	// Window is bounded to 1..365 days so the query stays cheap.  The UI
+	// surface (1/7/30/90) is a recommendation, not enforcement.
+	windowDays := 30
+	if q := r.URL.Query().Get("window"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil && v >= 1 && v <= 365 {
+			windowDays = v
+		}
+	}
+	since := time.Now().Add(-time.Duration(windowDays) * 24 * time.Hour).Unix()
 	rows, err := s.dbQuery(`
 		SELECT strftime('%Y-%m-%d', started_at, 'unixepoch') AS day,
 		       COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0)
@@ -309,7 +316,7 @@ func (s *server) handleMeEarnings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]any{
-		"window_days": 30,
+		"window_days": windowDays,
 		"totals": map[string]int64{
 			"requests":      totalReq,
 			"input_tokens":  totalIn,

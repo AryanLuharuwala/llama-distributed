@@ -729,6 +729,18 @@ table.fleet {
 }
 .modal-grid .field .v.mono { font-family: var(--mono); font-size: 14px; }
 
+.rm-actions {
+  display: flex; gap: 10px; margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--rule); justify-content: flex-end; flex-wrap: wrap;
+}
+.rm-btn {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 8px 14px; background: var(--surface); border: 1px solid var(--ink);
+  color: var(--ink); cursor: pointer; text-decoration: none;
+}
+.rm-btn:hover { background: var(--ink); color: var(--paper); }
+.rm-btn.ok { background: var(--ok); border-color: var(--ok); color: var(--paper); }
+
 /* misc */
 .muted { color: var(--ink-3); }
 .mono  { font-family: var(--mono); }
@@ -779,6 +791,77 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
   .nat-grid .cell:nth-child(7n) { border-right: 1px solid var(--rule); }
   .nat-grid .cell:nth-child(5n) { border-right: none; }
 }
+
+/* ─── install block ───────────────────────────────────────────── */
+.install-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  padding: 26px 28px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.install-card .os {
+  display: inline-flex; gap: 0; border: 1px solid var(--rule-strong); background: var(--paper);
+}
+.install-card .os button {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 8px 16px; background: transparent; border: none; color: var(--ink-2);
+  border-right: 1px solid var(--rule);
+  cursor: pointer;
+}
+.install-card .os button:last-child { border-right: none; }
+.install-card .os button.on { background: var(--ink); color: var(--paper); }
+.install-card .cmdbox {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-strong);
+  padding: 14px 16px;
+}
+.install-card .cmdbox code {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  word-break: break-all;
+}
+.install-card .copy {
+  background: none;
+  border: 1px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 7px 13px;
+  color: var(--ink);
+}
+.install-card .copy:hover { background: var(--ink); color: var(--paper); }
+.install-card .copy.ok { background: var(--ok); border-color: var(--ok); color: var(--paper); }
+.install-card .next {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.install-card .step { font-size: 14px; color: var(--ink-2); line-height: 1.55; }
+.install-card .step .n {
+  font-family: var(--mono); font-size: 10.5px; color: var(--accent);
+  letter-spacing: 0.12em; text-transform: uppercase; display: block; margin-bottom: 6px;
+}
+.install-card .step b { color: var(--ink); font-weight: 500; }
+.install-card .step code {
+  display: inline-block;
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+  background: var(--paper-2); padding: 2px 7px; border: 1px solid var(--rule);
+  margin-top: 4px;
+}
+.install-card .hint {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  color: var(--ink-3); text-transform: uppercase;
+}
+.install-card .hint a { color: var(--accent); border-bottom-color: var(--accent-soft); }
+@media (max-width: 920px) {
+  .install-card .next { grid-template-columns: 1fr; gap: 16px; }
+}
 </style>
 </head>
 <body>
@@ -789,16 +872,18 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <div class="tag">Operations · Console</div>
 
     <nav>
-      <a href="#overview"  class="active"><span class="n">01</span> Overview</a>
-      <a href="#fleet"><span class="n">02</span> Fleet</a>
-      <a href="#topology"><span class="n">03</span> Topology</a>
-      <a href="#network"><span class="n">04</span> Network</a>
-      <a href="#model"><span class="n">05</span> Model · Loader</a>
-      <a href="#bottlenecks"><span class="n">06</span> Bottlenecks</a>
-      <a href="#nat"><span class="n">07</span> NAT &amp; Firewall</a>
-      <a href="#routes"><span class="n">08</span> Routes</a>
-      <a href="#events"><span class="n">09</span> Events</a>
-      <a href="/playground" style="margin-top:14px"><span class="n">→</span> Playground</a>
+      <a href="#install"  class="active"><span class="n">01</span> Install</a>
+      <a href="#overview"><span class="n">02</span> Overview</a>
+      <a href="#fleet"><span class="n">03</span> Fleet</a>
+      <a href="#topology"><span class="n">04</span> Topology</a>
+      <a href="#network"><span class="n">05</span> Network</a>
+      <a href="#model"><span class="n">06</span> Model · Loader</a>
+      <a href="#bottlenecks"><span class="n">07</span> Bottlenecks</a>
+      <a href="#nat"><span class="n">08</span> NAT &amp; Firewall</a>
+      <a href="#routes"><span class="n">09</span> Routes</a>
+      <a href="#events"><span class="n">10</span> Events</a>
+      <a href="/console" style="margin-top:14px"><span class="n">→</span> Console</a>
+      <a href="/playground"><span class="n">→</span> Playground</a>
     </nav>
 
     <div class="foot">
@@ -822,6 +907,49 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
       </div>
     </div>
 
+    <!-- 01 Install -->
+    <section class="module" id="install">
+      <div class="sec-head">
+        <h2><span class="num">01</span>Install · bring a rig online</h2>
+        <div class="asof"><span class="hint">one command · auto-detect arch</span></div>
+      </div>
+      <div class="install-card">
+        <div class="os" role="tablist" aria-label="Operating system">
+          <button type="button" class="on" data-os="linux">Linux</button>
+          <button type="button" data-os="mac">macOS</button>
+          <button type="button" data-os="win">Windows</button>
+        </div>
+        <div class="cmdbox">
+          <code id="install-cmd">curl -fsSL https://distpool.local/setup.sh | sh</code>
+          <button type="button" class="copy" id="install-copy">Copy</button>
+        </div>
+        <div class="next">
+          <div class="step">
+            <span class="n">After install · 01</span>
+            <b>Pair this rig</b><br>
+            Device-code login — opens your browser to confirm.
+            <br><code id="cmd-login">surd login</code>
+          </div>
+          <div class="step">
+            <span class="n">After install · 02</span>
+            <b>Bring it online</b><br>
+            Starts the agent, advertises VRAM &amp; GPUs, holds the WS connection open.
+            <br><code id="cmd-connect">surd connect</code>
+          </div>
+          <div class="step">
+            <span class="n">After install · 03</span>
+            <b>Attach to a pool</b><br>
+            New rigs are paired but not routed. Pick a pool to start serving traffic.
+            <br><a href="/console#pools" style="color:var(--accent);">Open Console → §02 Pools</a>
+          </div>
+        </div>
+        <div class="hint">
+          Tip · pre-bind a pool with <code style="font-family:var(--mono);font-size:11.5px;">surd connect --pool &lt;id&gt;</code> · invite token via <code style="font-family:var(--mono);font-size:11.5px;">--invite &lt;token&gt;</code>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 Overview -->
     <div class="kpis" id="kpis">
       <div class="kpi">
         <div class="label">Fleet · online / total</div>
@@ -852,7 +980,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 02 Fleet -->
     <section class="module" id="fleet">
       <div class="sec-head">
-        <h2><span class="num">02</span>Fleet</h2>
+        <h2><span class="num">03</span>Fleet</h2>
         <div class="asof">As of <span id="asof-fleet">—</span></div>
       </div>
       <div class="fleet-card">
@@ -879,7 +1007,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 03 Topology -->
     <section class="module" id="topology">
       <div class="sec-head">
-        <h2><span class="num">03</span>Topology · Where the compute runs</h2>
+        <h2><span class="num">04</span>Topology · Where the compute runs</h2>
         <div class="asof">Live</div>
       </div>
       <div class="topo-card" id="topo-card">
@@ -890,7 +1018,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 04 Network -->
     <section class="module" id="network">
       <div class="sec-head">
-        <h2><span class="num">04</span>Network · Mesh, relays, peers</h2>
+        <h2><span class="num">05</span>Network · Mesh, relays, peers</h2>
         <div class="asof">Updated <span id="asof-net">—</span></div>
       </div>
       <div class="netgraph-card">
@@ -917,7 +1045,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 05 Model loader -->
     <section class="module" id="model">
       <div class="sec-head">
-        <h2><span class="num">05</span>Model · Loader &amp; layer map</h2>
+        <h2><span class="num">06</span>Model · Loader &amp; layer map</h2>
         <div class="asof"><span id="asof-model">—</span></div>
       </div>
       <div class="loader-card">
@@ -961,7 +1089,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
       <!-- 06 Bottlenecks -->
       <section class="module" id="bottlenecks">
         <div class="sec-head">
-          <h2><span class="num">06</span>Bottlenecks</h2>
+          <h2><span class="num">07</span>Bottlenecks</h2>
           <div class="asof">P50 · last 60s</div>
         </div>
         <div class="bottleneck-card" id="bottleneck-rows">
@@ -972,7 +1100,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
       <!-- 08 Routes -->
       <section class="module" id="routes">
         <div class="sec-head">
-          <h2><span class="num">08</span>Routes · who is serving</h2>
+          <h2><span class="num">09</span>Routes · who is serving</h2>
           <div class="asof">Live</div>
         </div>
         <div class="routes-card">
@@ -996,7 +1124,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 07 NAT -->
     <section class="module" id="nat">
       <div class="sec-head">
-        <h2><span class="num">07</span>NAT &amp; firewall matrix</h2>
+        <h2><span class="num">08</span>NAT &amp; firewall matrix</h2>
         <div class="asof">Probed continuously</div>
       </div>
       <div class="nat-card">
@@ -1012,7 +1140,7 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <!-- 09 Events -->
     <section class="module" id="events">
       <div class="sec-head">
-        <h2><span class="num">09</span>Event tape</h2>
+        <h2><span class="num">10</span>Event tape</h2>
         <div class="asof">Live · last 200</div>
       </div>
       <div class="tape-card" id="tape">
@@ -1049,6 +1177,10 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
     <div style="font-family: var(--mono); font-size: 12px; color: var(--ink-2); letter-spacing: 0.02em; padding-top: 18px; border-top: 1px solid var(--rule);">
       <div style="margin-bottom: 6px;"><span style="color:var(--ink-3); text-transform: uppercase; letter-spacing:0.1em; font-size: 10.5px;">Notes</span></div>
       <div id="rm-notes" style="color: var(--ink-2);">—</div>
+    </div>
+    <div class="rm-actions">
+      <button type="button" id="rm-copy-id" class="rm-btn">Copy agent ID</button>
+      <a id="rm-open-console" class="rm-btn" href="/console#rigs">Manage in Console →</a>
     </div>
   </div>
 </div>
@@ -1183,7 +1315,7 @@ function renderFleet() {
   const tb = $('#fleet-rows');
   const rigs = state.rigs || [];
   if (!rigs.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="padding:0"><div class="empty-pane">Awaiting fleet manifest<div class="sub">No rigs connected yet</div></div></td></tr>';
+    tb.innerHTML = `<tr><td colspan="8" style="padding:0"><div class="empty-pane">No rigs connected<div class="sub" style="margin-top:10px;">Run the <a href="#install" style="color:var(--accent);">install one-liner</a> on a rig — it will appear here within a few seconds</div></div></td></tr>`;
     return;
   }
   // synthesize a per-rig 30s history bucket from tps
@@ -1540,8 +1672,10 @@ function renderEvents() {
 }
 
 /* ─── rig modal ───────────────────────────────────────────────── */
+let rmCurrentRig = null;
 function openRigModal(r) {
   if (!r) return;
+  rmCurrentRig = r;
   $('#rm-name').textContent = r.display_name || r.name || r.id || 'rig';
   $('#rm-sub').textContent = 'Rig · ' + (r.id || '');
   const online = r.online || r.status === 'online' || r.connected;
@@ -1563,9 +1697,26 @@ $('#rig-modal-close').onclick = () => $('#rig-modal').classList.remove('open');
 $('#rig-modal').onclick = (e) => { if (e.target === $('#rig-modal')) $('#rig-modal').classList.remove('open'); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#rig-modal').classList.remove('open'); });
 
+$('#rm-copy-id').addEventListener('click', async () => {
+  const btn = $('#rm-copy-id');
+  const id = rmCurrentRig && (rmCurrentRig.agent_id || rmCurrentRig.id);
+  if (!id) return;
+  try {
+    await navigator.clipboard.writeText(id);
+    btn.classList.add('ok'); btn.textContent = 'Copied';
+  } catch {
+    btn.textContent = 'Press ⌘C';
+  }
+  setTimeout(() => { btn.classList.remove('ok'); btn.textContent = 'Copy agent ID'; }, 1400);
+});
+
 /* ─── side nav scroll spy ─────────────────────────────────────── */
 const navLinks = $$('.rail nav a');
-const navTargets = navLinks.map(a => document.querySelector(a.getAttribute('href')));
+const navTargets = navLinks.map(a => {
+  const href = a.getAttribute('href') || '';
+  if (!href.startsWith('#')) return null;
+  try { return document.querySelector(href); } catch { return null; }
+});
 function updateScrollSpy() {
   const y = window.scrollY + 80;
   let cur = 0;
@@ -1650,8 +1801,49 @@ function connectStream() {
   }
 }
 
+/* ─── install one-liner: OS tabs + copy ───────────────────────── */
+const INSTALL_CMDS = {
+  linux: () => `curl -fsSL ${location.origin}/setup.sh | sh`,
+  mac:   () => `curl -fsSL ${location.origin}/setup.sh | sh`,
+  win:   () => `iwr -useb ${location.origin}/setup.ps1 | iex`,
+};
+function renderInstallCmd(os) {
+  const code = $('#install-cmd');
+  if (!code) return;
+  const fn = INSTALL_CMDS[os] || INSTALL_CMDS.linux;
+  code.textContent = fn();
+}
+function wireInstall() {
+  const tabs = $$('#install .os button');
+  tabs.forEach(b => b.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    renderInstallCmd(b.dataset.os);
+  }));
+  // auto-detect default OS
+  const ua = navigator.userAgent || '';
+  let pick = 'linux';
+  if (/Windows/i.test(ua)) pick = 'win';
+  else if (/Mac|iPhone|iPad/i.test(ua)) pick = 'mac';
+  tabs.forEach(b => b.classList.toggle('on', b.dataset.os === pick));
+  renderInstallCmd(pick);
+
+  const btn = $('#install-copy');
+  if (btn) btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('#install-cmd').textContent);
+      btn.classList.add('ok'); btn.textContent = 'Copied';
+      setTimeout(() => { btn.classList.remove('ok'); btn.textContent = 'Copy'; }, 1400);
+    } catch {
+      btn.textContent = 'Press ⌘C';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1400);
+    }
+  });
+}
+
 /* ─── boot ────────────────────────────────────────────────────── */
 (async function boot() {
+  wireInstall();
   await refreshAll();
   setInterval(refreshAll, 8000);
   setInterval(netgraphLoop, 90);

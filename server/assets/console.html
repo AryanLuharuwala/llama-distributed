@@ -486,6 +486,89 @@ table.t .center { text-align: center; }
   display: flex; gap: 8px;
 }
 
+/* attached-rig chips inside a pool card */
+.pool-card .rigchips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 8px 0 4px;
+}
+.pool-card .rigchips .rigchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px;
+  padding: 3px 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+}
+.pool-card .rigchips .rigchip .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ink-3);
+}
+.pool-card .rigchips .rigchip.ok      .dot { background: #2f9e44; }
+.pool-card .rigchips .rigchip.warn    .dot { background: #d97706; }
+.pool-card .rigchips .rigchip.err     .dot { background: var(--accent); }
+.pool-card .rigchips .rigchip .x {
+  background: none; border: none;
+  font-family: var(--mono); color: var(--ink-3);
+  cursor: pointer; padding: 0 0 0 2px;
+}
+.pool-card .rigchips .rigchip .x:hover { color: var(--accent); }
+.pool-card .rigchips .empty {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+}
+
+/* clickable strip counters */
+.strip-counters .sc {
+  color: inherit; text-decoration: none;
+  padding: 1px 4px; border-radius: 4px;
+}
+.strip-counters .sc b { color: var(--accent); }
+.strip-counters .sc:hover { background: var(--paper-2); }
+.strip-counters .sc.zero b { color: var(--ink-3); }
+.strip-counters .sc.zero { color: var(--ink-3); }
+
+/* attach picker rows inside #modal-attach */
+#m-attach-list .row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--rule);
+}
+#m-attach-list .row:last-child { border-bottom: none; }
+#m-attach-list .row .name { flex: 1; font-family: var(--serif); font-size: 14px; }
+#m-attach-list .row .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+/* paired-not-attached state in §04 rigs table */
+.chip.paired-naked { background: rgba(217, 119, 6, 0.08); color: #b45309; border-color: rgba(217, 119, 6, 0.3); }
+.chip.paired-naked .dot { background: #d97706; }
+
+/* Attach ▾ menu in §04 row */
+.attach-menu { position: relative; display: inline-block; }
+.attach-menu > button { font-family: var(--mono); font-size: 11px; }
+.attach-menu .pop {
+  position: absolute; right: 0; top: calc(100% + 4px);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  min-width: 200px;
+  z-index: 20;
+  display: none;
+  max-height: 240px; overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+.attach-menu.on .pop { display: block; }
+.attach-menu .pop button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none;
+  font-family: var(--mono); font-size: 11px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.attach-menu .pop button:hover { background: var(--paper-2); }
+.attach-menu .pop .empty {
+  padding: 10px 12px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3);
+}
+
 /* ─── flash ───────────────────────────────────────────────────── */
 .flash {
   position: fixed;
@@ -560,14 +643,13 @@ table.t .center { text-align: center; }
       <div class="tag">Control · Plane</div>
       <nav id="nav">
         <a href="#identity"  data-jump="identity"><span class="n">01</span> Identity</a>
-        <a href="#install"   data-jump="install"><span class="n">02</span> Install a rig</a>
-        <a href="#pools"     data-jump="pools"><span class="n">03</span> Pools</a>
-        <a href="#rigs"      data-jump="rigs"><span class="n">04</span> Rigs</a>
-        <a href="#keys"      data-jump="keys"><span class="n">05</span> API keys</a>
-        <a href="#models"    data-jump="models"><span class="n">06</span> Models</a>
-        <a href="#mcp"       data-jump="mcp"><span class="n">07</span> MCP servers</a>
-        <a href="#rag"       data-jump="rag"><span class="n">08</span> RAG corpora</a>
-        <a href="#earnings"  data-jump="earnings"><span class="n">09</span> Earnings</a>
+        <a href="#pools"     data-jump="pools"><span class="n">02</span> Pools</a>
+        <a href="#rigs"      data-jump="rigs"><span class="n">03</span> Rigs</a>
+        <a href="#keys"      data-jump="keys"><span class="n">04</span> API keys</a>
+        <a href="#models"    data-jump="models"><span class="n">05</span> Models</a>
+        <a href="#mcp"       data-jump="mcp"><span class="n">06</span> MCP servers</a>
+        <a href="#rag"       data-jump="rag"><span class="n">07</span> RAG corpora</a>
+        <a href="#earnings"  data-jump="earnings"><span class="n">08</span> Earnings</a>
         <a href="/nexus"     style="margin-top:18px;color:var(--ink-3)"><span class="n">→</span> Operations</a>
         <a href="/observatory" style="color:var(--ink-3)"><span class="n">→</span> Observatory</a>
       </nav>
@@ -586,7 +668,11 @@ table.t .center { text-align: center; }
         <div class="lede">Control <em>plane</em></div>
         <div class="meta">
           <div>§ Console · <b id="strip-time">—</b></div>
-          <div style="margin-top:4px;">Pools <b id="strip-pools">0</b> · Rigs <b id="strip-rigs">0</b> · Keys <b id="strip-keys">0</b></div>
+          <div style="margin-top:4px;" class="strip-counters">
+            <a href="#pools" class="sc"  id="strip-pools-link">Pools <b id="strip-pools">0</b></a> ·
+            <a href="#rigs"  class="sc"  id="strip-rigs-link">Rigs <b id="strip-rigs">0</b></a> ·
+            <a href="#keys"  class="sc"  id="strip-keys-link">Keys <b id="strip-keys">0</b></a>
+          </div>
         </div>
       </div>
 
@@ -613,39 +699,15 @@ table.t .center { text-align: center; }
         </div>
       </section>
 
-      <!-- 02 INSTALL ──────────────────────────────────────────── -->
-      <section class="block" id="install">
-        <div class="section-head">
-          <div class="sn"><b>§ 02</b> Install</div>
-          <h2>One line, one <em>rig</em></h2>
-          <a class="act" href="/install">More options</a>
-        </div>
-        <div class="oneliner">
-          <div class="row">
-            <div class="os" id="os-tabs">
-              <button data-os="linux" class="on">Linux</button>
-              <button data-os="macos">macOS</button>
-              <button data-os="windows">Windows</button>
-            </div>
-          </div>
-          <div class="cmdbox">
-            <code id="install-cmd">curl -fsSL …/install.sh | sh</code>
-            <button class="copy" id="copy-cmd" type="button">Copy</button>
-          </div>
-          <div class="steps">
-            <div class="step"><span class="n">Step 01</span> Paste the line above on the machine that will host the model. The script auto-detects OS and arch.</div>
-            <div class="step"><span class="n">Step 02</span> When prompted, run <code>distpool login</code> on the same machine — it opens a browser-less device pairing flow.</div>
-            <div class="step"><span class="n">Step 03</span> Approve the pairing here, then attach the new rig to a pool below. The agent stays running as a service.</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 03 POOLS ────────────────────────────────────────────── -->
+      <!-- 02 POOLS ────────────────────────────────────────────── -->
       <section class="block" id="pools">
         <div class="section-head">
-          <div class="sn"><b>§ 03</b> Pools</div>
+          <div class="sn"><b>§ 02</b> Pools</div>
           <h2>Pools you <em>operate</em></h2>
           <button class="act" id="new-pool">+ New pool</button>
+        </div>
+        <div style="margin:-6px 0 14px; font-family:var(--mono); font-size:11px; color:var(--ink-3);">
+          New rig? Go to <a href="/nexus#install" style="color:var(--accent);">Operations → Install</a> to grab the one-liner, then come back here to attach.
         </div>
         <div class="pools" id="pool-grid">
           <div class="empty">loading…</div>
@@ -655,7 +717,7 @@ table.t .center { text-align: center; }
       <!-- 04 RIGS ─────────────────────────────────────────────── -->
       <section class="block" id="rigs">
         <div class="section-head">
-          <div class="sn"><b>§ 04</b> Rigs</div>
+          <div class="sn"><b>§ 03</b> Rigs</div>
           <h2>Your <em>fleet</em></h2>
           <a class="act" href="/nexus">See live ops →</a>
         </div>
@@ -682,7 +744,7 @@ table.t .center { text-align: center; }
       <!-- 05 API KEYS ─────────────────────────────────────────── -->
       <section class="block" id="keys">
         <div class="section-head">
-          <div class="sn"><b>§ 05</b> API keys</div>
+          <div class="sn"><b>§ 04</b> API keys</div>
           <h2>OpenAI-compatible <em>keys</em></h2>
           <button class="act" id="new-key">+ Mint key</button>
         </div>
@@ -707,7 +769,7 @@ table.t .center { text-align: center; }
       <!-- 06 MODELS ───────────────────────────────────────────── -->
       <section class="block" id="models">
         <div class="section-head">
-          <div class="sn"><b>§ 06</b> Models</div>
+          <div class="sn"><b>§ 05</b> Models</div>
           <h2>Registered <em>models</em></h2>
           <div class="row" style="gap:8px;">
             <button class="act ghost" id="discover-hf">⌕ Discover</button>
@@ -737,7 +799,7 @@ table.t .center { text-align: center; }
       <!-- 07 MCP ──────────────────────────────────────────────── -->
       <section class="block" id="mcp">
         <div class="section-head">
-          <div class="sn"><b>§ 07</b> MCP</div>
+          <div class="sn"><b>§ 06</b> MCP</div>
           <h2>Tool <em>servers</em></h2>
           <button class="act" id="new-mcp">+ Register server</button>
         </div>
@@ -762,7 +824,7 @@ table.t .center { text-align: center; }
       <!-- 08 RAG ──────────────────────────────────────────────── -->
       <section class="block" id="rag">
         <div class="section-head">
-          <div class="sn"><b>§ 08</b> RAG</div>
+          <div class="sn"><b>§ 07</b> RAG</div>
           <h2>Corpora &amp; <em>retrieval</em></h2>
           <button class="act" id="new-rag">+ New corpus</button>
         </div>
@@ -788,9 +850,14 @@ table.t .center { text-align: center; }
       <!-- 09 EARNINGS ─────────────────────────────────────────── -->
       <section class="block" id="earnings">
         <div class="section-head">
-          <div class="sn"><b>§ 09</b> Earnings</div>
+          <div class="sn"><b>§ 08</b> Earnings</div>
           <h2>What your rigs <em>served</em></h2>
-          <span class="act" id="earn-window" style="cursor:default;background:transparent;color:var(--ink-3);">last 30 days</span>
+          <select id="earn-window" class="act" style="font-family:var(--mono);font-size:12px;padding:6px 8px;cursor:pointer;">
+            <option value="1">last 24 hours</option>
+            <option value="7">last 7 days</option>
+            <option value="30" selected>last 30 days</option>
+            <option value="90">last 90 days</option>
+          </select>
         </div>
         <div class="card">
           <table class="t">
@@ -819,7 +886,7 @@ table.t .center { text-align: center; }
   <div class="modal">
     <button class="close">×</button>
     <h3>New <em>pool</em></h3>
-    <div class="sub">§ 03 · Create a logical group of rigs</div>
+    <div class="sub">§ 02 · Create a logical group of rigs</div>
     <div class="err" id="m-pool-err"></div>
     <label>Pool name</label>
     <input type="text" id="m-pool-name" placeholder="e.g. east-1, prod, lab" autocomplete="off" />
@@ -832,11 +899,26 @@ table.t .center { text-align: center; }
   </div>
 </div>
 
+<div class="modal-bg" id="modal-attach">
+  <div class="modal">
+    <button class="close">×</button>
+    <h3>Attach a <em>rig</em></h3>
+    <div class="sub" id="m-attach-sub">§ 02 · Pick an unattached rig to join this pool</div>
+    <div class="err" id="m-attach-err"></div>
+    <div id="m-attach-list" style="max-height:50vh;overflow:auto;border:1px solid var(--rule);padding:6px;border-radius:6px;">
+      <div class="empty">loading…</div>
+    </div>
+    <div class="row">
+      <button class="btn ghost" data-close>Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modal-key">
   <div class="modal">
     <button class="close">×</button>
     <h3>Mint <em>API key</em></h3>
-    <div class="sub">§ 05 · OpenAI-compatible bearer for /v1/* endpoints</div>
+    <div class="sub">§ 04 · OpenAI-compatible bearer for /v1/* endpoints</div>
     <div class="err" id="m-key-err"></div>
     <div id="m-key-step1">
       <label>Label</label>
@@ -861,7 +943,7 @@ table.t .center { text-align: center; }
   <div class="modal">
     <button class="close">×</button>
     <h3>Register <em>MCP server</em></h3>
-    <div class="sub">§ 07 · Tool channel for inference</div>
+    <div class="sub">§ 06 · Tool channel for inference</div>
     <div class="err" id="m-mcp-err"></div>
     <label>Display name</label>
     <input type="text" id="m-mcp-name" placeholder="e.g. github, postgres-prod" autocomplete="off" />
@@ -886,7 +968,7 @@ table.t .center { text-align: center; }
   <div class="modal">
     <button class="close">×</button>
     <h3>New <em>corpus</em></h3>
-    <div class="sub">§ 08 · A retrieval namespace</div>
+    <div class="sub">§ 07 · A retrieval namespace</div>
     <div class="err" id="m-rag-err"></div>
     <label>Name</label>
     <input type="text" id="m-rag-name" placeholder="e.g. handbook, support-docs" autocomplete="off" />
@@ -907,7 +989,7 @@ table.t .center { text-align: center; }
   <div class="modal">
     <button class="close">×</button>
     <h3>Import from <em>Hugging Face</em></h3>
-    <div class="sub">§ 06 · Pull a model repo into the fleet</div>
+    <div class="sub">§ 05 · Pull a model repo into the fleet</div>
     <div class="err" id="m-hf-err"></div>
     <label>Repo (e.g. meta-llama/Llama-3.2-1B)</label>
     <input type="text" id="m-hf-repo" placeholder="user/model-name" autocomplete="off" />
@@ -924,7 +1006,7 @@ table.t .center { text-align: center; }
   <div class="modal" style="max-width:780px;">
     <button class="close">×</button>
     <h3>Discover <em>models</em></h3>
-    <div class="sub">§ 06 · Browse GGUF + transformer repos on Hugging Face</div>
+    <div class="sub">§ 05 · Browse GGUF + transformer repos on Hugging Face</div>
     <div class="row" style="gap:8px;align-items:center;">
       <input type="text" id="m-disc-q" placeholder="search e.g. llama-3, qwen…" autocomplete="off" style="flex:1;" />
       <select id="m-disc-library" style="font-family:var(--mono);font-size:12px;padding:6px 8px;">
@@ -1032,35 +1114,6 @@ function syncNav() {
 syncNav();
 window.addEventListener('scroll', syncNav, { passive: true });
 
-// ─── install one-liner ───────────────────────────────────────────
-let os = 'linux';
-function renderInstall() {
-  let cmd;
-  if (os === 'windows') {
-    cmd = `iwr -useb ${location.origin}/install.ps1 | iex`;
-  } else {
-    cmd = `curl -fsSL ${location.origin}/install.sh | sh`;
-  }
-  $('#install-cmd').textContent = cmd;
-}
-$$('#os-tabs button').forEach(b => b.addEventListener('click', () => {
-  $$('#os-tabs button').forEach(x => x.classList.remove('on'));
-  b.classList.add('on');
-  os = b.dataset.os;
-  renderInstall();
-}));
-$('#copy-cmd').addEventListener('click', async (e) => {
-  try {
-    await navigator.clipboard.writeText($('#install-cmd').textContent);
-    e.target.classList.add('ok');
-    e.target.textContent = 'Copied';
-    setTimeout(() => { e.target.classList.remove('ok'); e.target.textContent = 'Copy'; }, 1600);
-  } catch {
-    flash('Could not copy — select and Cmd/Ctrl+C', 'err');
-  }
-});
-renderInstall();
-
 // ─── modal helpers ───────────────────────────────────────────────
 function openModal(id) { $('#'+id).classList.add('on'); }
 function closeModal(id) { $('#'+id).classList.remove('on'); $$('#'+id+' .err').forEach(e => e.classList.remove('on')); }
@@ -1086,28 +1139,125 @@ async function loadMe() {
   $('#who-name').textContent = name;
 }
 
+// ─── shared cache so pool cards know which rigs live in them ─────
+// Both §03 (pool grid) and §04 (rigs table) need the same data; we
+// fetch once, group, and let the two renderers read from the cache.
+const cache = { pools: [], rigs: [] };
+
+function rigStatusInfo(r) {
+  const st = r.health || (r.online ? 'ok' : 'offline');
+  const cls =
+    st === 'ok' || st === 'online'           ? 'ok'   :
+    st === 'stale' || st === 'saturated'     ? 'warn' :
+    st === 'offline'                         ? 'err'  : '';
+  return { st, cls };
+}
+
+function detachRig(poolID, rigID, label) {
+  if (!confirm(`Detach ${label || 'rig'} from this pool? The rig keeps running but stops accepting jobs routed via this pool.`)) return;
+  api('DELETE', `/api/pools/${poolID}/rigs/${rigID}`)
+    .then(() => { flash('Detached'); refreshFleet(); })
+    .catch(e => flash('Detach failed: ' + (e.message || e), 'err'));
+}
+
+function attachRig(poolID, agentID, label) {
+  return api('POST', `/api/pools/${poolID}/rigs`, { agent_id: agentID })
+    .then(() => { flash(`Attached ${label || 'rig'}`); refreshFleet(); })
+    .catch(e => { flash('Attach failed: ' + (e.message || e), 'err'); throw e; });
+}
+
+// Render the inline picker (pool card "+ rig" button → modal)
+function openAttachPicker(poolID, poolName) {
+  const list = $('#m-attach-list');
+  const err  = $('#m-attach-err');
+  err.classList.remove('on');
+  $('#m-attach-sub').textContent = `§ 02 · Pick an unattached rig to add to "${poolName}"`;
+  const unattached = cache.rigs.filter(r => !r.pool_id);
+  if (!unattached.length) {
+    list.innerHTML = `<div class="empty" style="padding:14px;">No unattached rigs.<br><br>All of your rigs already live in a pool. Pair a new rig with the install one-liner above, or detach one from an existing pool first.</div>`;
+  } else {
+    list.innerHTML = '';
+    for (const r of unattached) {
+      const { st, cls } = rigStatusInfo(r);
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = r.hostname || r.agent_id || '—';
+      row.innerHTML = `
+        <span class="chip ${cls}"><span class="dot"></span>${esc(st)}</span>
+        <div class="name">${esc(label)}</div>
+        <div class="meta">${esc(r.gpu_model || '—')} · ${fmtBytes(r.vram_total || 0)}</div>
+        <button class="btn primary" data-attach="${esc(r.agent_id || '')}">Attach</button>`;
+      list.appendChild(row);
+    }
+    $$('button[data-attach]', list).forEach(b => b.addEventListener('click', async () => {
+      const aid = b.dataset.attach;
+      const rig = unattached.find(r => r.agent_id === aid);
+      b.disabled = true; b.textContent = 'attaching…';
+      try {
+        await attachRig(poolID, aid, rig ? (rig.hostname || rig.agent_id) : aid);
+        closeModal('modal-attach');
+      } catch {
+        b.disabled = false; b.textContent = 'Attach';
+      }
+    }));
+  }
+  openModal('modal-attach');
+}
+
 // ─── 03 POOLS ────────────────────────────────────────────────────
 async function loadPools() {
   let d;
   try { d = await api('GET', '/api/pools'); } catch { return []; }
   const pools = d.pools || d || [];
+  cache.pools = pools;
   $('#strip-pools').textContent = pools.length;
+  $('#strip-pools-link').classList.toggle('zero', pools.length === 0);
+  renderPoolGrid();
+  return pools;
+}
+
+function renderPoolGrid() {
   const el = $('#pool-grid');
-  if (!pools.length) { el.innerHTML = '<div class="empty">No pools yet — create one to attach rigs.</div>'; return pools; }
+  const pools = cache.pools;
+  if (!pools.length) {
+    el.innerHTML = '<div class="empty">No pools yet — create one to attach rigs.</div>';
+    return;
+  }
+  // Group rigs by pool_id (a rig's first-attached pool is in r.pool_id).
+  const byPool = new Map();
+  for (const r of cache.rigs) {
+    if (!r.pool_id) continue;
+    if (!byPool.has(r.pool_id)) byPool.set(r.pool_id, []);
+    byPool.get(r.pool_id).push(r);
+  }
+
   el.innerHTML = '';
   for (const p of pools) {
     const c = document.createElement('div');
     c.className = 'pool-card';
+    const rigs = byPool.get(p.id) || [];
+    const shown = rigs.slice(0, 6);
+    const extra = rigs.length - shown.length;
+    const chipsHTML = rigs.length
+      ? shown.map(r => {
+          const { cls } = rigStatusInfo(r);
+          const label = esc(r.hostname || r.agent_id || '—');
+          return `<span class="rigchip ${cls}"><span class="dot"></span>${label}` +
+                 `<button class="x" title="Detach" data-detach="${p.id}|${r.id || ''}|${esc(r.hostname || r.agent_id || '')}">×</button></span>`;
+        }).join('') + (extra > 0 ? `<span class="rigchip"><span class="dot"></span>+${extra} more</span>` : '')
+      : `<span class="empty">No rigs attached — click <b>+ rig</b> below to attach one.</span>`;
     c.innerHTML = `
       <h4>${esc(p.name || p.slug || ('pool·' + p.id))}</h4>
       <div class="meta">${esc(p.slug || p.id)}${p.description ? ' · ' + esc(p.description) : ''}</div>
+      <div class="rigchips">${chipsHTML}</div>
       <div class="stats">
-        <div><div class="k">Rigs</div><div class="v">${p.n_rigs ?? p.member_count ?? 0}</div></div>
-        <div><div class="k">Online</div><div class="v">${p.n_online ?? '—'}</div></div>
+        <div><div class="k">Rigs</div><div class="v">${p.n_rigs ?? rigs.length}</div></div>
+        <div><div class="k">Online</div><div class="v">${p.n_online ?? rigs.filter(r => r.online).length}</div></div>
         <div><div class="k">Created</div><div class="v">${fmtDate(p.created_at)}</div></div>
       </div>
       <div class="row">
         <a class="btn ghost" href="/nexus?pool=${encodeURIComponent(p.id)}">Open in nexus</a>
+        <button class="btn" data-add-rig="${p.id}|${esc(p.name || p.slug || ('pool·'+p.id))}">+ rig</button>
         <button class="btn" data-invite="${p.id}">Invite</button>
       </div>`;
     el.appendChild(c);
@@ -1120,7 +1270,15 @@ async function loadPools() {
       flash('Invite link copied');
     } catch (e) { flash('Invite failed: ' + e.message, 'err'); }
   }));
-  return pools;
+  $$('button[data-add-rig]', el).forEach(b => b.addEventListener('click', () => {
+    const [pid, pname] = b.dataset.addRig.split('|');
+    openAttachPicker(Number(pid), pname);
+  }));
+  $$('button[data-detach]', el).forEach(b => b.addEventListener('click', () => {
+    const [pid, rid, label] = b.dataset.detach.split('|');
+    if (!rid) { flash('Cannot detach — rig id missing in payload', 'err'); return; }
+    detachRig(Number(pid), Number(rid), label);
+  }));
 }
 
 $('#new-pool').addEventListener('click', () => { $('#m-pool-name').value=''; $('#m-pool-desc').value=''; openModal('modal-pool'); });
@@ -1138,54 +1296,105 @@ $('#m-pool-submit').addEventListener('click', async () => {
 
 // ─── 04 RIGS ─────────────────────────────────────────────────────
 async function loadRigs() {
-  const tb = $('#rigs-rows');
   let d;
   try {
     d = await api('GET', '/api/me/rigs');
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="7" class="empty">Couldn't load rigs: ${esc(e.message || e)}</td></tr>`;
+    cache.rigs = [];
+    $('#rigs-rows').innerHTML = `<tr><td colspan="7" class="empty">Couldn't load rigs: ${esc(e.message || e)}</td></tr>`;
     return;
   }
-  const rigs = (d && (d.rigs || (Array.isArray(d) ? d : []))) || [];
-  $('#strip-rigs').textContent = rigs.length;
+  cache.rigs = (d && (d.rigs || (Array.isArray(d) ? d : []))) || [];
+  $('#strip-rigs').textContent = cache.rigs.length;
+  $('#strip-rigs-link').classList.toggle('zero', cache.rigs.length === 0);
+  renderRigsTable();
+}
+
+function renderRigsTable() {
+  const tb = $('#rigs-rows');
+  const rigs = cache.rigs;
   if (!rigs.length) {
-    tb.innerHTML = '<tr><td colspan="7" class="empty">No rigs yet — run the install one-liner above.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="empty">No rigs yet — run the install one-liner from <a href="/nexus#install">Operations → Install</a>.</td></tr>';
     return;
   }
   tb.innerHTML = '';
   for (const r of rigs) {
     const tr = document.createElement('tr');
-    // Health is authoritative when present (server-classified); fall back to
-    // the online flag for older payloads.
-    const st = r.health || (r.online ? 'online' : 'offline');
-    const cls =
-      st === 'ok' || st === 'online'           ? 'ok'   :
-      st === 'stale' || st === 'saturated'     ? 'warn' :
-      st === 'offline'                         ? 'err'  : '';
+    const { st, cls } = rigStatusInfo(r);
+    // "paired-naked" = online but unattached. We separate this from "ok" so
+    // the user can spot the rig that's ready but doing nothing.
+    const paired = !!r.pool_id;
+    const isOnline = (st === 'ok' || st === 'online');
+    const pillClass = (isOnline && !paired) ? 'paired-naked' : cls;
+    const pillText  = (isOnline && !paired) ? 'paired · not attached' : st;
     const offline = st === 'offline';
-    const actions = offline
-      ? `<button class="btn danger" data-forget="${esc(r.agent_id || '')}">Forget</button>`
-      : `<a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || '')}">Open</a>`;
+
+    // Attach ▾ menu — only meaningful when not yet attached.
+    const attachMenu = !paired
+      ? `<span class="attach-menu" data-aid="${esc(r.agent_id || '')}" data-label="${esc(r.hostname || r.agent_id || '')}">
+            <button class="btn">Attach ▾</button>
+            <div class="pop"></div>
+         </span>`
+      : `<button class="btn ghost" data-detach-rig="${r.id || ''}|${r.pool_id || ''}|${esc(r.hostname || r.agent_id || '')}">Detach</button>`;
+    const open = offline ? '' : `<a class="btn ghost" href="/nexus?rig=${encodeURIComponent(r.agent_id || '')}">Open</a>`;
+    const forget = offline ? `<button class="btn danger" data-forget="${esc(r.agent_id || '')}">Forget</button>` : '';
     tr.innerHTML = `
       <td>${esc(r.hostname || r.agent_id || '—')}</td>
       <td><span class="mono">${esc(r.pool_name || (r.pool_id ? '#'+r.pool_id : '—'))}</span></td>
       <td>${esc(r.gpu_model || '—')}</td>
       <td class="right mono">${fmtBytes(r.vram_total || 0)}</td>
-      <td><span class="chip ${cls}"><span class="dot"></span>${esc(st)}</span></td>
+      <td><span class="chip ${pillClass}"><span class="dot"></span>${esc(pillText)}</span></td>
       <td><span class="mono">${fmtAge(r.last_seen)}</span></td>
-      <td class="right">${actions}</td>`;
+      <td class="right" style="white-space:nowrap;">${attachMenu} ${open} ${forget}</td>`;
     tb.appendChild(tr);
   }
+  // Forget
   $$('button[data-forget]', tb).forEach(b => b.addEventListener('click', async () => {
     const aid = b.dataset.forget;
     if (!aid) return;
     if (!confirm('Forget this rig? It will be removed from your account; if the agent ever comes back online it will re-register fresh.')) return;
-    try {
-      await api('DELETE', '/api/rigs/' + encodeURIComponent(aid));
-      flash('Rig forgotten');
-      loadRigs();
-    } catch (e) { flash('Forget failed: ' + e.message, 'err'); }
+    try { await api('DELETE', '/api/rigs/' + encodeURIComponent(aid)); flash('Rig forgotten'); refreshFleet(); }
+    catch (e) { flash('Forget failed: ' + e.message, 'err'); }
   }));
+  // Detach (row-level)
+  $$('button[data-detach-rig]', tb).forEach(b => b.addEventListener('click', () => {
+    const [rid, pid, label] = b.dataset.detachRig.split('|');
+    if (!rid || !pid) { flash('Cannot detach — missing ids', 'err'); return; }
+    detachRig(Number(pid), Number(rid), label);
+  }));
+  // Attach menus
+  $$('.attach-menu', tb).forEach(m => {
+    const btn = m.querySelector('button');
+    const pop = m.querySelector('.pop');
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close other menus.
+      $$('.attach-menu', tb).forEach(o => { if (o !== m) o.classList.remove('on'); });
+      // Render pool list each time so it stays fresh.
+      if (!cache.pools.length) {
+        pop.innerHTML = '<div class="empty">No pools yet — create one in §03 first.</div>';
+      } else {
+        pop.innerHTML = cache.pools
+          .map(p => `<button data-pool="${p.id}">${esc(p.name || p.slug || ('pool·'+p.id))}</button>`)
+          .join('');
+        $$('button[data-pool]', pop).forEach(pb => pb.addEventListener('click', async () => {
+          m.classList.remove('on');
+          try { await attachRig(Number(pb.dataset.pool), m.dataset.aid, m.dataset.label); }
+          catch {}
+        }));
+      }
+      m.classList.toggle('on');
+    });
+  });
+}
+// Close any open attach menus on outside click.
+document.addEventListener('click', () => $$('.attach-menu.on').forEach(m => m.classList.remove('on')));
+
+// One refresh call that re-pulls both pools and rigs, then re-renders both
+// surfaces (pool cards depend on rig grouping, rig table depends on pool list).
+async function refreshFleet() {
+  await Promise.all([loadPools(), loadRigs()]);
+  renderPoolGrid(); // re-render after rigs land
 }
 
 // ─── 05 API KEYS ─────────────────────────────────────────────────
@@ -1194,6 +1403,7 @@ async function loadKeys() {
   try { d = await api('GET', '/api/api_keys'); } catch { return; }
   const keys = d.keys || d || [];
   $('#strip-keys').textContent = keys.length;
+  $('#strip-keys-link').classList.toggle('zero', keys.length === 0);
   const tb = $('#keys-rows');
   if (!keys.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No keys yet — mint one for the CLI or your server.</td></tr>'; return; }
   tb.innerHTML = '';
@@ -1447,11 +1657,11 @@ $('#m-rag-submit').addEventListener('click', async () => {
 async function loadEarnings() {
   const tb = $('#earn-rows');
   const ft = $('#earn-foot');
+  const winSel = $('#earn-window');
+  const wd = parseInt(winSel.value, 10) || 30;
   let d;
-  try { d = await api('GET', '/api/me/earnings'); }
+  try { d = await api('GET', '/api/me/earnings?window=' + wd); }
   catch (e) { tb.innerHTML = `<tr><td colspan="4" class="empty">Couldn't load earnings: ${esc(e.message || e)}</td></tr>`; return; }
-  const win = d.window_days || 30;
-  $('#earn-window').textContent = `last ${win} days`;
   const pools = Array.isArray(d.per_pool) ? d.per_pool : [];
   if (!pools.length) {
     tb.innerHTML = '<tr><td colspan="4" class="empty">No served traffic yet — your rigs haven’t served requests for other users in this window.</td></tr>';
@@ -1493,16 +1703,19 @@ async function boot() {
   if (!st || !st.user_id) { renderWall(); return; }
 
   await loadMe();
-  loadPools();
-  loadRigs();
+  // Pool grid depends on rig grouping, so load both then re-render.
+  await Promise.all([loadPools(), loadRigs()]);
+  renderPoolGrid();
   loadKeys();
   loadModels();
   loadMCP();
   loadRAG();
   loadEarnings();
 
-  // refresh rigs periodically — they're the most volatile
-  setInterval(loadRigs, 8_000);
+  $('#earn-window').addEventListener('change', loadEarnings);
+
+  // refresh rigs+pools periodically — they're the most volatile
+  setInterval(refreshFleet, 8_000);
   setInterval(loadEarnings, 60_000);
 }
 boot();

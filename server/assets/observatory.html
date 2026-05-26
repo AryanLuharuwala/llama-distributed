@@ -906,7 +906,7 @@ async function loadFleet() {
   // fleet table
   const tb = $('#fleet-rows');
   if (!S.rigs.length) {
-    tb.innerHTML = '<tr><td colspan="7" class="empty">No rigs connected — install one from <a href="/console#install">control</a>.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="empty" style="padding:28px 0;line-height:1.7;">No rigs connected yet.<br>Run the install one-liner from <a href="/nexus#install" style="color:var(--accent);">Nexus → §01 Install</a>, then <a href="/console#pools" style="color:var(--accent);">attach to a pool</a>.</td></tr>';
     return;
   }
   tb.innerHTML = '';
