@@ -1007,20 +1007,20 @@ table.t .center { text-align: center; }
     <button class="close">×</button>
     <h3>Discover <em>models</em></h3>
     <div class="sub">§ 05 · Browse GGUF + transformer repos on Hugging Face</div>
-    <div class="row" style="gap:8px;align-items:center;">
-      <input type="text" id="m-disc-q" placeholder="search e.g. llama-3, qwen…" autocomplete="off" style="flex:1;" />
-      <select id="m-disc-library" style="font-family:var(--mono);font-size:12px;padding:6px 8px;">
+    <div class="row" style="gap:10px;align-items:center;justify-content:flex-start;margin-top:0;">
+      <input type="text" id="m-disc-q" placeholder="search e.g. llama-3, qwen…" autocomplete="off" style="flex:1 1 auto;min-width:0;width:auto;margin-bottom:0;font-size:15px;padding:12px 14px;" />
+      <select id="m-disc-library" style="flex:0 0 auto;width:auto;font-family:var(--mono);font-size:12px;padding:10px 10px;margin-bottom:0;">
         <option value="gguf">gguf</option>
         <option value="">any</option>
         <option value="transformers">transformers</option>
       </select>
-      <select id="m-disc-sort" style="font-family:var(--mono);font-size:12px;padding:6px 8px;">
+      <select id="m-disc-sort" style="flex:0 0 auto;width:auto;font-family:var(--mono);font-size:12px;padding:10px 10px;margin-bottom:0;">
         <option value="trendingScore">trending</option>
         <option value="downloads">downloads</option>
         <option value="likes">likes</option>
         <option value="lastModified">recent</option>
       </select>
-      <button class="btn" id="m-disc-go">Search</button>
+      <button class="btn" id="m-disc-go" style="flex:0 0 auto;">Search</button>
     </div>
     <div class="err" id="m-disc-err"></div>
     <div id="m-disc-results" style="margin-top:10px;max-height:50vh;overflow:auto;"></div>
@@ -1540,7 +1540,7 @@ async function runDiscover() {
     const repo = b.dataset.import;
     b.disabled = true; b.textContent = 'queueing…';
     try {
-      await api('POST', '/api/hf/import', { repo, revision: 'main' });
+      await api('POST', '/api/hf/import', { repo_id: repo, revision: 'main' });
       b.textContent = 'queued ✓';
       flash('Import queued for ' + repo);
       loadModels();
@@ -1564,7 +1564,7 @@ $('#m-hf-submit').addEventListener('click', async () => {
   const repo = $('#m-hf-repo').value.trim();
   if (!repo) { $('#m-hf-err').textContent = 'Repo is required'; $('#m-hf-err').classList.add('on'); return; }
   try {
-    await api('POST', '/api/hf/import', { repo, revision: $('#m-hf-rev').value.trim() || 'main' });
+    await api('POST', '/api/hf/import', { repo_id: repo, revision: $('#m-hf-rev').value.trim() || 'main' });
     closeModal('modal-hf');
     flash('Import queued — watch progress in observatory');
   } catch (e) { $('#m-hf-err').textContent = e.message; $('#m-hf-err').classList.add('on'); }
