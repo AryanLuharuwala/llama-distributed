@@ -104,6 +104,11 @@ type server struct {
 	// because DPP frames flow on the agent control-plane WS (not the
 	// activation wire) and don't need the per-req peer machinery.
 	dppProgress *dppProgressBroker
+
+	// sd.cpp result dispatcher — routes sdcpp_done/role_done/error/
+	// progress frames into the per-req_id channel the job goroutine
+	// in sdcpp_comfyjob.go is blocking on. See sdcpp_results.go.
+	sdcppResults *sdcppResultDispatcher
 }
 
 func newServer(cfg config, db *sql.DB) *server {
@@ -118,6 +123,7 @@ func newServer(cfg config, db *sql.DB) *server {
 		relays:    newActiveRelays(),
 		costCache: newRigCostCache(2 * time.Second),
 		dppProgress: newDPPProgressBroker(),
+		sdcppResults: newSdcppResultDispatcher(),
 		ipRL:      newIPRateLimiterSet(cfg.rateBackend),
 		drift:     newRigDriftTable(),
 		startedAt: time.Now(),
@@ -257,6 +263,7 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("POST /api/infer_dpp", s.handleInferDPP)
 	mux.HandleFunc("GET /api/dpp/stream", s.handleDPPStream)
 	mux.HandleFunc("GET /api/dpp/backbones", s.handleDPPBackbones)
+	mux.HandleFunc("GET /api/sdcpp/models", s.handleSdcppModels)
 	mux.HandleFunc("GET /api/pools/{id}/rigs/dpp", s.handleDPPRigsForPool)
 	mux.HandleFunc("GET /api/admin/rig_attest", s.handleRigAttest)
 	mux.HandleFunc("GET /api/dpp/runtime/manifest", s.handleDPPRuntimeManifest)

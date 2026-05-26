@@ -50,6 +50,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <openssl/ssl.h>
@@ -1199,6 +1200,50 @@ static int run_pair_mode(const std::string& token, const std::string& server,
         std::string sdcpp_err, sdcpp_info;
         bool sdcpp_ok = dist::DppAdapter::probe_local_sdcpp_caps(
             sdcpp_worker_bin, sdcpp_info, sdcpp_err);
+
+        // CF12-A2: scan $DIST_SDCPP_MODELS_DIR (default
+        // ~/.cache/llama-distributed/sdcpp-models) and advertise every
+        // model file we find.  The server uses this to filter rigs by
+        // file availability when dispatching an sd.cpp run — instead of
+        // requiring the caller to pass `sdcpp_model_path` and pray that
+        // path exists on every TE/UNet/VAE rig in the chain.
+        std::vector<std::tuple<std::string, std::string, uint64_t>> sdcpp_models;
+        {
+            std::string models_dir;
+            if (const char* env = std::getenv("DIST_SDCPP_MODELS_DIR"); env && *env) {
+                models_dir = env;
+            } else if (const char* home = std::getenv("HOME"); home && *home) {
+                models_dir = std::string(home) + "/.cache/llama-distributed/sdcpp-models";
+            }
+            if (!models_dir.empty()) {
+                std::error_code ec;
+                if (std::filesystem::is_directory(models_dir, ec)) {
+                    for (const auto& ent : std::filesystem::recursive_directory_iterator(
+                             models_dir, std::filesystem::directory_options::skip_permission_denied, ec)) {
+                        if (!ent.is_regular_file(ec)) continue;
+                        const auto& p = ent.path();
+                        auto ext = p.extension().string();
+                        // sd.cpp accepts a wide set of formats; restrict
+                        // the advertisement to the ones the worker can
+                        // actually load directly.
+                        if (ext != ".safetensors" && ext != ".gguf" &&
+                            ext != ".ckpt"        && ext != ".pt"   &&
+                            ext != ".bin") {
+                            continue;
+                        }
+                        auto sz = ent.file_size(ec);
+                        if (ec || sz < (32 * 1024)) continue; // skip tiny stubs / shards
+                        // Name = relative path from models_dir (so two files
+                        // with the same basename in different subfolders
+                        // stay distinguishable).
+                        auto rel = std::filesystem::relative(p, models_dir, ec);
+                        std::string name = ec ? p.filename().string() : rel.generic_string();
+                        sdcpp_models.emplace_back(name, p.string(), static_cast<uint64_t>(sz));
+                    }
+                }
+            }
+        }
+
         std::ostringstream caps;
         caps << "{\"kind\":\"sdcpp_caps\","
              << "\"ok\":" << (sdcpp_ok ? "true" : "false") << ","
@@ -1213,12 +1258,22 @@ static int run_pair_mode(const std::string& token, const std::string& server,
             caps << "\"full\",\"te\",\"unet\",\"vae\"";
         }
         caps << "],"
+             << "\"models\":[";
+        for (size_t i = 0; i < sdcpp_models.size(); ++i) {
+            const auto& [name, path, size] = sdcpp_models[i];
+            if (i > 0) caps << ",";
+            caps << "{\"name\":\"" << json_escape(name) << "\","
+                 << "\"path\":\"" << json_escape(path) << "\","
+                 << "\"size\":" << size << "}";
+        }
+        caps << "],"
              << "\"worker\":\"" << json_escape(sdcpp_worker_bin) << "\","
              << "\"backend\":\"" << json_escape(sdcpp_info) << "\","
              << "\"error\":\"" << json_escape(sdcpp_err) << "\"}";
         ws.send_text(caps.str());
         std::cout << "[pair] sdcpp_caps ok=" << (sdcpp_ok ? "1" : "0")
                   << " worker=" << sdcpp_worker_bin
+                  << " models=" << sdcpp_models.size()
                   << " err=" << sdcpp_err << "\n";
     }
 

@@ -1213,6 +1213,14 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				s.upsertSdcppCaps(uid, hello.AgentID, msg)
 				continue
 			}
+			if kind == "sdcpp_progress" || kind == "sdcpp_role_done" ||
+				kind == "sdcpp_done" || kind == "sdcpp_error" {
+				// Route the frame into the per-req_id channel owned by
+				// the runSdcppComfyJob goroutine.  Stale frames (job
+				// already errored / unsubscribed) are silently dropped.
+				s.ingestSdcppFrame(hello.AgentID, kind, msg)
+				continue
+			}
 			if kind == "spec_caps" {
 				// P16: speculative-decoding capability claim.  Stored in
 				// its own table; the dispatcher will look at it when

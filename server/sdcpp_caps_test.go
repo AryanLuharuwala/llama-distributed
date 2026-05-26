@@ -127,7 +127,7 @@ func TestPlanSdcppRoleChain_PicksOnePerRole(t *testing.T) {
 	s.upsertSdcppCaps(1, "rig-unet", map[string]any{"ok": true, "roles": []any{"unet"}})
 	s.upsertSdcppCaps(1, "rig-vae",  map[string]any{"ok": true, "roles": []any{"vae"}})
 
-	chain := s.planSdcppRoleChain(context.Background(), 1)
+	chain := s.planSdcppRoleChain(context.Background(), 1, "")
 	if len(chain) != 3 {
 		t.Fatalf("chain length = %d, want 3", len(chain))
 	}
@@ -150,7 +150,7 @@ func TestPlanSdcppRoleChain_NilWhenRoleMissing(t *testing.T) {
 	s.upsertSdcppCaps(1, "rig-te",   map[string]any{"ok": true, "roles": []any{"te"}})
 	s.upsertSdcppCaps(1, "rig-unet", map[string]any{"ok": true, "roles": []any{"unet"}})
 
-	if chain := s.planSdcppRoleChain(context.Background(), 1); chain != nil {
+	if chain := s.planSdcppRoleChain(context.Background(), 1, ""); chain != nil {
 		t.Errorf("expected nil chain when VAE missing; got %+v", chain)
 	}
 }
@@ -162,7 +162,7 @@ func TestPlanSdcppFull_PrefersOwnerRig(t *testing.T) {
 	s.upsertSdcppCaps(9, "stranger", map[string]any{"ok": true, "roles": []any{"full"}})
 	s.upsertSdcppCaps(1, "mine",     map[string]any{"ok": true, "roles": []any{"full"}})
 
-	a, ok := s.planSdcppFull(context.Background(), 1)
+	a, ok := s.planSdcppFull(context.Background(), 1, "")
 	if !ok {
 		t.Fatalf("expected a full rig")
 	}

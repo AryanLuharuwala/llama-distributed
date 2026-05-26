@@ -203,6 +203,62 @@ class BackboneAdapter:
         """
         raise NotImplementedError(f"{cls.__name__}.load_for_role")
 
+    # ── role-scoped HF snapshot (CF12-B) ────────────────────────────────────
+    #
+    # `from_pretrained(unet=None, vae=None, ...)` only skips *loading* the
+    # excluded components into RAM — diffusers' resolver still calls
+    # snapshot_download() under the hood and pulls every file in the repo.
+    # For multi-rig role chains that's wasteful: a TE rig downloads the
+    # UNet weights it will never touch.  We pre-warm the HF cache with a
+    # role-scoped snapshot (allow_patterns filters to just the directories
+    # this role uses) before any from_pretrained call; the subsequent
+    # from_pretrained call then resolves entirely from the local cache.
+
+    @classmethod
+    def allow_patterns_for_role(cls, role: str) -> List[str]:
+        """HuggingFace allow_patterns globs for `role`.  Subclasses
+        override per pipeline-layout.  Default returns a permissive
+        glob that fetches the whole repo (safe fallback).
+        """
+        return ["*"]
+
+    @classmethod
+    def _snapshot_for_role(cls, model: str, cache: str, role: str) -> None:
+        """Pre-warm the HF cache with only the files this role needs.
+
+        Skipped (no-op) when:
+          • `model` is a local path (not a hub repo id), or
+          • huggingface_hub isn't importable for some reason, or
+          • the patterns list is empty.
+
+        Any download error is logged and swallowed — the downstream
+        from_pretrained will retry under its own resolver and raise a
+        clearer error if the model truly isn't reachable.
+        """
+        # Heuristic: local paths contain os.sep or start with "./".  HF
+        # repo ids look like "org/name" (single slash, no os.sep).
+        if not model or os.path.isabs(model) or model.startswith((".", "/")) or os.path.exists(model):
+            return
+        try:
+            from huggingface_hub import snapshot_download
+        except Exception:  # pragma: no cover - hf_hub is a diffusers dep
+            return
+        patterns = cls.allow_patterns_for_role(role)
+        if not patterns:
+            return
+        try:
+            os.makedirs(cache, exist_ok=True)
+            snapshot_download(
+                repo_id=model,
+                cache_dir=cache,
+                allow_patterns=patterns,
+            )
+            log.info("snapshot_download(%s, role=%s) ok — patterns=%s",
+                     model, role, patterns)
+        except Exception as e:
+            log.warning("snapshot_download(%s, role=%s) failed: %s — "
+                        "falling through to from_pretrained", model, role, e)
+
     # ── partition (UNet-style by default) ───────────────────────────────────
 
     def total_blocks(self) -> int:
@@ -329,10 +385,25 @@ class SDXLAdapter(BackboneAdapter):
     LATENT_CHANNELS = 4
 
     @classmethod
+    def allow_patterns_for_role(cls, role):
+        common = ["*.json", "*.txt", "scheduler/*", "model_index.json"]
+        if role == "text_encoder":
+            return common + [
+                "text_encoder/*", "text_encoder_2/*",
+                "tokenizer/*", "tokenizer_2/*",
+            ]
+        if role == "unet":
+            return common + ["unet/*"]
+        if role == "vae":
+            return common + ["vae/*"]
+        return ["*"]
+
+    @classmethod
     def load_for_role(cls, role, model, device, dtype, cache):
         from diffusers import StableDiffusionXLPipeline
         import torch
         os.makedirs(cache, exist_ok=True)
+        cls._snapshot_for_role(model, cache, role)
         td = _torch_dtype(dtype)
         if role == "text_encoder":
             pipe = StableDiffusionXLPipeline.from_pretrained(
@@ -630,9 +701,24 @@ class SD3Adapter(_DiTAdapter):
     LATENT_CHANNELS = 16
 
     @classmethod
+    def allow_patterns_for_role(cls, role):
+        common = ["*.json", "*.txt", "scheduler/*", "model_index.json"]
+        if role == "text_encoder":
+            return common + [
+                "text_encoder/*", "text_encoder_2/*", "text_encoder_3/*",
+                "tokenizer/*", "tokenizer_2/*", "tokenizer_3/*",
+            ]
+        if role == "unet":
+            return common + ["transformer/*"]
+        if role == "vae":
+            return common + ["vae/*"]
+        return ["*"]
+
+    @classmethod
     def load_for_role(cls, role, model, device, dtype, cache):
         from diffusers import StableDiffusion3Pipeline
         os.makedirs(cache, exist_ok=True)
+        cls._snapshot_for_role(model, cache, role)
         td = _torch_dtype(dtype)
         kwargs = dict(torch_dtype=td, cache_dir=cache, use_safetensors=True)
         if role == "text_encoder":
@@ -736,9 +822,24 @@ class FluxAdapter(_DiTAdapter):
     SECONDARY_ATTR = "single_transformer_blocks"
 
     @classmethod
+    def allow_patterns_for_role(cls, role):
+        common = ["*.json", "*.txt", "scheduler/*", "model_index.json"]
+        if role == "text_encoder":
+            return common + [
+                "text_encoder/*", "text_encoder_2/*",
+                "tokenizer/*", "tokenizer_2/*",
+            ]
+        if role == "unet":
+            return common + ["transformer/*"]
+        if role == "vae":
+            return common + ["vae/*"]
+        return ["*"]
+
+    @classmethod
     def load_for_role(cls, role, model, device, dtype, cache):
         from diffusers import FluxPipeline
         os.makedirs(cache, exist_ok=True)
+        cls._snapshot_for_role(model, cache, role)
         td = _torch_dtype(dtype)
         kwargs = dict(torch_dtype=td, cache_dir=cache, use_safetensors=True)
         if role == "text_encoder":

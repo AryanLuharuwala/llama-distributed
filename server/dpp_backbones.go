@@ -153,6 +153,19 @@ func isDPPEligible(model string) bool {
 	return dppFamilyForModel(model) != ""
 }
 
+// dppBackboneForID returns the registry entry for an exact-match repo ID, or
+// nil if the ID isn't in the static registry. Used by the HF-import path to
+// stamp comfy_models rows with the correct family + kind without a separate
+// heuristic.
+func dppBackboneForID(id string) *dppBackbone {
+	for i := range dppBackboneRegistry {
+		if dppBackboneRegistry[i].ID == id {
+			return &dppBackboneRegistry[i]
+		}
+	}
+	return nil
+}
+
 // handleDPPBackbones — GET /api/dpp/backbones.
 //
 // Returns the static registry plus, for each registered backbone, whether

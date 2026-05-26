@@ -210,7 +210,7 @@ func hfListGGUF(ctx context.Context, repoID, revision, token string) ([]hfFileIn
 	}
 	// HF tree API is paginated only at >1000 entries — we ignore that here.
 	u := fmt.Sprintf("%s/api/models/%s/tree/%s?recursive=true",
-		hfAPIBase, url.PathEscape(repoID), url.PathEscape(revision))
+		hfAPIBase, escapeRepoID(repoID), url.PathEscape(revision))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, err
@@ -806,6 +806,47 @@ func (s *server) handleHFImport(w http.ResponseWriter, r *http.Request) {
 		body.ModelName = body.RepoID
 	}
 
+	// DPP-eligible diffusion backbones (SDXL, FLUX, SD3, video models, …)
+	// don't go through the llama.cpp GGUF/splitter pipeline — the rig-side
+	// Python runtime resolves weights through the HF cache on demand. So
+	// short-circuit: register the model in comfy_models (which also lets
+	// the single-rig ComfyUI path accept it), record a synthetic 'done'
+	// hf_imports row so the import shows up in the UI history, and skip
+	// the download/convert/split goroutine entirely.
+	if dppFamilyForModel(body.RepoID) != "" {
+		revision := body.Revision
+		if revision == "" {
+			revision = "main"
+		}
+		if _, err := s.autoRegisterComfyFromHF(body.RepoID, ""); err != nil {
+			log.Printf("autoRegisterComfyFromHF(%s): %v", body.RepoID, err)
+		}
+		res, err := s.dbExec(
+			`INSERT INTO hf_imports
+			 (user_id, repo_id, revision, files_json, n_stages, status,
+			  bytes_total, bytes_done, created_at, updated_at)
+			 VALUES (?, ?, ?, '[]', 0, 'done', 0, 0, ?, ?)`,
+			u.ID, body.RepoID, revision, nowUnix(), nowUnix(),
+		)
+		if err != nil {
+			writeErr(w, 500, "db: "+err.Error())
+			return
+		}
+		jobID, _ := res.LastInsertId()
+		s.hub.broadcastToUser(u.ID, "hf_progress", map[string]any{
+			"job_id": jobID,
+			"status": "done",
+			"note":   "registered as comfy/dpp backbone (no server-side download)",
+		})
+		writeJSON(w, 200, map[string]any{
+			"job_id":  jobID,
+			"repo_id": body.RepoID,
+			"status":  "done",
+			"note":    "registered as comfy/dpp backbone (no server-side download)",
+		})
+		return
+	}
+
 	// Validate model name uniqueness up-front so we can fail fast.
 	var existing int64
 	_ = s.dbQueryRow(`SELECT id FROM models WHERE name = ?`, body.ModelName).Scan(&existing)
@@ -1157,6 +1198,12 @@ func (s *server) runHFImport(
 	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = 'done', model_id = ?, updated_at = ?, error = ''
 		 WHERE id = ?`, modelID, now, jobID)
+	// Auto-register the model in comfy_models when the repo is a known
+	// DPP-eligible diffusion backbone, so the single-rig ComfyUI gate
+	// accepts it without a separate POST /api/comfy/models call.
+	if _, err := s.autoRegisterComfyFromHF(repoID, largest); err != nil {
+		log.Printf("autoRegisterComfyFromHF(%s): %v", repoID, err)
+	}
 	s.hub.broadcastToUser(uid, "hf_progress", map[string]any{
 		"job_id":   jobID,
 		"status":   "done",
@@ -1196,6 +1243,17 @@ func (s *server) hfFail(jobID, uid int64, msg string) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
+
+// escapeRepoID percent-escapes the org and name segments of an "org/name"
+// repo ID without escaping the slash itself — HF's API rejects %2F in repo
+// names. The input is assumed to have already passed normalizeRepoID.
+func escapeRepoID(s string) string {
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 {
+		return url.PathEscape(s)
+	}
+	return url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1])
+}
 
 // normalizeRepoID accepts either "org/name", a full HF URL, or a "hf:" prefix.
 func normalizeRepoID(s string) string {

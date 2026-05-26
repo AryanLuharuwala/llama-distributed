@@ -191,6 +191,41 @@ func (s *server) comfyInflightForUser(uid int64) int {
 // adding per-pool admission control (P21-C3).
 const comfyInflightCap = 4
 
+// autoRegisterComfyFromHF idempotently inserts a comfy_models row for an
+// HF repo that we recognise as a DPP-eligible diffusion backbone. Called
+// from the HF-import paths so a successful (or short-circuited) import
+// also satisfies the single-rig ComfyUI gate without requiring the user
+// to hit POST /api/comfy/models manually.
+//
+// Returns true when a new row was inserted (false if the row already
+// existed or the repo isn't a recognised DPP backbone — both are no-ops).
+// Errors other than UNIQUE conflicts are returned so the caller can log
+// them; they're non-fatal for the import.
+func (s *server) autoRegisterComfyFromHF(repoID, hfFile string) (bool, error) {
+	family := dppFamilyForModel(repoID)
+	if family == "" {
+		return false, nil
+	}
+	kind := "image"
+	if b := dppBackboneForID(repoID); b != nil {
+		kind = b.Kind
+	}
+	_, err := s.dbExec(
+		`INSERT INTO comfy_models (name, kind, family, hf_repo, hf_file, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		repoID, kind, family, repoID, hfFile, nowUnix(),
+	)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "UNIQUE") ||
+			strings.Contains(strings.ToLower(msg), "duplicate") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // comfyModelRegistered returns true if name is in the comfy_models
 // catalog.  Empty name returns true (the default workflow handles it).
 func (s *server) comfyModelRegistered(name string) bool {
@@ -441,6 +476,10 @@ type comfyGenerateReq struct {
 	UnetAgents   []string          `json:"unet_agents,omitempty"`
 	InitImageURL string            `json:"init_image_url,omitempty"`
 	Strength     float64           `json:"strength,omitempty"`
+	// sd.cpp-only: absolute path on each rig to the checkpoint file the
+	// dist-sdcpp-worker should load.  Required until the rig-side file
+	// advertisement (Phase A2) lands.
+	SdcppModelPath string `json:"sdcpp_model_path,omitempty"`
 }
 
 func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
@@ -528,27 +567,21 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		wfKind = "image"
 	}
 
-	// Resolve model name if provided.  DPP backend skips the comfy registry
-	// because models resolve through the HF cache instead — but if the
-	// caller didn't pin backend=dpp, we still enforce comfy registration so
-	// the auto-router can fall back to single-rig comfy below.
-	if body.Backend != "dpp" {
-		if !s.comfyModelRegistered(body.ModelName) {
-			writeErr(w, 404, "model not registered: "+body.ModelName)
-			return
-		}
-	}
-
 	// ── Backend routing ────────────────────────────────────────────────
 	//
-	// Decide between single-rig ComfyUI (legacy) and DPP (text_encoder →
-	// UNet[stages] → VAE staged across rigs).  The decision is:
+	// Decide between single-rig ComfyUI (legacy), DPP (text_encoder →
+	// UNet[stages] → VAE staged across rigs), and sd.cpp (C++ stable-
+	// diffusion.cpp role chain or single "full" rig).  Decision tree:
 	//
-	//   backend=="comfy"  → single-rig comfy
-	//   backend=="dpp"    → DPP (or error if not feasible)
-	//   backend==""       → DPP if model is dpp-eligible AND pool has
-	//                       ≥2 online rigs; otherwise single-rig comfy.
+	//   backend=="comfy" → single-rig comfy
+	//   backend=="dpp"   → DPP (error if not feasible)
+	//   backend=="sdcpp" → sd.cpp (error if not feasible)
+	//   backend==""      → DPP if model is dpp-eligible AND pool has
+	//                      ≥2 online rigs; else sd.cpp if model is
+	//                      sd.cpp-eligible AND user has ≥1 sd.cpp rig
+	//                      online; else single-rig comfy.
 	useDPP := false
+	useSdcpp := false
 	switch body.Backend {
 	case "dpp":
 		if !isDPPEligible(body.ModelName) {
@@ -560,15 +593,44 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		useDPP = true
+	case "sdcpp":
+		// Explicit sd.cpp requests can use either a heuristic-eligible HF
+		// id (e.g. "stabilityai/stable-diffusion-xl-base-1.0") OR a
+		// rig-advertised file name (e.g. "sdxl-base.safetensors").  We
+		// trust the latter when the rig advertised the file in
+		// sdcpp_models — the eligibility check is a UI hint, not a
+		// security boundary.
+		if !isSdcppEligible(body.ModelName) && !s.sdcppRigAdvertisesModel(u.ID, body.ModelName) {
+			writeErr(w, 400, "backend=sdcpp requested but model is neither sd.cpp-eligible nor advertised by any rig: "+body.ModelName)
+			return
+		}
+		if s.countSdcppRigsForUser(u.ID) < 1 {
+			writeErr(w, 503, "backend=sdcpp requested but no sd.cpp-capable rigs online")
+			return
+		}
+		useSdcpp = true
 	case "", "auto":
 		if isDPPEligible(body.ModelName) && s.countDPPRigsInPool(body.PoolID) >= 2 {
 			useDPP = true
+		} else if isSdcppEligible(body.ModelName) && s.countSdcppRigsForUser(u.ID) >= 1 {
+			useSdcpp = true
 		}
 	case "comfy":
 		useDPP = false
 	default:
 		writeErr(w, 400, "unknown backend: "+body.Backend)
 		return
+	}
+
+	// Single-rig comfy path requires comfy-registry membership; DPP +
+	// sd.cpp resolve the model through their own caches (HF / on-rig
+	// path), so we only enforce registration once routing has actually
+	// picked comfy.
+	if !useDPP && !useSdcpp {
+		if !s.comfyModelRegistered(body.ModelName) {
+			writeErr(w, 404, "model not registered: "+body.ModelName)
+			return
+		}
 	}
 
 	params := string(body.Params)
@@ -579,9 +641,12 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 	// Stamp a marker into params_json so the UI / job-detail endpoint can
 	// surface which path actually ran (handy for the live-pipeline graph).
 	paramsForDB := params
-	if useDPP {
+	switch {
+	case useDPP:
 		paramsForDB = stampParamsBackend(params, "dpp")
-	} else {
+	case useSdcpp:
+		paramsForDB = stampParamsBackend(params, "sdcpp")
+	default:
 		paramsForDB = stampParamsBackend(params, "comfy")
 	}
 
@@ -616,6 +681,18 @@ func (s *server) handleComfyGenerate(w http.ResponseWriter, r *http.Request) {
 		applyComfyParamsToDPPBody(params, &dppBody)
 		go s.runDPPComfyJob(jobCtx, u.ID, jobID, dppBody)
 		writeJSON(w, 200, map[string]any{"job_id": jobID, "status": "queued", "kind": "image", "backend": "dpp"})
+		return
+	}
+	if useSdcpp {
+		sdBody := sdcppRequestBody{
+			PoolID:    body.PoolID,
+			Model:     body.ModelName,
+			ModelPath: body.SdcppModelPath,
+			Prompt:    body.Prompt,
+		}
+		applyComfyParamsToSdcppBody(params, &sdBody)
+		go s.runSdcppComfyJob(jobCtx, u.ID, jobID, sdBody)
+		writeJSON(w, 200, map[string]any{"job_id": jobID, "status": "queued", "kind": "image", "backend": "sdcpp"})
 		return
 	}
 	go s.runComfyJob(jobCtx, u.ID, jobID, body.PoolID, graph, wfKind, body.Prompt, params, body.ModelName, nRigs)
@@ -926,6 +1003,7 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 		UnetAgents     []string          `json:"unet_agents,omitempty"`
 		InitImageURL   string            `json:"init_image_url,omitempty"`
 		Strength       float64           `json:"strength,omitempty"`
+		SdcppModelPath string            `json:"sdcpp_model_path,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
@@ -964,6 +1042,7 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 	}
 	// Backend routing — same rules as handleComfyGenerate.
 	useDPP := false
+	useSdcpp := false
 	switch body.Backend {
 	case "dpp":
 		if !isDPPEligible(body.Model) {
@@ -975,9 +1054,21 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		useDPP = true
+	case "sdcpp":
+		if !isSdcppEligible(body.Model) && !s.sdcppRigAdvertisesModel(u.ID, body.Model) {
+			oaiErr(w, 400, "invalid_backend", "backend=sdcpp requires an sd.cpp-eligible model or rig-advertised file name")
+			return
+		}
+		if s.countSdcppRigsForUser(u.ID) < 1 {
+			oaiErr(w, 503, "no_rigs", "no sd.cpp-capable rigs online")
+			return
+		}
+		useSdcpp = true
 	case "", "auto":
 		if isDPPEligible(body.Model) && s.countDPPRigsInPool(body.PoolID) >= 2 {
 			useDPP = true
+		} else if isSdcppEligible(body.Model) && s.countSdcppRigsForUser(u.ID) >= 1 {
+			useSdcpp = true
 		}
 	case "comfy":
 		useDPP = false
@@ -985,9 +1076,10 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 		oaiErr(w, 400, "invalid_backend", "unknown backend: "+body.Backend)
 		return
 	}
-	// Single-rig comfy path requires the model to be registered.  DPP path
-	// resolves via the HF cache instead, so we skip the comfy registry check.
-	if !useDPP {
+	// Single-rig comfy path requires the model to be registered.  DPP +
+	// sd.cpp resolve via their own caches, so we skip the registry check
+	// for those routes.
+	if !useDPP && !useSdcpp {
 		if !s.comfyModelRegistered(body.Model) {
 			oaiErr(w, 404, "model_not_found", "model not registered: "+body.Model)
 			return
@@ -1018,13 +1110,25 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 		"negative_prompt": body.Negative,
 		"width":           w_,
 		"height":          h_,
-		"_backend":        ifElseStr(useDPP, "dpp", "comfy"),
+		"_backend": func() string {
+			switch {
+			case useDPP:
+				return "dpp"
+			case useSdcpp:
+				return "sdcpp"
+			default:
+				return "comfy"
+			}
+		}(),
 	}
 	if body.InitImageURL != "" {
 		params["init_image_url"] = body.InitImageURL
 	}
 	if body.Strength > 0 {
 		params["strength"] = body.Strength
+	}
+	if body.SdcppModelPath != "" {
+		params["sdcpp_model_path"] = body.SdcppModelPath
 	}
 	pj, _ := json.Marshal(params)
 	res, err := s.dbExec(
@@ -1042,7 +1146,8 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	s.comfyJobs.register(jobID, cancel)
 	jobAdmitted = true
-	if useDPP {
+	switch {
+	case useDPP:
 		dppBody := dppRequestBody{
 			PoolID:       body.PoolID,
 			Model:        body.Model,
@@ -1059,7 +1164,21 @@ func (s *server) handleOAIImageGen(w http.ResponseWriter, r *http.Request) {
 			Strength:     body.Strength,
 		}
 		go s.runDPPComfyJob(jobCtx, u.ID, jobID, dppBody)
-	} else {
+	case useSdcpp:
+		sdBody := sdcppRequestBody{
+			PoolID:    body.PoolID,
+			Model:     body.Model,
+			ModelPath: body.SdcppModelPath,
+			Prompt:    body.Prompt,
+			Negative:  body.Negative,
+			Steps:     body.Steps,
+			CFG:       body.CFGScale,
+			Width:     w_,
+			Height:    h_,
+			Seed:      body.Seed,
+		}
+		go s.runSdcppComfyJob(jobCtx, u.ID, jobID, sdBody)
+	default:
 		go s.runComfyJob(jobCtx, u.ID, jobID, body.PoolID, defaultComfyWorkflowJSON, "image", body.Prompt, string(pj), body.Model, 1)
 	}
 

@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -58,7 +59,7 @@ func hfListConvertible(ctx context.Context, repoID, revision, token string) ([]h
 		revision = "main"
 	}
 	u := fmt.Sprintf("%s/api/models/%s/tree/%s?recursive=true",
-		hfAPIBase, url.PathEscape(repoID), url.PathEscape(revision))
+		hfAPIBase, escapeRepoID(repoID), url.PathEscape(revision))
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, err
@@ -296,6 +297,12 @@ func (s *server) runHFConvertImport(ctx context.Context, uid, jobID int64,
 	_, _ = s.dbExec(
 		`UPDATE hf_imports SET status = 'done', model_id = ?, updated_at = ?, error = ''
 		 WHERE id = ?`, modelID, now, jobID)
+	// Auto-register the model in comfy_models when the repo is a known
+	// DPP-eligible diffusion backbone, so the single-rig ComfyUI gate
+	// accepts it without a separate POST /api/comfy/models call.
+	if _, err := s.autoRegisterComfyFromHF(repoID, ""); err != nil {
+		log.Printf("autoRegisterComfyFromHF(%s): %v", repoID, err)
+	}
 	s.hub.broadcastToUser(uid, "hf_progress", map[string]any{
 		"job_id":   jobID,
 		"status":   "done",

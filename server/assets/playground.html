@@ -582,10 +582,25 @@ button { cursor: pointer; }
       <div class="field">
         <div class="lbl">Backend</div>
         <select id="studio-backend">
-          <option value="auto" selected>Auto (DPP when ≥2 rigs)</option>
+          <option value="auto" selected>Auto (DPP → sd.cpp → comfy)</option>
           <option value="comfy">Single rig (ComfyUI)</option>
-          <option value="dpp">Distributed pipeline (DPP)</option>
+          <option value="dpp">Distributed pipeline (DPP, Python)</option>
+          <option value="sdcpp">stable-diffusion.cpp (C++ role chain)</option>
         </select>
+      </div>
+
+      <!-- sd.cpp model picker: when backend=sdcpp, the dropdown lists
+           files the user's rigs have advertised under DIST_SDCPP_MODELS_DIR
+           (CF12-A2).  The path field below is the legacy escape hatch for
+           rigs that haven't been restarted with the file scanner yet — if
+           filled in, it overrides the dropdown selection. -->
+      <div class="field" id="studio-sdcpp-opts" style="display:none">
+        <div class="lbl">sd.cpp model</div>
+        <select id="studio-sdcpp-model"><option value="">— pick a file —</option></select>
+        <div class="muted" style="font-size:11px;margin-top:4px" id="studio-sdcpp-hint">No rigs have advertised any models yet — drop checkpoints into ~/.cache/llama-distributed/sdcpp-models on at least one rig.</div>
+        <div class="lbl" style="margin-top:8px">…or override with absolute path</div>
+        <input id="studio-sdcpp-path" type="text" placeholder="/abs/path/on/rig/model.safetensors">
+        <div class="muted" style="font-size:11px;margin-top:4px">If set, the path is sent verbatim and must exist on every TE/UNet/VAE rig.</div>
       </div>
 
       <div class="field">
@@ -1011,13 +1026,43 @@ button { cursor: pointer; }
      disables the "dpp" option when the pool clearly can't run a
      distributed chain — a pool needs ≥2 eligible rigs for DPP to even
      plan. */
+  async function loadSdcppModels() {
+    const sel = $('#studio-sdcpp-model');
+    const hint = $('#studio-sdcpp-hint');
+    if (!sel) return;
+    try {
+      const r = await fetch('/api/sdcpp/models', { credentials: 'include' });
+      const j = await r.json();
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">— pick a file —</option>';
+      const models = (j && j.models) || [];
+      if (!models.length) {
+        if (hint) hint.textContent = 'No rigs have advertised any models yet — drop checkpoints into ~/.cache/llama-distributed/sdcpp-models on at least one rig.';
+        return;
+      }
+      models.forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.name;
+        const szGB = m.size ? (m.size / (1024*1024*1024)).toFixed(2) + 'G' : '';
+        o.textContent = m.name + ' · ' + (m.on_rigs || []).length + ' rig(s)' + (szGB ? ' · ' + szGB : '');
+        sel.appendChild(o);
+      });
+      if (cur) sel.value = cur;
+      if (hint) hint.textContent = models.length + ' file(s) across your online rigs.';
+    } catch { /* ignore */ }
+  }
+
   function syncDPPOpts() {
     const backSel = $('#studio-backend');
     const back = backSel.value;
     const opts = $('#studio-dpp-opts');
+    const sdOpts = $('#studio-sdcpp-opts');
+    if (sdOpts) sdOpts.style.display = back === 'sdcpp' ? '' : 'none';
+    if (back === 'sdcpp') loadSdcppModels();
     if (!opts) return;
-    opts.style.display = back === 'comfy' ? 'none' : '';
-    if (back !== 'comfy') loadDPPRigs().then(() => {
+    // DPP-only options are relevant to dpp + auto; sdcpp + comfy hide them.
+    opts.style.display = (back === 'comfy' || back === 'sdcpp') ? 'none' : '';
+    if (back !== 'comfy' && back !== 'sdcpp') loadDPPRigs().then(() => {
       const dppOpt = backSel.querySelector('option[value="dpp"]');
       if (!dppOpt) return;
       const eligible = (dppRigs || []).filter(g => g.dpp_eligible).length;
@@ -1135,17 +1180,25 @@ button { cursor: pointer; }
       if (unV) roles.unet         = unV;
       if (vaV) roles.vae          = vaV;
 
+      const sdcppPath  = ($('#studio-sdcpp-path')  && $('#studio-sdcpp-path').value.trim()) || '';
+      const sdcppPick  = ($('#studio-sdcpp-model') && $('#studio-sdcpp-model').value)       || '';
+      // For sd.cpp: if the user picked a file from the rig advertisement
+      // we ship the file name as `model`; the server resolves it via the
+      // planner.  The path override always wins when set.
+      let modelField = $('#studio-model').value.trim();
+      if (backend === 'sdcpp' && !modelField && sdcppPick) modelField = sdcppPick;
       const body = {
         prompt,
         params,
         workflow_id: parseInt($('#studio-workflow').value, 10) || undefined,
-        model: $('#studio-model').value.trim() || undefined,
+        model: modelField || undefined,
         pool_id: parseInt($('#studio-pool').value, 10) || undefined,
         backend: (backend && backend !== 'auto') ? backend : undefined,
         unet_stages: unetStages > 1 ? unetStages : undefined,
         roles: Object.keys(roles).length ? roles : undefined,
         init_image_url: initURL || undefined,
         strength: strength > 0 ? strength : undefined,
+        sdcpp_model_path: (backend === 'sdcpp' && sdcppPath) ? sdcppPath : undefined,
       };
       const r = await fetch('/api/comfy/generate', {
         method: 'POST',
