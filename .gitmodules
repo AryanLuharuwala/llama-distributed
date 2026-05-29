@@ -6,4 +6,5 @@
 	url = https://github.com/comfyanonymous/ComfyUI
 [submodule "third_party/stable-diffusion.cpp"]
 	path = third_party/stable-diffusion.cpp
-	url = https://github.com/leejet/stable-diffusion.cpp
+	url = https://github.com/AryanLuharuwala/stable-diffusion.cpp
+	branch = cf12-nway-unet-split
