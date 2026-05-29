@@ -136,7 +136,7 @@ func (s *server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, sid, exp)
-	dest := "/nexus"
+	dest := "/home"
 	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		http.SetCookie(w, &http.Cookie{

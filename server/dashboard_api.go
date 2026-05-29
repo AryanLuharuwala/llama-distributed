@@ -737,6 +737,24 @@ func (s *server) handlePlaygroundPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(playgroundHTML)
 }
 
+//go:embed assets/home.html
+var homeHTML []byte
+
+// /home — the single consolidated dashboard (clean-modern redesign). Your
+// rigs + the Global Public Pool + an "Add a GPU" drawer (token command) +
+// earnings + your pools, all on one screen. Replaces the nexus/console/
+// observatory/global sprawl as the primary surface (advanced settings still
+// live at /console).
+func (s *server) handleHomePage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.userFromRequest(r); !ok {
+		http.Redirect(w, r, "/auth?next=/home", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(homeHTML)
+}
+
 //go:embed assets/pool.html
 var poolHTML []byte
 

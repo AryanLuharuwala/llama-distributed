@@ -240,7 +240,7 @@ func (s *server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, sid, exp)
 
-	dest := "/console"
+	dest := "/home"
 	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		http.SetCookie(w, &http.Cookie{

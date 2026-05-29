@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPUnet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fafafb; --card:#ffffff; --line:#ececef; --line-2:#e2e2e7;
+  --ink:#16161a; --muted:#6b6b76; --faint:#9a9aa5;
+  --accent:#6d5cff; --accent-2:#8b7bff; --accent-soft:#efecff;
+  --ok:#16a34a; --ok-soft:#e9f7ee; --warn:#d97706; --danger:#dc2626;
+  --radius:14px; --radius-sm:10px;
+  --shadow:0 1px 2px rgba(16,16,26,.04), 0 8px 24px -12px rgba(16,16,26,.12);
+  --sans:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;letter-spacing:-.005em}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+/* top bar */
+.bar{display:flex;align-items:center;gap:18px;height:64px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(250,250,251,.85);backdrop-filter:blur(8px);z-index:20}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:18px;letter-spacing:-.02em}
+.logo .mk{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:inline-block}
+.bar .sp{flex:1}
+.online{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+.dot.off{background:var(--faint);box-shadow:0 0 0 3px #eee}
+.navlink{font-size:14px;color:var(--muted);font-weight:500;padding:7px 12px;border-radius:9px}
+.navlink:hover{color:var(--ink);background:#f1f1f4}
+.navlink.on{color:var(--accent);background:var(--accent-soft)}
+.btn{display:inline-flex;align-items:center;gap:7px;border:none;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:600}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:#5b49f0}
+.btn.ghost{background:#f1f1f4;color:var(--ink)}
+.btn.ghost:hover{background:#e8e8ed}
+.acct{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted)}
+.acct b{color:var(--ink);font-weight:600}
+.acct a{color:var(--faint);font-size:12.5px}
+.acct a:hover{color:var(--accent)}
+
+main{padding:34px 0 80px}
+.hi{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-bottom:3px}
+.hi span{color:var(--accent)}
+.sub{color:var(--muted);font-size:14.5px;margin-bottom:26px}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:26px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow)}
+.kpi .l{font-size:12.5px;color:var(--muted);font-weight:500;margin-bottom:8px}
+.kpi .v{font-size:30px;font-weight:700;letter-spacing:-.03em}
+.kpi .v small{font-size:15px;color:var(--faint);font-weight:500;margin-left:3px}
+.kpi .d{font-size:12px;color:var(--faint);margin-top:4px}
+
+/* cards grid */
+.grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+@media(max-width:840px){.grid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.card .hd{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+.card .hd h2{font-size:15.5px;font-weight:600}
+.card .hd .act{font-size:13px;color:var(--accent);font-weight:600}
+.card .bd{padding:6px 8px}
+.card .bd.pad{padding:18px 20px}
+
+/* rig list */
+.rig{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:var(--radius-sm)}
+.rig:hover{background:#f7f7f9}
+.rig .nm{font-weight:600;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rig .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.rig .st{font-size:12px;font-weight:600;color:var(--ok);display:inline-flex;align-items:center;gap:6px}
+.rig .st.off{color:var(--faint)}
+.empty{padding:30px 20px;text-align:center;color:var(--faint);font-size:13.5px}
+.empty .big{font-size:15px;color:var(--muted);font-weight:600;margin-bottom:6px}
+
+/* pool card */
+.poolstat{display:flex;gap:24px;margin-bottom:14px}
+.poolstat .n{font-size:26px;font-weight:700;letter-spacing:-.03em}
+.poolstat .n small{font-size:12.5px;color:var(--faint);font-weight:500;display:block;letter-spacing:0}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ok);background:var(--ok-soft);padding:4px 10px;border-radius:999px}
+.poolcta{margin-top:14px;width:100%;justify-content:center}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(16,16,26,.32);backdrop-filter:blur(2px);z-index:40;opacity:0;pointer-events:none;transition:opacity .18s}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(520px,92vw);background:var(--bg);border-left:1px solid var(--line-2);z-index:50;transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);overflow-y:auto;box-shadow:-20px 0 50px -20px rgba(16,16,26,.25)}
+.drawer.on{transform:translateX(0)}
+.drawer .dhd{display:flex;align-items:center;justify-content:space-between;padding:22px 26px 6px}
+.drawer .dhd h3{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.drawer .x{border:none;background:#f1f1f4;width:30px;height:30px;border-radius:8px;font-size:16px;color:var(--muted)}
+.drawer .body{padding:8px 26px 40px}
+.drawer p.lede{color:var(--muted);font-size:14px;margin:0 0 18px}
+.step{margin:18px 0}
+.step .n{font-size:11.5px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:8px}
+.cmd{display:flex;align-items:flex-start;gap:10px;background:#16161a;border-radius:var(--radius-sm);padding:13px 14px}
+.cmd code{flex:1;font-family:var(--mono);font-size:12.5px;color:#e8e8ef;word-break:break-all;line-height:1.55}
+.cmd .cp{flex-shrink:0;background:#2a2a33;border:none;color:#cfcfe0;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 9px;border-radius:7px}
+.cmd .cp:hover{background:#3a3a45}
+.cmd .cp.ok{background:var(--ok);color:#fff}
+.note{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:9px}
+.note b{color:var(--ink);font-weight:600}
+.tok{display:flex;align-items:center;gap:12px;margin-top:16px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.tok b{color:var(--ink)}
+.remint{margin-left:auto;border:1px solid var(--line-2);background:var(--card);border-radius:8px;font-size:11px;color:var(--muted);padding:5px 11px;font-weight:500}
+.remint:hover{border-color:var(--accent);color:var(--accent)}
+.foot{margin-top:28px;color:var(--faint);font-size:12.5px}
+.foot a{color:var(--muted);font-weight:500}
+.foot a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="bar"><div class="wrap" style="display:flex;align-items:center;gap:18px;width:100%">
+  <a class="logo" href="/home"><span class="mk"></span>GPUnet</a>
+  <a class="navlink on" href="/home">Home</a>
+  <a class="navlink" href="/studio">Studio</a>
+  <span class="sp"></span>
+  <span class="online"><span class="dot" id="onlinedot"></span><span id="onlinen">—</span> online</span>
+  <button class="btn primary" id="addgpu-btn">+ Add a GPU</button>
+  <span class="acct"><b id="who">—</b><a href="/logout">Sign out</a></span>
+</div></div>
+
+<main class="wrap">
+  <div class="hi">Welcome back<span id="who2"></span></div>
+  <div class="sub">Your rigs and the global network at a glance.</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Your rigs online</div><div class="v"><span id="k-online">—</span><small id="k-total"></small></div><div class="d" id="k-rigsd">across your fleet</div></div>
+    <div class="kpi"><div class="l">Earnings · 30d</div><div class="v" id="k-earn">—</div><div class="d">credits from served tokens</div></div>
+    <div class="kpi"><div class="l">Global pool</div><div class="v"><span id="k-poolup">—</span><small>/ <span id="k-pooltot">—</span> GPUs</small></div><div class="d">you're a member</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="hd"><h2>Your rigs</h2><a class="act" id="addgpu-link" href="#">+ Add a GPU</a></div>
+      <div class="bd" id="rigs"><div class="empty">loading…</div></div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="hd"><h2>Global Public Pool</h2><span class="badge" id="member-badge">member</span></div>
+        <div class="bd pad">
+          <div class="poolstat">
+            <div><div class="n" id="gp-online">—</div><small>GPUs online</small></div>
+            <div><div class="n" id="gp-rigs">—</div><small>total</small></div>
+            <div><div class="n" id="gp-members">—</div><small>contributors</small></div>
+          </div>
+          <div style="font-size:13.5px;color:var(--muted)">An open pool anyone can contribute to — point a rig at it and it serves immediately.</div>
+          <button class="btn primary poolcta" id="addgpu-btn2">+ Add this GPU to the pool</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hd"><h2>Your pools</h2><a class="act" href="/console#pools">Manage →</a></div>
+        <div class="bd" id="pools"><div class="empty">loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <a href="/studio">Studio · distributed generation</a> &nbsp;·&nbsp;
+    <a href="/console">Advanced settings (API keys, MCP, RAG)</a>
+  </div>
+</main>
+
+<!-- Add-a-GPU drawer -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhd"><h3>Add a GPU</h3><button class="x" id="drawer-x">×</button></div>
+  <div class="body">
+    <p class="lede">One command pairs this machine and it joins the <b style="color:var(--ink)">Global Public Pool</b> automatically. The token is single-use and expires in 5 minutes.</p>
+    <div class="step">
+      <span class="n">New machine — one command</span>
+      <div class="cmd"><code id="cmd-install">minting…</code><button class="cp" data-for="cmd-install">Copy</button></div>
+      <div class="note">Auto-detects OS/arch, installs the <b>gpunet</b> agent, pairs, and connects. After the first connect it saves a durable key to <b>~/.config/gpunet/credentials.json</b> — then plain <code style="font-family:var(--mono);font-size:11.5px">gpunet connect</code> reconnects with no token.</div>
+    </div>
+    <div class="step">
+      <span class="n">Already installed — connect with the token</span>
+      <div class="cmd"><code id="cmd-connect">…</code><button class="cp" data-for="cmd-connect">Copy</button></div>
+    </div>
+    <div class="step">
+      <span class="n">Save the token (unattended re-pair)</span>
+      <div class="cmd"><code id="cmd-save">…</code><button class="cp" data-for="cmd-save">Copy</button></div>
+      <div class="note">Add <b>GPUNET_PAIR</b> to your shell profile so the installer / <code style="font-family:var(--mono);font-size:11.5px">gpunet connect</code> re-pair without a browser.</div>
+    </div>
+    <div class="tok"><span>token <b id="tok">—</b></span><span>expires <b id="exp">—</b></span><button class="remint" id="remint">re-mint ↻</button></div>
+  </div>
+</aside>
+
+<script>
+const $=s=>document.querySelector(s);
+async function j(u,o={}){try{const r=await fetch(u,{credentials:'include',...o});return r.ok?await r.json():null}catch{return null}}
+const gib=b=>b?(b/1073741824).toFixed(0):'—';
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+async function load(){
+  const me=await j('/api/me');
+  const name=(me&&(me.display_name||me.name))||'';
+  if(name){$('#who').textContent=name;$('#who2').textContent=', '+name.split(' ')[0]}
+  // rigs
+  const rd=await j('/api/me/rigs'); const rigs=(rd&&(rd.rigs||rd))||[];
+  const online=rigs.filter(r=>r.online||r.status==='online').length;
+  $('#onlinen').textContent=online; $('#k-online').textContent=online;
+  $('#k-total').textContent=rigs.length?(' / '+rigs.length):'';
+  $('#onlinedot').className='dot'+(online?'':' off');
+  const rb=$('#rigs');
+  if(!rigs.length){rb.innerHTML='<div class="empty"><div class="big">No rigs yet</div>Click “Add a GPU” to contribute your first one.</div>'}
+  else rb.innerHTML=rigs.map(r=>{
+    const on=r.online||r.status==='online';
+    const vram=r.vram_gb||(r.vram_bytes?gib(r.vram_bytes):null);
+    return `<div class="rig"><span class="nm">${esc(r.display_name||r.hostname||r.agent_id||'rig')}</span>
+      <span class="meta">${r.n_gpus||1}× GPU · ${vram?vram+' GiB':'—'}</span>
+      <span class="st${on?'':' off'}"><span class="dot${on?'':' off'}"></span>${on?'online':'offline'}</span></div>`}).join('');
+  // earnings
+  const e=await j('/api/me/earnings?window=30');
+  $('#k-earn').textContent=e?((e.total||e.credits||e.earnings||0)).toLocaleString():'0';
+  // pools (global + yours)
+  const pd=await j('/api/pools'); const pools=(pd&&(pd.pools||pd))||[];
+  const gp=pools.find(p=>p.slug==='global'&&p.visibility==='public')||pools.find(p=>p.visibility==='public');
+  if(gp){$('#gp-online').textContent=gp.n_online??0;$('#gp-rigs').textContent=gp.n_rigs??0;$('#gp-members').textContent=gp.n_members??0;
+    $('#k-poolup').textContent=gp.n_online??0;$('#k-pooltot').textContent=gp.n_rigs??0;}
+  const mine=pools.filter(p=>!(p.slug==='global'));
+  const pb=$('#pools');
+  if(!mine.length){pb.innerHTML='<div class="empty">No private pools.<br>Your rigs serve the Global Pool by default.</div>'}
+  else pb.innerHTML=mine.map(p=>`<div class="rig"><span class="nm">${esc(p.name)}</span>
+    <span class="meta">${p.visibility} · ${p.n_rigs||0} rigs</span>
+    <span class="st${p.n_online?'':' off'}"><span class="dot${p.n_online?'':' off'}"></span>${p.n_online||0} up</span></div>`).join('');
+}
+
+/* ── add-GPU drawer ── */
+function wsFrom(deep){try{return new URL(deep).searchParams.get('server')||''}catch{return ''}}
+async function mint(){
+  $('#cmd-install').textContent='minting…';
+  const d=await j('/api/pair',{method:'POST'});
+  if(!d||!d.token){$('#cmd-install').textContent='# sign in first';return}
+  const deep=d.deep_link, ws=wsFrom(deep);
+  $('#cmd-install').textContent=`curl -fsSL ${location.origin}/install.sh | sh -s -- --pair "${deep}"`;
+  $('#cmd-connect').textContent=`gpunet-node --server "${ws}" --token ${d.token}`;
+  $('#cmd-save').textContent=`export GPUNET_PAIR="${deep}"`;
+  $('#tok').textContent=d.token.slice(0,12)+'…';
+  $('#exp').textContent=new Date(d.expires_at*1000).toLocaleTimeString();
+}
+function openDrawer(){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#drawer').setAttribute('aria-hidden','false');mint()}
+function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList.remove('on');$('#drawer').setAttribute('aria-hidden','true')}
+['addgpu-btn','addgpu-btn2','addgpu-link'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('click',e=>{e.preventDefault();openDrawer()})});
+$('#drawer-x').addEventListener('click',closeDrawer);
+$('#scrim').addEventListener('click',closeDrawer);
+$('#remint').addEventListener('click',mint);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+document.addEventListener('click',e=>{const b=e.target.closest('.cp');if(!b)return;
+  navigator.clipboard.writeText(document.getElementById(b.dataset.for).textContent).then(()=>{
+    b.classList.add('ok');const o=b.textContent;b.textContent='Copied';setTimeout(()=>{b.classList.remove('ok');b.textContent=o},1300)}).catch(()=>{})});
+
+load(); setInterval(load,6000);
+</script>
+</body>
+</html>

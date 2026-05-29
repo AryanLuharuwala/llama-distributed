@@ -364,13 +364,20 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /api/install/oneliner", s.handleInstallOneliner)
 	// Desktop-widget combined feed (session OR agent-key auth).
 	mux.HandleFunc("GET /api/widget/state", s.handleWidgetState)
-	mux.HandleFunc("GET /console", s.handleConsolePage)
-	mux.HandleFunc("GET /observatory", s.handleObservatoryPage)
-	mux.HandleFunc("GET /nexus", s.handleNexusPage)
-	mux.HandleFunc("GET /global", s.handleGlobalPoolPage)
-	mux.HandleFunc("GET /pool/global", s.handleGlobalPoolPage)
+	// Primary surface: Home + Studio (clean-modern redesign). Console is kept
+	// for advanced settings (API keys / MCP / RAG). The old nexus/observatory/
+	// playground/global dashboards fold into /home — redirect so links live.
+	mux.HandleFunc("GET /home", s.handleHomePage)
 	mux.HandleFunc("GET /studio", s.handleStudioPage)
-	mux.HandleFunc("GET /playground", s.handlePlaygroundPage)
+	mux.HandleFunc("GET /console", s.handleConsolePage)
+	foldToHome := func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/home", http.StatusFound)
+	}
+	mux.HandleFunc("GET /nexus", foldToHome)
+	mux.HandleFunc("GET /observatory", foldToHome)
+	mux.HandleFunc("GET /playground", foldToHome)
+	mux.HandleFunc("GET /global", foldToHome)
+	mux.HandleFunc("GET /pool/global", foldToHome)
 
 	// RAG control plane.
 	mux.HandleFunc("POST /api/rag/collections", s.handleRAGCreateCollection)
@@ -690,7 +697,7 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// see the editorial sign-in page (which then bounces them to /nexus
 	// once a session is minted).
 	if _, ok := s.userFromRequest(r); ok {
-		http.Redirect(w, r, "/nexus", http.StatusFound)
+		http.Redirect(w, r, "/home", http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

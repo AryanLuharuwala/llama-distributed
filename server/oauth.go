@@ -279,7 +279,7 @@ func (s *server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, sid, exp)
-	dest := "/console"
+	dest := "/home"
 	if c, err := r.Cookie("oauth_next"); err == nil && isSafeNext(c.Value) {
 		dest = c.Value
 		// Clear the cookie so it doesn't sticky across logins.
