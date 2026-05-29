@@ -4,7 +4,7 @@
  * Entry point for the VM-layer coordinator.
  *
  * Usage:
- *   dist-vm-coordinator [options]
+ *   gpunet-vm-coordinator [options]
  *
  *   --host <addr>          bind host (default 0.0.0.0)
  *   --control-port <n>     base coordinator control port (default 7700)
@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 
     cfg.base.bind_host = cfg.bind_host;
 
-    cfg.base.vm_mode = true;  // show dist-vm-node command in dashboard
+    cfg.base.vm_mode = true;  // show gpunet-vm-node command in dashboard
 
     std::cout << "=== llama-distributed VM Coordinator ===\n"
               << "  control-port  : " << cfg.base.control_port   << "\n"

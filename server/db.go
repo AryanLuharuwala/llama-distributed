@@ -241,7 +241,7 @@ func migrate(db *sql.DB, d sqlDialect) error {
 		// pools) — SQLite ignores NULLs in UNIQUE indexes by default.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_pools_slug ON pools(slug) WHERE slug IS NOT NULL`,
 
-		// Device-code flow: `dist-node login` mints a (device_code,
+		// Device-code flow: `gpunet-node login` mints a (device_code,
 		// user_code) row; the user approves the user_code from the
 		// dashboard; the rig polls and pulls the agent_key out.
 		`CREATE TABLE IF NOT EXISTS device_codes (

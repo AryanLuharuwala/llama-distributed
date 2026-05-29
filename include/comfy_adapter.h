@@ -1,4 +1,4 @@
-// comfy_adapter.h — bridge between dist-node and a locally-running ComfyUI
+// comfy_adapter.h — bridge between gpunet-node and a locally-running ComfyUI
 //
 // The control plane sends a JSON workflow (`graph`) to the rig over WS as
 // `{"kind":"comfy_run","job_id":N,"workflow":"image|video","graph":"..."}`.

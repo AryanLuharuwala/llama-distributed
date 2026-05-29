@@ -1,11 +1,11 @@
-// dist-cli split — visual layer-to-rig assignment for one pool.
+// gpunet-cli split — visual layer-to-rig assignment for one pool.
 //
 // Renders the auto-computed pipeline plan as a horizontal layer ribbon with
 // one row per stage, then lets the operator nudge boundaries and reassign
 // rigs.  The view is purely advisory today — the planner still picks at
 // dispatch time — but the edited plan is written to
 //   <state_dir>/plans/pool-<id>.json
-// so a future planner override (or a manual `dist-cli plan apply`) can pick
+// so a future planner override (or a manual `gpunet-cli plan apply`) can pick
 // it up without re-typing layer ranges.
 //
 // VRAM estimate = (size_bytes / n_layers) × layers_in_stage × 1.10  (10% KV
@@ -583,7 +583,7 @@ int dist_cli_run_split(const dc::AuthCtx& ctx, int64_t pool_id) {
     auto render = Renderer([&] {
         // Header.
         int64_t plb = per_layer_bytes(pool);
-        std::string header_l = "dist-cli split   pool " + std::to_string(pool.id);
+        std::string header_l = "gpunet-cli split   pool " + std::to_string(pool.id);
         std::string header_r = pool.model + "   " + std::to_string(pool.n_layers)
                              + " layers   " + human_bytes(pool.model_bytes)
                              + "   ≈ " + human_bytes(plb) + "/layer";

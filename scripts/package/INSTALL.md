@@ -1,7 +1,7 @@
 # llama-distributed — install
 
-This archive contains the `dist-node`, `dist-join`, `dist-client`, and
-`dist-coordinator` binaries for your platform, plus installer scripts that
+This archive contains the `gpunet-node`, `gpunet-join`, `gpunet-client`, and
+`gpunet-coordinator` binaries for your platform, plus installer scripts that
 register the node agent as a background service.
 
 ## Quick start
@@ -33,7 +33,7 @@ Run the same script with `uninstall` (Linux/macOS) or `-Uninstall` (Windows).
 ## Manual run (no service)
 
 ```
-./bin/dist-join --token <POOL_TOKEN> --server pool.llamadist.dev -g 999
+./bin/gpunet-join --token <POOL_TOKEN> --server pool.llamadist.dev -g 999
 ```
 
 `-g 999` offloads every layer it can onto the GPU. Drop to `-g 0` for CPU-only.

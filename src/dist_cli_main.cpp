@@ -1,28 +1,28 @@
-// dist-cli — operator-facing CLI for distpool.
+// gpunet-cli — operator-facing CLI for distpool.
 //
-// Standalone binary.  Does NOT require dist-node to be installed — a laptop
-// with no GPU can `dist-cli login` to manage pools, watch rigs, and stream
-// logs without ever joining the compute fabric.  When dist-node IS installed
-// on the same box, both binaries share the state dir so `dist-node login`
-// also authenticates dist-cli.
+// Standalone binary.  Does NOT require gpunet-node to be installed — a laptop
+// with no GPU can `gpunet-cli login` to manage pools, watch rigs, and stream
+// logs without ever joining the compute fabric.  When gpunet-node IS installed
+// on the same box, both binaries share the state dir so `gpunet-node login`
+// also authenticates gpunet-cli.
 //
 // Subcommands:
-//   dist-cli login [--server URL]         Browser device-code login.
-//   dist-cli logout                       Wipe local credentials.
-//   dist-cli status                       Show pairing + auth info.
-//   dist-cli pools list                   List pools the user belongs to.
-//   dist-cli pools create <name> [--public]
-//   dist-cli pools join <invite-token>
-//   dist-cli pools members <pool-id>
-//   dist-cli pools invite <pool-id>
-//   dist-cli pools kick <pool-id> <rig-id>
-//   dist-cli models list
-//   dist-cli models import <hf-repo-id>
-//   dist-cli models search <query> [--tag X] [--library Y]
-//   dist-cli rigs list                    Show all rigs belonging to me.
-//   dist-cli rigs watch                   Polling tail of my rig fleet.
-//   dist-cli logs [--follow] [--tail N]   Inference log.
-//   dist-cli top                          Live TUI dashboard (see dist_cli_top.cpp).
+//   gpunet-cli login [--server URL]         Browser device-code login.
+//   gpunet-cli logout                       Wipe local credentials.
+//   gpunet-cli status                       Show pairing + auth info.
+//   gpunet-cli pools list                   List pools the user belongs to.
+//   gpunet-cli pools create <name> [--public]
+//   gpunet-cli pools join <invite-token>
+//   gpunet-cli pools members <pool-id>
+//   gpunet-cli pools invite <pool-id>
+//   gpunet-cli pools kick <pool-id> <rig-id>
+//   gpunet-cli models list
+//   gpunet-cli models import <hf-repo-id>
+//   gpunet-cli models search <query> [--tag X] [--library Y]
+//   gpunet-cli rigs list                    Show all rigs belonging to me.
+//   gpunet-cli rigs watch                   Polling tail of my rig fleet.
+//   gpunet-cli logs [--follow] [--tail N]   Inference log.
+//   gpunet-cli top                          Live TUI dashboard (see dist_cli_top.cpp).
 //
 // Every subcommand prints human-readable text by default and accepts --json
 // to dump the raw server response unfiltered (handy for scripts).
@@ -186,7 +186,7 @@ int cmd_status(const dc::AuthCtx& ctx, const std::vector<std::string>&) {
 
 int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
     if (args.empty()) {
-        std::cerr << "usage: dist-cli pools <list|create|join|members|invite|kick> ...\n";
+        std::cerr << "usage: gpunet-cli pools <list|create|join|members|invite|kick> ...\n";
         return 1;
     }
     std::string sub = args[0];
@@ -224,7 +224,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "create") {
         if (args.empty() || args[0].rfind("--", 0) == 0) {
-            std::cerr << "usage: dist-cli pools create <name> [--public]\n";
+            std::cerr << "usage: gpunet-cli pools create <name> [--public]\n";
             return 1;
         }
         std::string name = args[0];
@@ -245,7 +245,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "join") {
         if (args.empty()) {
-            std::cerr << "usage: dist-cli pools join <invite-token>\n";
+            std::cerr << "usage: gpunet-cli pools join <invite-token>\n";
             return 1;
         }
         std::string body = "{\"invite\":\"" + json_escape(args[0]) + "\"}";
@@ -263,7 +263,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "members") {
         if (args.empty()) {
-            std::cerr << "usage: dist-cli pools members <pool-id>\n";
+            std::cerr << "usage: gpunet-cli pools members <pool-id>\n";
             return 1;
         }
         dc::HttpResp r; std::string err;
@@ -289,7 +289,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "invite") {
         if (args.empty()) {
-            std::cerr << "usage: dist-cli pools invite <pool-id>\n";
+            std::cerr << "usage: gpunet-cli pools invite <pool-id>\n";
             return 1;
         }
         dc::HttpResp r; std::string err;
@@ -308,7 +308,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "kick") {
         if (args.size() < 2) {
-            std::cerr << "usage: dist-cli pools kick <pool-id> <rig-id>\n";
+            std::cerr << "usage: gpunet-cli pools kick <pool-id> <rig-id>\n";
             return 1;
         }
         std::string path = "/api/pools/" + args[0] + "/rigs/" + args[1];
@@ -329,7 +329,7 @@ int cmd_pools(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
 int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
     if (args.empty()) {
-        std::cerr << "usage: dist-cli models <list|import|search|discover> ...\n";
+        std::cerr << "usage: gpunet-cli models <list|import|search|discover> ...\n";
         return 1;
     }
     std::string sub = args[0];
@@ -375,7 +375,7 @@ int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "import") {
         if (args.empty()) {
-            std::cerr << "usage: dist-cli models import <hf-repo-id>\n";
+            std::cerr << "usage: gpunet-cli models import <hf-repo-id>\n";
             return 1;
         }
         std::string body = "{\"repo_id\":\"" + json_escape(args[0]) + "\"}";
@@ -394,7 +394,7 @@ int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (sub == "search") {
         if (args.empty()) {
-            std::cerr << "usage: dist-cli models search <query> [--tag X] [--library Y] [--limit N]\n";
+            std::cerr << "usage: gpunet-cli models search <query> [--tag X] [--library Y] [--limit N]\n";
             return 1;
         }
         std::string q = args[0];
@@ -507,7 +507,7 @@ int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
                         dc::json_peek_int(obj, "likes").c_str(),
                         dc::json_peek_string(obj, "library").c_str());
         }
-        std::printf("\n  ✓ = already imported.  dist-cli models import <id> to pull.\n");
+        std::printf("\n  ✓ = already imported.  gpunet-cli models import <id> to pull.\n");
         return 0;
     }
 
@@ -517,7 +517,7 @@ int cmd_models(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
 int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
     if (args.empty()) {
-        std::cerr << "usage: dist-cli rigs <list|watch|forget AGENT_ID>\n";
+        std::cerr << "usage: gpunet-cli rigs <list|watch|forget AGENT_ID>\n";
         return 1;
     }
     const std::string bearer = "Authorization: Bearer " + ctx.api_key;
@@ -570,7 +570,7 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
                         dc::json_peek_string(obj, "hostname").c_str());
         }
         if (n_rows == 0) {
-            std::printf("  (no rigs paired — run `dist-node login` on a GPU box)\n");
+            std::printf("  (no rigs paired — run `gpunet-node login` on a GPU box)\n");
         }
     };
 
@@ -592,7 +592,7 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
             dc::HttpResp r; std::string err;
             if (fetch(r, err)) {
                 std::printf("\x1b[2J\x1b[H");          // clear + home
-                std::printf("dist-cli rigs watch   %s\n", ctx.server_url.c_str());
+                std::printf("gpunet-cli rigs watch   %s\n", ctx.server_url.c_str());
                 print_table(r.body);
                 std::fflush(stdout);
             } else {
@@ -606,8 +606,8 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
     if (args[0] == "forget") {
         if (args.size() < 2) {
-            std::cerr << "usage: dist-cli rigs forget <AGENT_ID>\n"
-                         "  (use `dist-cli rigs list` to find the agent_id)\n";
+            std::cerr << "usage: gpunet-cli rigs forget <AGENT_ID>\n"
+                         "  (use `gpunet-cli rigs list` to find the agent_id)\n";
             return 1;
         }
         const std::string agent_id = args[1];
@@ -619,7 +619,7 @@ int cmd_rigs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
             return 1;
         }
         if (r.status == 409) {
-            std::cerr << "[forget] rig is online — run `dist-node logout` on it first, "
+            std::cerr << "[forget] rig is online — run `gpunet-node logout` on it first, "
                          "or wait for the heartbeat to lapse.\n";
             return 1;
         }
@@ -683,7 +683,7 @@ int cmd_logs(const dc::AuthCtx& ctx, std::vector<std::string> args) {
 
 // ── Login / logout ───────────────────────────────────────────────────────
 
-// Default control-plane URL. Same fallback dist-node uses so a user can run
+// Default control-plane URL. Same fallback gpunet-node uses so a user can run
 // either binary first and the other inherits the state.
 std::string default_api_url() {
     if (const char* s = std::getenv("DIST_API_URL"); s && *s) return s;
@@ -719,7 +719,7 @@ int cmd_login(std::vector<std::string> args) {
     // management seat, not a compute rig.  The server's upsert in
     // device_code.go preserves any existing rig capabilities instead of
     // overwriting them, so an operator login on a box that's already running
-    // dist-node won't zero out the rig's advertised GPU count.
+    // gpunet-node won't zero out the rig's advertised GPU count.
     std::ostringstream body;
     body << "{\"hostname\":\"" << json_escape(hostname) << "\","
          << "\"n_gpus\":-1,\"vram_bytes\":-1}";
@@ -768,7 +768,7 @@ int cmd_login(std::vector<std::string> args) {
             continue;
         }
         if (pr.status == 410) {
-            std::cerr << "\n[login] code expired — run `dist-cli login` again\n";
+            std::cerr << "\n[login] code expired — run `gpunet-cli login` again\n";
             return 1;
         }
         if (pr.status != 200) {
@@ -786,7 +786,7 @@ int cmd_login(std::vector<std::string> args) {
         break;
     }
 
-    // Persist exactly what dist-node would have written, so the same state dir
+    // Persist exactly what gpunet-node would have written, so the same state dir
     // works for both binaries. `agent.server` may be empty for non-compute
     // seats but we save whatever the server returned.
     bool ok = dc::state_write("agent.id",      agent_id)
@@ -799,7 +799,7 @@ int cmd_login(std::vector<std::string> args) {
     }
 
     // Mint the bearer api_key now so the next command doesn't pay the round-trip.
-    const std::string label = "dist-cli/" + agent_id;
+    const std::string label = "gpunet-cli/" + agent_id;
     const std::string mint_body = "{\"label\":\"" + json_escape(label) + "\"}";
     dc::HttpResp mr; std::string merr;
     if (dc::http_request(api_url, "/api/agent/api_key", "POST", mint_body,
@@ -818,7 +818,7 @@ int cmd_login(std::vector<std::string> args) {
 
 int cmd_logout(const std::vector<std::string>&) {
     // Truncate rather than delete — keeps the state dir well-formed and lets
-    // a subsequent `dist-cli login` reuse the same paths.
+    // a subsequent `gpunet-cli login` reuse the same paths.
     for (const char* k : {"agent.id", "agent.key", "agent.api_key",
                           "agent.server", "agent.api_url"}) {
         dc::state_write(k, "");
@@ -841,7 +841,7 @@ void usage(const char* prog) {
         "  %s split <pool-id>                 Visual layer/VRAM splitter.\n"
         "\n"
         "All commands accept --json to dump the raw server response.\n"
-        "If dist-node is installed on the same box it shares this auth.\n",
+        "If gpunet-node is installed on the same box it shares this auth.\n",
         prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
@@ -880,7 +880,7 @@ int main(int argc, char** argv) {
     if (sub == "top")    return dist_cli_run_top(ctx);
     if (sub == "split") {
         if (args.empty()) {
-            std::fprintf(stderr, "usage: dist-cli split <pool-id>\n");
+            std::fprintf(stderr, "usage: gpunet-cli split <pool-id>\n");
             return 1;
         }
         return dist_cli_run_split(ctx, std::atoll(args[0].c_str()));

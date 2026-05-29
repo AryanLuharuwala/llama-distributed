@@ -452,7 +452,7 @@ func TestHttpToWS(t *testing.T) {
 
 // ─── TURN per-rig credential derivation ─────────────────────────────────────
 //
-// dist-turn (Go sidecar) validates TURN long-term creds with the rig-derived
+// gpunet-turn (Go sidecar) validates TURN long-term creds with the rig-derived
 // secret, not the master secret.  The server must produce the *same*
 // derivation when minting creds for a peer that targets that rig's TURN.
 // If these drift we get silent unauthorized errors on real allocations.
@@ -473,7 +473,7 @@ func TestRigTURNSecretAndMint(t *testing.T) {
 	}
 	// Recomputation matches the documented HMAC-SHA256 hex format.
 	mac := hmac.New(sha256.New, []byte(s.cfg.turnSecret))
-	mac.Write([]byte("dist-turn-rig|"))
+	mac.Write([]byte("gpunet-turn-rig|"))
 	mac.Write([]byte("rig-A"))
 	want := hex.EncodeToString(mac.Sum(nil))
 	if a != want {

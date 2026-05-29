@@ -1,7 +1,7 @@
 package main
 
 // sd.cpp coverage — which model families the stable-diffusion.cpp C++
-// backend (`dist-sdcpp-worker`) can actually run. Mirrors the SDVersion
+// backend (`gpunet-sdcpp-worker`) can actually run. Mirrors the SDVersion
 // enum + sd_version_is_* helpers in
 // third_party/stable-diffusion.cpp/src/model.h.
 //

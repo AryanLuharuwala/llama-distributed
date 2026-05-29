@@ -4,7 +4,7 @@
 // backed by the same CUDA device destabilise each other when they issue
 // decodes concurrently (CUDA graph reuse + per-context scratch buffers blow
 // up on the second user).  Until per-device isolation lands in the backend,
-// every dist-node holding a GPU engine must take this lock for the duration
+// every gpunet-node holding a GPU engine must take this lock for the duration
 // of a decode.
 //
 // The lock is held on a file under /tmp named after the device index, so all

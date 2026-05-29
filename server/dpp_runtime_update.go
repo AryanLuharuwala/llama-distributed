@@ -4,7 +4,7 @@ package main
 //
 // Why this exists: as we add new BackboneAdapters (every time a new
 // diffusion model family ships), only python/dpp_runtime/backbones.py
-// changes — yet the dist-node binary on every rig embeds a copy of
+// changes — yet the gpunet-node binary on every rig embeds a copy of
 // that directory.  Re-rolling the binary and asking every operator to
 // redeploy is painful.  This endpoint lets the node fetch the latest
 // runtime bundle on its own and swap it in atomically, with SHA256

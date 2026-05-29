@@ -4,7 +4,7 @@ package main
 // tokens.  Two complementary checks:
 //
 //   1. Build attestation (binary identity): the rig publishes the
-//      sha256 of the dist-node binary it's running, plus a build_id
+//      sha256 of the gpunet-node binary it's running, plus a build_id
 //      string the operator embeds via -ldflags="-X main.buildID=…".
 //      We pin known-good hashes per (os, arch) and refuse rigs whose
 //      binary doesn't match a release the operator has whitelisted.

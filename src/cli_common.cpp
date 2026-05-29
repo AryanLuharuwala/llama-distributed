@@ -25,9 +25,9 @@ namespace dist::cli {
 
 // ── State store ──────────────────────────────────────────────────────────
 
-// Shared base — same path dist-node uses, so on a brand-new install we can
+// Shared base — same path gpunet-node uses, so on a brand-new install we can
 // migrate the legacy files into the /cli subdir below.  Never write directly
-// to this path from dist-cli.
+// to this path from gpunet-cli.
 static std::string state_base() {
     if (const char* s = std::getenv("DIST_STATE_DIR"); s && *s) return s;
 #ifdef _WIN32
@@ -46,9 +46,9 @@ static std::string state_base() {
     return "./llama-distributed-state";
 }
 
-// dist-cli has its own subdir so an operator login can't clobber a compute
+// gpunet-cli has its own subdir so an operator login can't clobber a compute
 // rig's agent.id/agent.key.  On first access we copy any pre-existing files
-// from the base dir into /cli so prior `dist-cli login` state isn't lost.
+// from the base dir into /cli so prior `gpunet-cli login` state isn't lost.
 std::string state_dir() {
 #ifdef _WIN32
     const std::string cli = state_base() + "\\cli";
@@ -60,7 +60,7 @@ std::string state_dir() {
         std::error_code ec;
         std::filesystem::create_directories(cli, ec);
         // One-shot migration: pull legacy files into /cli when /cli is empty.
-        // Leave the originals in place so dist-node keeps working.
+        // Leave the originals in place so gpunet-node keeps working.
         const auto base = state_base();
         const char* keys[] = {"agent.id", "agent.key", "agent.api_key",
                               "agent.server", "agent.api_url"};
@@ -191,7 +191,7 @@ bool http_request(const std::string& base_url, const std::string& path,
     std::ostringstream req;
     req << method << " " << path << " HTTP/1.1\r\n"
         << "Host: " << host_hdr << "\r\n"
-        << "User-Agent: dist-cli/0.1\r\n"
+        << "User-Agent: gpunet-cli/0.1\r\n"
         << "Accept: application/json\r\n"
         << "Connection: close\r\n";
     if (!body.empty()) {
@@ -318,7 +318,7 @@ std::string json_peek_int(const std::string& msg, const std::string& key) {
 
 bool load_auth(AuthCtx& out, std::string& err) {
     // agent.api_url is the HTTPS REST base when stored separately by
-    // dist-node login.  Fall back to deriving it from agent.server (the
+    // gpunet-node login.  Fall back to deriving it from agent.server (the
     // WSS URL the agent connects to) for older state directories.
     out.server_url = state_read("agent.api_url");
     if (out.server_url.empty()) {
@@ -345,14 +345,14 @@ bool load_auth(AuthCtx& out, std::string& err) {
     while (!out.server_url.empty() && out.server_url.back() == '/') out.server_url.pop_back();
 
     if (out.server_url.empty() || out.agent_key.empty()) {
-        err = "not logged in — run `dist-node login` first";
+        err = "not logged in — run `gpunet-node login` first";
         return false;
     }
 
     // Lazily mint an API key if we have an agent_key but no api_key cached.
-    // Same shape as `dist-node url` uses.
+    // Same shape as `gpunet-node url` uses.
     if (out.api_key.empty()) {
-        const std::string label = "dist-cli/" + (out.agent_id.empty() ? std::string("rig") : out.agent_id);
+        const std::string label = "gpunet-cli/" + (out.agent_id.empty() ? std::string("rig") : out.agent_id);
         const std::string body  = "{\"label\":\"" + label + "\"}";
         HttpResp r;
         std::string h;

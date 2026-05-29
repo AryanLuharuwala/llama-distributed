@@ -390,7 +390,7 @@ std::string ComfyClient::http_get(const std::string& path, int timeout_ms, int* 
     std::ostringstream req;
     req << "GET " << path_prefix_ << path << " HTTP/1.1\r\n"
         << "Host: " << host_ << ":" << port_ << "\r\n"
-        << "User-Agent: dist-node/1.0\r\n"
+        << "User-Agent: gpunet-node/1.0\r\n"
         << "Accept: */*\r\n"
         << "Connection: close\r\n"
         << "\r\n";
@@ -412,7 +412,7 @@ std::string ComfyClient::http_post(const std::string& path,
     std::ostringstream req;
     req << "POST " << path_prefix_ << path << " HTTP/1.1\r\n"
         << "Host: " << host_ << ":" << port_ << "\r\n"
-        << "User-Agent: dist-node/1.0\r\n"
+        << "User-Agent: gpunet-node/1.0\r\n"
         << "Content-Type: " << content_type << "\r\n"
         << "Content-Length: " << body.size() << "\r\n"
         << "Accept: */*\r\n"

@@ -3,14 +3,14 @@ package main
 // sdcpp_caps.go — CF12-W4 capability storage + role planner for the C++
 // stable-diffusion.cpp backend.
 //
-// Each agent that ships dist-sdcpp-worker emits an `sdcpp_caps` frame at
+// Each agent that ships gpunet-sdcpp-worker emits an `sdcpp_caps` frame at
 // hello time:
 //
 //   {
 //     "kind":  "sdcpp_caps",
 //     "ok":    true,
 //     "roles": ["full","te","unet","vae"],
-//     "worker": "/abs/path/to/dist-sdcpp-worker",
+//     "worker": "/abs/path/to/gpunet-sdcpp-worker",
 //     "backend":"vulkan:1 cuda:0 cpu:1",
 //     "error": ""
 //   }
@@ -213,7 +213,7 @@ type sdcppRoleAgent struct {
 // caller-supplies-path behaviour is preserved.
 //
 // We deliberately don't require the same backbone-family at this
-// layer: the same dist-sdcpp-worker can serve any sd.cpp-supported
+// layer: the same gpunet-sdcpp-worker can serve any sd.cpp-supported
 // model, and model_path is part of the per-request `sdcpp_role_route`.
 func (s *server) planSdcppRoleChain(ctx context.Context, ownerUID int64, modelName string) []sdcppRoleAgent {
 	pick := func(role string) (sdcppRoleAgent, bool) {

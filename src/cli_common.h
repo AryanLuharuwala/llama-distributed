@@ -1,10 +1,10 @@
-// Shared building blocks for dist-cli (and other CLI consumers).
+// Shared building blocks for gpunet-cli (and other CLI consumers).
 //
 // Three concerns live here, each small enough that splitting further would
 // add more includes than it saves:
-//   * State directory — reads/writes the same on-disk layout dist-node uses
-//     so a user who has already run `dist-node login` is automatically
-//     authenticated for `dist-cli`.
+//   * State directory — reads/writes the same on-disk layout gpunet-node uses
+//     so a user who has already run `gpunet-node login` is automatically
+//     authenticated for `gpunet-cli`.
 //   * HTTP client — minimal TLS-capable client built on OpenSSL, the same
 //     shape as dist_node_main.cpp's http_request.
 //   * JSON peek — quick string/int field extraction from flat JSON; the
@@ -60,7 +60,7 @@ struct AuthCtx {
     std::string agent_id;
 };
 
-// Loads server_url + agent_key from saved dist-node state, and optionally
+// Loads server_url + agent_key from saved gpunet-node state, and optionally
 // fetches/refreshes the API key from /api/agent/api_key.  Returns false with
 // a human-readable hint in `err` if the user hasn't logged in yet.
 bool load_auth(AuthCtx& out, std::string& err);

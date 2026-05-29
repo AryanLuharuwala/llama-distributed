@@ -3,7 +3,7 @@
 // Responsibilities (Milestone 1):
 //   - Serve the editorial sign-in / nexus / console / device pages.
 //   - GitHub + Google OAuth login → session cookie.
-//   - Device-code pairing so `dist-node login` can self-bind to a user.
+//   - Device-code pairing so `gpunet-node login` can self-bind to a user.
 //   - Two WebSocket endpoints:
 //       /ws/browser — the logged-in UI subscribes to its own rigs' events
 //       /ws/agent   — the native agent authenticates via pairing token,

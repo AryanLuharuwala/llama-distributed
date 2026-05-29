@@ -40,7 +40,7 @@ fi
 install_bins() {
   echo "[install] copying binaries into $BIN_DIR (may prompt for sudo)"
   sudo install -d "$BIN_DIR"
-  for b in dist-node dist-join dist-client dist-coordinator; do
+  for b in gpunet-node gpunet-join gpunet-client gpunet-coordinator; do
     if [ -x "$PKG_DIR/bin/$b" ]; then
       sudo install -m 0755 "$PKG_DIR/bin/$b" "$BIN_DIR/$b"
     fi
@@ -127,7 +127,7 @@ write_plist() {
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string><string>-c</string>
-    <string>. $ETC_DIR/agent.env; exec $BIN_DIR/dist-node --pair "\$DIST_PAIR" -g \$DIST_GPU_LAYERS</string>
+    <string>. $ETC_DIR/agent.env; exec $BIN_DIR/gpunet-node --pair "\$DIST_PAIR" -g \$DIST_GPU_LAYERS</string>
   </array>
   <key>RunAtLoad</key>         <true/>
   <key>KeepAlive</key>         <true/>
@@ -162,7 +162,7 @@ case "$cmd" in
     launchctl unload "$PLIST" 2>/dev/null || true
     launchctl unload "$COMFY_PLIST" 2>/dev/null || true
     rm -f "$PLIST" "$COMFY_PLIST"
-    for b in dist-node dist-join dist-client dist-coordinator; do
+    for b in gpunet-node gpunet-join gpunet-client gpunet-coordinator; do
       sudo rm -f "$BIN_DIR/$b"
     done
     rm -rf "$ETC_DIR"

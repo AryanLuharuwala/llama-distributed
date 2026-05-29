@@ -4,7 +4,7 @@
 //
 // When DIST_HAVE_P2P is defined at build time (controlled by the
 // DIST_USE_P2P CMake option), this module wraps libdatachannel to give
-// dist-node a direct binary channel to its pipeline neighbour, bypassing
+// gpunet-node a direct binary channel to its pipeline neighbour, bypassing
 // the dist-server relay for the ACTV data plane.  When the macro is not
 // defined, every entry point compiles to a no-op stub that reports
 // "unavailable" — the surrounding code falls back to the legacy WS relay.
@@ -58,7 +58,7 @@ struct ActvPeerDeleter {
 };
 using ActvPeerPtr = std::unique_ptr<ActvPeer, ActvPeerDeleter>;
 
-// SignalSendFn ships a fully-formed JSON text frame on the dist-node→server
+// SignalSendFn ships a fully-formed JSON text frame on the gpunet-node→server
 // WebSocket.  actv_p2p assembles the entire payload (including "kind", "to",
 // "session_id", and the SDP/ICE body) — the callback's only job is the
 // transport.
@@ -110,7 +110,7 @@ struct NatProbe {
     bool relay_capable = false;
     // The first server-reflexive (or public host) IPv4 we saw during
     // gathering.  Empty when no srflx/public candidate was discovered.
-    // Used by dist-node to auto-fill --external-ip for the bundled TURN
+    // Used by gpunet-node to auto-fill --external-ip for the bundled TURN
     // sidecar so peers behind 1:1 NAT (EC2, GCP) advertise correctly.
     std::string public_ip;
 };

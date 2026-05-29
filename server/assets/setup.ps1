@@ -2,7 +2,7 @@
 #
 #   iwr -useb https://<host>/setup.ps1 | iex
 #
-# Downloads the `surd.exe` binary into %LOCALAPPDATA%\Surd and prepends it
+# Downloads the `gpunet.exe` binary into %LOCALAPPDATA%\Surd and prepends it
 # to the user's PATH.  Legacy installer (with -Pair, etc.) still lives at
 # /install.ps1.
 
@@ -47,13 +47,13 @@ switch -Regex ($archRaw) {
   default            { Write-Error "[setup] unsupported arch: $archRaw"; exit 1 }
 }
 
-$asset   = "surd-windows-$tarch.exe"
+$asset   = "gpunet-windows-$tarch.exe"
 $baseUrl = $DistServer.TrimEnd("/")
 $dlUrl   = "$baseUrl/releases/$asset"
 
 New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
-$destTmp = Join-Path $Prefix "surd.exe.tmp"
-$dest    = Join-Path $Prefix "surd.exe"
+$destTmp = Join-Path $Prefix "gpunet.exe.tmp"
+$dest    = Join-Path $Prefix "gpunet.exe"
 
 Write-Host "[setup] downloading $asset from $baseUrl"
 try {
@@ -75,7 +75,7 @@ if ($paths -notcontains $Prefix) {
   Write-Host "        `$env:Path = `"$Prefix;`" + `$env:Path"
 }
 
-# Pre-seed SURD_SERVER so `surd login` doesn't need --server on first run.
+# Pre-seed SURD_SERVER so `gpunet login` doesn't need --server on first run.
 [Environment]::SetEnvironmentVariable("SURD_SERVER", $DistServer, "User")
 $env:SURD_SERVER = $DistServer
 Write-Host "[setup] SURD_SERVER=$DistServer"
@@ -84,7 +84,7 @@ Write-Host ""
 Write-Host "  ✓ installed: $dest"
 Write-Host ""
 Write-Host "  next:"
-$next = "    surd login`r`n    surd connect"
+$next = "    gpunet login`r`n    gpunet connect"
 if ($Pool)   { $next += " --pool $Pool" }
 if ($Invite) { $next += " --invite $Invite" }
 Write-Host $next

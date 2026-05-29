@@ -1,6 +1,6 @@
 package main
 
-// Wire-protocol versioning between server and dist-node.
+// Wire-protocol versioning between server and gpunet-node.
 //
 // The protocol-version handshake exists so the next time we need to make
 // an incompatible wire change (new ACTV frame layout, mandatory E2E

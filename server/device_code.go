@@ -1,6 +1,6 @@
 package main
 
-// Device code flow (RFC 8628 in spirit).  Used by `dist-node login` so a rig
+// Device code flow (RFC 8628 in spirit).  Used by `gpunet-node login` so a rig
 // can self-pair without a copy-paste pair URL from the dashboard.
 //
 //   1. Rig hits POST /api/device/code → server mints (device_code, user_code,
@@ -142,7 +142,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if nowUnix() > expiresAt {
-		writeErr(w, 410, "code expired — run `dist-node login` again")
+		writeErr(w, 410, "code expired — run `gpunet-node login` again")
 		return
 	}
 	if approved == 1 {
@@ -177,7 +177,7 @@ func (s *server) handleDeviceApprove(w http.ResponseWriter, r *http.Request) {
 	// plaintext lives in device_codes.agent_key for exactly one polled
 	// fetch (see handleDeviceToken below, which nulls it out on read).
 	//
-	// dist-cli (operator seat) posts n_gpus=-1 to mean "I'm not a compute
+	// gpunet-cli (operator seat) posts n_gpus=-1 to mean "I'm not a compute
 	// rig, don't touch capabilities".  COALESCE(NULLIF(...,-1), existing)
 	// keeps the row's prior n_gpus/vram_bytes when the sentinel is set, so
 	// an operator login on the same host as a compute node can't erase its
@@ -356,7 +356,7 @@ func (s *server) agentFromRequest(r *http.Request) (uid int64, agentID string, o
 // POST /api/agent/api_key   { "label":"…" }
 // Header: Authorization: Bearer <agent_key>   (or X-Agent-Key: <agent_key>)
 // Mints a sk-dist-* API key bound to the user that owns the agent.  Used by
-// `dist-node url` so a freshly-logged-in rig can self-serve a Bearer token
+// `gpunet-node url` so a freshly-logged-in rig can self-serve a Bearer token
 // for /v1/chat/completions without anyone touching the dashboard.
 func (s *server) handleAgentMintAPIKey(w http.ResponseWriter, r *http.Request) {
 	uid, agentID, ok := s.agentFromRequest(r)

@@ -5,7 +5,7 @@
  * and streams generated tokens to stdout.
  *
  * Usage:
- *   dist-client -s COORDINATOR_HOST -m MODEL_NAME -p "Your prompt here"
+ *   gpunet-client -s COORDINATOR_HOST -m MODEL_NAME -p "Your prompt here"
  *
  *   -s, --server HOST         Coordinator host (required)
  *   -a, --api-port PORT       API port (default: 7702)

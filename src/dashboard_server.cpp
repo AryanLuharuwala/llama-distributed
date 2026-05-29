@@ -148,11 +148,11 @@ std::string DashboardServer::serve_join() {
 
     std::string cmd;
     if (cfg_.vm_mode) {
-        cmd = "dist-vm-node --server " + host
+        cmd = "gpunet-vm-node --server " + host
             + " --control-port " + std::to_string(cfg_.ctrl_port)
             + " --vm-port "      + std::to_string(cfg_.vm_ctrl_port);
     } else {
-        cmd = "dist-node --server " + host
+        cmd = "gpunet-node --server " + host
             + " --control-port " + std::to_string(cfg_.ctrl_port);
     }
     return http_200("text/plain", cmd);

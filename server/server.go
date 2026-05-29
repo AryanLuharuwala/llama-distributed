@@ -210,13 +210,13 @@ func (s *server) router() http.Handler {
 	// Pairing (browser mints, agent consumes)
 	mux.HandleFunc("POST /api/pair", s.handlePairMint)
 
-	// Device-code flow (`dist-node login`): rig mints code, user confirms.
+	// Device-code flow (`gpunet-node login`): rig mints code, user confirms.
 	mux.HandleFunc("POST /api/device/code", s.handleDeviceCodeMint)
 	mux.HandleFunc("POST /api/device/approve", s.handleDeviceApprove)
 	mux.HandleFunc("POST /api/device/token", s.handleDeviceToken)
 	mux.HandleFunc("GET /device", s.handleDevicePage)
 
-	// Agent-key authenticated endpoints (used by `dist-node url`).
+	// Agent-key authenticated endpoints (used by `gpunet-node url`).
 	mux.HandleFunc("POST /api/agent/api_key", s.handleAgentMintAPIKey)
 	mux.HandleFunc("GET /api/agent/pools", s.handleAgentListPools)
 
@@ -600,7 +600,7 @@ func (s *server) createSession(userID int64) (string, time.Time, error) {
 }
 
 func (s *server) userFromRequest(r *http.Request) (*user, bool) {
-	// Headless callers (dist-cli, scripts) authenticate via
+	// Headless callers (gpunet-cli, scripts) authenticate via
 	// Authorization: Bearer sk-dist-...  — the same api_key minted by
 	// /api/api_keys or /api/agent/api_key.  Browsers send cookies; CLIs
 	// send bearers.  We accept either so the dashboard endpoints can be
@@ -749,7 +749,7 @@ func (s *server) handleListRigs(w http.ResponseWriter, r *http.Request) {
 //
 // Idempotent: returns 200 with deleted=true/false.  We refuse to drop a rig
 // that's currently online (the live WS connection would just re-register it
-// on the next heartbeat) — caller should `dist-node logout` on the rig first
+// on the next heartbeat) — caller should `gpunet-node logout` on the rig first
 // or wait for it to disconnect.  Removes the rig row, its pool memberships,
 // shard-cache entries, and any API keys minted via /api/agent/api_key by
 // this rig identity.

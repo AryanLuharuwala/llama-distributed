@@ -1,0 +1,65 @@
+# gpunet-turn — TURN relay (sidecar + standalone modes).  See
+# cmd/gpunet-turn/main.go header for the operating-mode contract.
+
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//tools:oci.bzl", "dist_go_image")
+
+go_library(
+    name = "dist_turn_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/llama-distributed/gpunet-turn",
+    visibility = ["//visibility:private"],
+    deps = [
+        # Filled in by `bazel run //:gazelle`.
+        # Expected: pion/turn, pion/stun, coder/websocket.
+    ],
+)
+
+go_test(
+    name = "dist_turn_test",
+    srcs = glob(
+        ["*_test.go"],
+        allow_empty = True,
+    ),
+    embed = [":dist_turn_lib"],
+    visibility = ["//visibility:public"],
+)
+
+# The binary target is suffixed so the image macro can claim the bare
+# `gpunet-turn` name as its oci_image_index (and the runfiles-level alias).
+go_binary(
+    name = "gpunet-turn-bin",
+    embed = [":dist_turn_lib"],
+    gc_linkopts = [
+        "-s",
+        "-w",
+    ],
+    visibility = ["//visibility:public"],
+    x_defs = {
+        "main.gitSHA": "{STABLE_GIT_SHA}",
+        "main.buildDate": "{STABLE_BUILD_DATE}",
+    },
+)
+
+# Image runs as PID 1 with the standalone-mode CLI; sidecar deploys
+# pass --auth-secret via ENV (DIST_TURN_AUTH_SECRET) which gpunet-node
+# reads and forwards into the entrypoint args at runtime.
+dist_go_image(
+    name = "gpunet-turn",
+    binary = ":gpunet-turn-bin",
+    env = {
+        "DIST_TURN_LISTEN": "0.0.0.0:3478",
+        "DIST_TURN_REALM": "dist",
+    },
+    labels = {
+        "org.opencontainers.image.source": "https://github.com/AryanLuharuwala/llama-distributed",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.description": "pion/turn-based TURN relay for the llama-distributed swarm",
+    },
+    ports = [
+        "3478",
+        "5349",
+    ],
+    repository = "ghcr.io/llama-distributed/gpunet-turn",
+    visibility = ["//visibility:public"],
+)

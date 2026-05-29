@@ -2,7 +2,7 @@
 //
 // Diffusion pipeline-parallel adapter.
 //
-// One DppAdapter instance lives in dist-node.  When a `dpp_route` JSON
+// One DppAdapter instance lives in gpunet-node.  When a `dpp_route` JSON
 // control message arrives over the WS, the adapter:
 //
 //   1. Looks up (or spawns) a Python runtime process for the requested
@@ -43,7 +43,7 @@ struct DppFrame {
 // Lifecycle: created by `handle_dpp_route` in a *pending* state (ready=false).
 // A background launcher thread does the fork+exec+wait-for-DPP_LISTEN+connect
 // dance, then flips ready=true and drains buffered frames.  This keeps the
-// dist-node main loop responsive to WS pings while a multi-GB model loads.
+// gpunet-node main loop responsive to WS pings while a multi-GB model loads.
 struct DppRuntime {
     std::string role;
     std::string model;
@@ -104,7 +104,7 @@ public:
                                  std::string& err);
 
     // Companion probe for the C++ diffusion backend.  Reports whether
-    // dist-sdcpp-worker is runnable on this rig (binary exists, ggml
+    // gpunet-sdcpp-worker is runnable on this rig (binary exists, ggml
     // backends initialise).  Used when python+diffusers is not available
     // (e.g. paramshakti cn01) — the rig still advertises `sdcpp:1` so the
     // control plane can route a whole-pipeline (single-rig) diffusion job
@@ -114,7 +114,7 @@ public:
                                        std::string& err);
 
     // Handle an `sdcpp_route` JSON message — single-rig whole-pipeline
-    // diffusion via the vendored sd.cpp backend.  Forks dist-sdcpp-worker
+    // diffusion via the vendored sd.cpp backend.  Forks gpunet-sdcpp-worker
     // with the request params, waits for the PNG to be produced, then
     // emits a PROG frame (with the PNG bytes embedded as JSON) + a DONE
     // marker so the server's dpp dispatch surface can drain it the same
@@ -122,7 +122,7 @@ public:
     // perspective — runs the worker in a detached thread internally.
     //
     // Resident-daemon path (#254): the first call to handle_sdcpp_route
-    // forks dist-sdcpp-worker once with `--daemon`, then every subsequent
+    // forks gpunet-sdcpp-worker once with `--daemon`, then every subsequent
     // request is piped over stdin as a single JSON line.  The model stays
     // resident in the worker between requests (it only reloads when the
     // model_path changes), which is the actual perf win — sd.cpp model

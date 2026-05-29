@@ -669,7 +669,9 @@ func validSurdBinName(name string) string {
 	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 		return ""
 	}
-	if !strings.HasPrefix(name, "surd-") {
+	// gpunet rename: the CLI artifact is now gpunet-<os>-<arch>; accept the
+	// legacy surd-<os>-<arch> too during the transition.
+	if !strings.HasPrefix(name, "gpunet-") && !strings.HasPrefix(name, "surd-") {
 		return ""
 	}
 	stem := strings.TrimSuffix(name, ".exe")
@@ -706,13 +708,20 @@ func (s *server) handleSurdBinary(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	cleaned := validSurdBinName(name)
 	if cleaned == "" {
-		writeErr(w, 400, "bad surd binary name; expected surd-<os>-<arch>[.exe]")
+		writeErr(w, 400, "bad cli binary name; expected gpunet-<os>-<arch>[.exe]")
 		return
 	}
-	path := filepath.Join(s.cfg.releasesDir, "surd", cleaned)
+	// Serve from <releasesDir>/cli (new) or the legacy surd/ dir. Operators
+	// drop builds in either during the rename transition.
+	path := filepath.Join(s.cfg.releasesDir, "cli", cleaned)
 	if fi, err := os.Stat(path); err != nil || fi.IsDir() || fi.Size() == 0 {
-		writeErr(w, 404, "binary not published: "+cleaned)
-		return
+		legacy := filepath.Join(s.cfg.releasesDir, "surd", cleaned)
+		if fi2, err2 := os.Stat(legacy); err2 == nil && !fi2.IsDir() && fi2.Size() > 0 {
+			path = legacy
+		} else {
+			writeErr(w, 404, "binary not published: "+cleaned)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "public, max-age=300")

@@ -542,7 +542,7 @@ func (a *agentConn) close() {
 	})
 }
 
-// agentHello is the first WS frame sent by dist-node.  Two shapes share the
+// agentHello is the first WS frame sent by gpunet-node.  Two shapes share the
 // struct:
 //   {kind:"hello",  token:"…",     agent_id, hostname, …}  — pair bootstrap
 //   {kind:"resume", agent_key:"…", agent_id, hostname, …}  — every reconnect
@@ -595,13 +595,13 @@ type agentStatus struct {
 	GPUUtil  []float64 `json:"gpu_util"`
 	NGPUs    int       `json:"n_gpus"`
 
-	// Optional richer telemetry — emitted by newer dist-node builds.  Older
+	// Optional richer telemetry — emitted by newer gpunet-node builds.  Older
 	// rigs leave these zero/empty; the swarm dashboard treats them as
 	// "unknown" but still counts the node.
 	GPUModel    string   `json:"gpu_model,omitempty"`     // e.g. "RTX 3050 Laptop GPU"
 	VRAMTotal   int64    `json:"vram_total,omitempty"`    // bytes
 	VRAMFree    int64    `json:"vram_free,omitempty"`     // bytes
-	UptimeSec   int64    `json:"uptime_sec,omitempty"`    // dist-node process uptime
+	UptimeSec   int64    `json:"uptime_sec,omitempty"`    // gpunet-node process uptime
 	RolesHeld   []string `json:"roles,omitempty"`         // ["text_encoder","unet",...]
 	ModelsHeld  []string `json:"models,omitempty"`        // huggingface repo ids served
 	Inflight    int      `json:"inflight,omitempty"`      // requests being processed
@@ -611,7 +611,7 @@ type agentStatus struct {
 
 	// Peer-relay candidacy.  A rig that has a public IPv4 or a friendly
 	// (cone) NAT can volunteer to forward ACTV frames between peers that
-	// are themselves both behind symmetric NATs.  Reported by dist-node
+	// are themselves both behind symmetric NATs.  Reported by gpunet-node
 	// after its initial ICE gathering succeeds; values are advisory only.
 	//
 	//   NATType ∈ {"open", "cone", "symmetric", "blocked", "unknown"}
@@ -619,8 +619,8 @@ type agentStatus struct {
 	NATType      string `json:"nat_type,omitempty"`
 	RelayCapable bool   `json:"relay_capable,omitempty"`
 
-	// TURN sidecar — when dist-node successfully spawns its bundled
-	// dist-turn server, this is the UDP port it's listening on.  The
+	// TURN sidecar — when gpunet-node successfully spawns its bundled
+	// gpunet-turn server, this is the UDP port it's listening on.  The
 	// server combines the port with agentConn.remoteIP to assemble the
 	// `turn:<ip>:<port>` URL it ships in ICE entries.  Zero means the
 	// rig isn't running a TURN sidecar.
@@ -758,7 +758,7 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		_ = codecWrite(ctx, conn, codec, map[string]any{
 			"kind":                "error",
-			"message":             "dist-node is too old; upgrade to a newer build",
+			"message":             "gpunet-node is too old; upgrade to a newer build",
 			"server_protocol_min": serverProtocolMin,
 			"server_protocol_max": serverProtocolMax,
 		})

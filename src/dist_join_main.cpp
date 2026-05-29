@@ -1,13 +1,13 @@
 /**
  * dist_join_main.cpp
  *
- * dist-join — the easiest way to contribute your GPU to a pool.
+ * gpunet-join — the easiest way to contribute your GPU to a pool.
  *
  * Usage:
- *   dist-join <coordinator-ip>               # auto-detect everything
- *   dist-join <coordinator-ip> --vm          # join in VM mode
- *   dist-join <coordinator-ip> --id mynode   # custom node identifier
- *   dist-join <coordinator-ip> --dry-run     # print the command, don't execute
+ *   gpunet-join <coordinator-ip>               # auto-detect everything
+ *   gpunet-join <coordinator-ip> --vm          # join in VM mode
+ *   gpunet-join <coordinator-ip> --id mynode   # custom node identifier
+ *   gpunet-join <coordinator-ip> --dry-run     # print the command, don't execute
  *
  * What it does:
  *   1. Contacts the coordinator's dashboard (:7780/join) to fetch the
@@ -19,7 +19,7 @@
  * constructs the command locally.
  *
  * This binary links only against dist_common (no llama.cpp headers needed at
- * build time — it just exec's dist-node / dist-vm-node).
+ * build time — it just exec's gpunet-node / gpunet-vm-node).
  */
 
 #include "dist_conn.h"
@@ -91,7 +91,7 @@ static void print_usage(const char* prog) {
         "Usage: %s <coordinator-ip> [options]\n"
         "\n"
         "  <coordinator-ip>        IP or hostname of the coordinator (required)\n"
-        "  --vm                    Join in VM mode (dist-vm-node)\n"
+        "  --vm                    Join in VM mode (gpunet-vm-node)\n"
         "  --control-port PORT     Coordinator control port (default: 7700)\n"
         "  --dashboard-port PORT   Dashboard port to query for join params (default: 7780)\n"
         "  --id NAME               Node identifier (default: hostname:pid)\n"
@@ -147,20 +147,20 @@ int main(int argc, char* argv[]) {
     server_cmd.erase(std::remove(server_cmd.begin(), server_cmd.end(), '\r'), server_cmd.end());
 
     // ── 2. Build the command ───────────────────────────────────────────────────
-    std::string binary = vm_mode ? "dist-vm-node" : "dist-node";
+    std::string binary = vm_mode ? "gpunet-vm-node" : "gpunet-node";
     std::string cmd;
 
     if (!server_cmd.empty() &&
-        (server_cmd.find("dist-node") != std::string::npos ||
-         server_cmd.find("dist-vm-node") != std::string::npos)) {
+        (server_cmd.find("gpunet-node") != std::string::npos ||
+         server_cmd.find("gpunet-vm-node") != std::string::npos)) {
         // Use server-provided command, append our per-node overrides
         cmd = server_cmd;
         cmd += " --id " + node_id;
         cmd += " --n-gpu-layers " + std::to_string(n_gpu_layers);
-        if (vm_mode && cmd.find("dist-vm-node") == std::string::npos) {
+        if (vm_mode && cmd.find("gpunet-vm-node") == std::string::npos) {
             // Replace binary
-            auto p = cmd.find("dist-node");
-            if (p != std::string::npos) cmd.replace(p, 9, "dist-vm-node");
+            auto p = cmd.find("gpunet-node");
+            if (p != std::string::npos) cmd.replace(p, 9, "gpunet-vm-node");
         }
     } else {
         // Fallback: construct locally
@@ -195,7 +195,7 @@ int main(int argc, char* argv[]) {
     for (auto& p : parts) cargv.push_back(const_cast<char*>(p.c_str()));
     cargv.push_back(nullptr);
 
-    // Try to find binary in same directory as dist-join itself
+    // Try to find binary in same directory as gpunet-join itself
     // (allows running from the build directory without PATH manipulation)
     std::string self_path;
     {

@@ -21,7 +21,7 @@ if [[ ! -f "$MODEL" ]]; then
 fi
 
 # Build if needed
-if [[ ! -f "./build/dist-coordinator" || ! -f "./build/dist-node" || ! -f "./build/dist-client" ]]; then
+if [[ ! -f "./build/gpunet-coordinator" || ! -f "./build/gpunet-node" || ! -f "./build/gpunet-client" ]]; then
   echo "==> Binaries not found, building first..."
   ./scripts/build.sh "$@"
 fi
@@ -42,7 +42,7 @@ echo "  Press Ctrl+C to stop all processes."
 echo ""
 
 # Start coordinator
-./build/dist-coordinator \
+./build/gpunet-coordinator \
   --model      "$MODEL" \
   --model-name "local" \
   --control-port "${COORD_PORT}" \
@@ -56,7 +56,7 @@ COORD_PID=$!
 sleep 1
 
 # Start a single node
-./build/dist-node \
+./build/gpunet-node \
   --server       "${COORD_HOST}" \
   --control-port "${COORD_PORT}" \
   --data-port    "${NODE_DATA_PORT}" \
@@ -73,7 +73,7 @@ fi
 
 echo ""
 echo "To send a prompt:"
-echo "  ./build/dist-client --server ${COORD_HOST} --model local --prompt \"Hello!\""
+echo "  ./build/gpunet-client --server ${COORD_HOST} --model local --prompt \"Hello!\""
 echo ""
 
 cleanup(){

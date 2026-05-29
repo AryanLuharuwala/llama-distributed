@@ -1,4 +1,4 @@
-// dist-sdcpp-worker — C++ diffusion backend (whole-pipeline, single rig).
+// gpunet-sdcpp-worker — C++ diffusion backend (whole-pipeline, single rig).
 //
 // Forked by DppAdapter when a rig advertises `sdcpp:1` and the dpp_route
 // targets the entire pipeline at one agent.  Same launch pattern as
@@ -733,9 +733,9 @@ int main(int argc, char** argv) {
 
     if (argc < 2) {
         std::fprintf(stderr,
-            "usage: dist-sdcpp-worker --probe\n"
-            "       dist-sdcpp-worker --daemon\n"
-            "       dist-sdcpp-worker --model <path> --prompt <text> "
+            "usage: gpunet-sdcpp-worker --probe\n"
+            "       gpunet-sdcpp-worker --daemon\n"
+            "       gpunet-sdcpp-worker --model <path> --prompt <text> "
             "--out <path.png> [--neg <text>] [--w 512] [--h 512] "
             "[--steps 20] [--cfg 7.0] [--seed -1] [--sampler euler_a] "
             "[--threads N]\n");

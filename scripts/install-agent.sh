@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # install-agent.sh
 #
-# Registers the dist-node binary as the handler for distpool:// URLs on Linux.
+# Registers the gpunet-node binary as the handler for distpool:// URLs on Linux.
 # No sudo required — everything goes into the user's ~/.local tree.
 #
 # Usage:
-#   ./install-agent.sh [path/to/dist-node]
+#   ./install-agent.sh [path/to/gpunet-node]
 #
-#   If the path argument is omitted, the script uses the dist-node it finds
+#   If the path argument is omitted, the script uses the gpunet-node it finds
 #   next to itself (build-tree layout) or on $PATH.
 
 set -euo pipefail
@@ -16,9 +16,9 @@ BIN_PATH="${1:-}"
 if [[ -z "$BIN_PATH" ]]; then
     # Try sibling directory (if we're under scripts/ in a source tree)
     for candidate in \
-        "$(dirname "$0")/../build/dist-node" \
-        "$(dirname "$0")/../build/bin/dist-node" \
-        "$(command -v dist-node || true)"; do
+        "$(dirname "$0")/../build/gpunet-node" \
+        "$(dirname "$0")/../build/bin/gpunet-node" \
+        "$(command -v gpunet-node || true)"; do
         if [[ -x "$candidate" ]]; then
             BIN_PATH="$(readlink -f "$candidate")"
             break
@@ -27,7 +27,7 @@ if [[ -z "$BIN_PATH" ]]; then
 fi
 
 if [[ -z "$BIN_PATH" || ! -x "$BIN_PATH" ]]; then
-    echo "error: could not locate dist-node binary." >&2
+    echo "error: could not locate gpunet-node binary." >&2
     echo "       pass the path as the first argument." >&2
     exit 1
 fi
@@ -40,19 +40,19 @@ BIN_DIR="$PREFIX/bin"
 
 mkdir -p "$APP_DIR" "$BIN_DIR"
 
-# Copy (or re-link) the binary to ~/.local/bin/dist-node so it is on PATH.
-if [[ "$BIN_PATH" != "$BIN_DIR/dist-node" ]]; then
-    ln -sf "$BIN_PATH" "$BIN_DIR/dist-node"
-    echo "→ symlinked $BIN_DIR/dist-node -> $BIN_PATH"
+# Copy (or re-link) the binary to ~/.local/bin/gpunet-node so it is on PATH.
+if [[ "$BIN_PATH" != "$BIN_DIR/gpunet-node" ]]; then
+    ln -sf "$BIN_PATH" "$BIN_DIR/gpunet-node"
+    echo "→ symlinked $BIN_DIR/gpunet-node -> $BIN_PATH"
 fi
 
 # A tiny launcher script that parses the distpool:// URL and re-invokes
-# dist-node with the right flags.  xdg-open passes the URL as the last
+# gpunet-node with the right flags.  xdg-open passes the URL as the last
 # argument after %u expansion.
 LAUNCH="$BIN_DIR/distpool-handler"
 cat > "$LAUNCH" <<'EOF'
 #!/usr/bin/env bash
-# Wrapper that converts a distpool:// URL into dist-node invocation.
+# Wrapper that converts a distpool:// URL into gpunet-node invocation.
 set -euo pipefail
 URL="${1:-}"
 if [[ -z "$URL" ]]; then
@@ -64,8 +64,8 @@ LOG="$HOME/.local/share/distpool/handler.log"
 mkdir -p "$(dirname "$LOG")"
 echo "[$(date -Is)] invoked with: $URL" >> "$LOG"
 
-# Hand off.  dist-node parses the URL itself (see --pair flag).
-exec dist-node --pair "$URL" >> "$LOG" 2>&1
+# Hand off.  gpunet-node parses the URL itself (see --pair flag).
+exec gpunet-node --pair "$URL" >> "$LOG" 2>&1
 EOF
 chmod +x "$LAUNCH"
 echo "→ wrote launcher $LAUNCH"
@@ -97,4 +97,4 @@ echo "  distpool:// handler: $handler"
 echo
 echo "Make sure \$HOME/.local/bin is on your PATH, then click the"
 echo "\"Pair this machine\" button in the web UI — your browser will"
-echo "launch dist-node automatically."
+echo "launch gpunet-node automatically."

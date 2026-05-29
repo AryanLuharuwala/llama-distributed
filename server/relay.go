@@ -2,7 +2,7 @@ package main
 
 // Client relay (/ws/client).
 //
-// Browser (or dist-client --relay) opens this socket and sends one initial
+// Browser (or gpunet-client --relay) opens this socket and sends one initial
 // text frame:
 //
 //   {"kind":"relay_open", "pool_id": N}

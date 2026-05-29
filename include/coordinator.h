@@ -95,7 +95,7 @@ struct CoordinatorConfig {
     // Dashboard HTTP server (set http_port=0 to disable)
     uint16_t    dashboard_port  = 7780;
     std::string public_host;               // host shown in the join command on the dashboard
-    bool        vm_mode         = false;   // true → show dist-vm-node join command
+    bool        vm_mode         = false;   // true → show gpunet-vm-node join command
 
     // Phase-5: auth + topology (opt-in).
     // If token_file is non-empty, the coordinator loads tokens from it and

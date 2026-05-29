@@ -47,7 +47,7 @@ fi
 install_bins() {
   echo "[install] copying binaries into $BIN_DIR"
   install -d "$BIN_DIR"
-  for b in dist-node dist-join dist-client dist-coordinator; do
+  for b in gpunet-node gpunet-join gpunet-client gpunet-coordinator; do
     if [ -x "$PKG_DIR/bin/$b" ]; then
       install -m 0755 "$PKG_DIR/bin/$b" "$BIN_DIR/$b"
     fi
@@ -122,7 +122,7 @@ After=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=$ETC_DIR/agent.env
-ExecStart=$BIN_DIR/dist-node --pair \${DIST_PAIR} -g \${DIST_GPU_LAYERS}
+ExecStart=$BIN_DIR/gpunet-node --pair \${DIST_PAIR} -g \${DIST_GPU_LAYERS}
 Restart=on-failure
 RestartSec=5
 
@@ -156,7 +156,7 @@ case "$cmd" in
     systemctl --user disable --now "$SERVICE_NAME" 2>/dev/null || true
     rm -f "$SERVICE_FILE"
     systemctl --user daemon-reload 2>/dev/null || true
-    for b in dist-node dist-join dist-client dist-coordinator; do
+    for b in gpunet-node gpunet-join gpunet-client gpunet-coordinator; do
       rm -f "$BIN_DIR/$b"
     done
     rm -rf "$ETC_DIR"

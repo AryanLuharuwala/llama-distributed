@@ -85,7 +85,7 @@ func partitionBlocks(total, stages int) [][2]int {
 }
 
 // dispatchSdcppWorkerCmd ships a raw worker stdin line to a rig, wrapped as a
-// sdcpp_worker_cmd frame (dist-node's handle_sdcpp_worker_cmd writes cmd_line
+// sdcpp_worker_cmd frame (gpunet-node's handle_sdcpp_worker_cmd writes cmd_line
 // straight to the resident daemon).
 func (s *server) dispatchSdcppWorkerCmd(target sdcppRoleAgent, reqID uint16, cmd map[string]any) bool {
 	ac, ok := s.hub.findAgent(target.UserID, target.AgentID)

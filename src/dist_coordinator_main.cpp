@@ -2,7 +2,7 @@
  * dist_coordinator_main.cpp
  *
  * Usage:
- *   dist-coordinator [options]
+ *   gpunet-coordinator [options]
  *
  *   -p, --control-port PORT     Node control port       (default: 7700)
  *   -a, --api-port PORT         Client inference port   (default: 7702)

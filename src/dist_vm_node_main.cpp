@@ -4,7 +4,7 @@
  * Entry point for a VM-layer worker node.
  *
  * Usage:
- *   dist-vm-node [options]
+ *   gpunet-vm-node [options]
  *
  *   --server <host>       VmCoordinator hostname / IP (required)
  *   --control-port <n>    coordinator control port (default 7700)
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "[dist-vm-node] id=" << cfg.base.node_id
+    std::cout << "[gpunet-vm-node] id=" << cfg.base.node_id
               << " server=" << cfg.base.coordinator_host
               << " data-port=" << cfg.base.data_port
               << " vm-port=" << cfg.vm_ctrl_port << "\n";

@@ -1,7 +1,7 @@
-// dist-cli top — live TUI dashboard.
+// gpunet-cli top — live TUI dashboard.
 //
 // FTXUI is fetched at configure time via CMake FetchContent and linked into
-// the dist-cli target.  The dashboard polls the server's REST API every
+// the gpunet-cli target.  The dashboard polls the server's REST API every
 // second and re-renders.  Tabs: Rigs / Pools / Logs.  Keybinds: q quit,
 // 1/2/3 tab switch, ↑/↓ row highlight, r force refresh.
 //
@@ -229,7 +229,7 @@ Element render_rigs(const Snapshot& s) {
             text(" " + nick),
         }));
     }
-    if (s.rigs.empty()) rows.push_back(text(" (no rigs paired yet — run `dist-node connect`)") | dim);
+    if (s.rigs.empty()) rows.push_back(text(" (no rigs paired yet — run `gpunet-node connect`)") | dim);
     return vbox(rows) | border;
 }
 
@@ -256,7 +256,7 @@ Element render_pools(const Snapshot& s) {
             text(" " + slug),
         }));
     }
-    if (s.pools.empty()) rows.push_back(text(" (no pools — create one with `dist-cli pools create`)") | dim);
+    if (s.pools.empty()) rows.push_back(text(" (no pools — create one with `gpunet-cli pools create`)") | dim);
     return vbox(rows) | border;
 }
 
@@ -360,7 +360,7 @@ int dist_cli_run_top(const dc::AuthCtx& ctx) {
 
 int dist_cli_run_top(const dc::AuthCtx&) {
     std::fprintf(stderr,
-        "dist-cli top: TUI dashboard was disabled at build time.\n"
+        "gpunet-cli top: TUI dashboard was disabled at build time.\n"
         "Rebuild with -DDIST_BUILD_CLI_TUI=ON to enable.\n");
     return 1;
 }

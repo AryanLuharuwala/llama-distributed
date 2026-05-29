@@ -14,7 +14,7 @@
 //     DIST_VLLM_URL (default http://127.0.0.1:8000).  The operator owns
 //     the lifecycle (systemd unit, container entrypoint, etc.).  This is
 //     the production shape — vLLM has its own warmup/healthcheck story
-//     and we don't want to babysit it from inside dist-node.
+//     and we don't want to babysit it from inside gpunet-node.
 //
 //   - Spawn mode: when DIST_VLLM_SPAWN=1 and a model path is given to
 //     load_model(), the adapter execs `python -m vllm.entrypoints.openai.api_server`

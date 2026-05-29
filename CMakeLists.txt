@@ -14,7 +14,7 @@ option(DIST_USE_VULKAN   "Enable Vulkan acceleration"             OFF)
 option(DIST_BUILD_TESTS  "Build unit tests"                       OFF)
 option(DIST_BUILD_VM     "Build the experimental VM layer"        OFF)
 option(DIST_USE_P2P      "Build with libdatachannel-backed P2P ACTV transport (WebRTC + ICE)" OFF)
-option(DIST_USE_SDCPP    "Vendor stable-diffusion.cpp and build dist-sdcpp-worker (whole-pipeline C++ diffusion backend for rigs without python+diffusers)" OFF)
+option(DIST_USE_SDCPP    "Vendor stable-diffusion.cpp and build gpunet-sdcpp-worker (whole-pipeline C++ diffusion backend for rigs without python+diffusers)" OFF)
 
 # Where to find llama.cpp.
 #   AUTO    — use third_party/llama.cpp submodule (default)
@@ -172,7 +172,7 @@ find_package(OpenSSL REQUIRED)
 
 # Optional libdatachannel — when present (and DIST_USE_P2P=ON), wires WebRTC
 # data channels as the ACTV transport so rigs can talk directly instead of
-# relaying every frame through the dist-server.  Without it, dist-node falls
+# relaying every frame through the dist-server.  Without it, gpunet-node falls
 # back to the legacy server-relay path (still fully functional).
 set(_DIST_P2P_LIBS)
 if(DIST_USE_P2P)
@@ -247,28 +247,28 @@ endif()
 # ─── Executables ─────────────────────────────────────────────────────────────
 
 # Base pipeline (no VM layer)
-add_executable(dist-coordinator src/dist_coordinator_main.cpp)
-target_link_libraries(dist-coordinator PRIVATE dist_common)
+add_executable(gpunet-coordinator src/dist_coordinator_main.cpp)
+target_link_libraries(gpunet-coordinator PRIVATE dist_common)
 
-add_executable(dist-node         src/dist_node_main.cpp)
-target_link_libraries(dist-node  PRIVATE dist_common)
+add_executable(gpunet-node         src/dist_node_main.cpp)
+target_link_libraries(gpunet-node  PRIVATE dist_common)
 
-add_executable(dist-client       src/dist_client_main.cpp)
-target_link_libraries(dist-client PRIVATE dist_common ${_PLATFORM_LIBS})
+add_executable(gpunet-client       src/dist_client_main.cpp)
+target_link_libraries(gpunet-client PRIVATE dist_common ${_PLATFORM_LIBS})
 
 # VM layer (unified-computer mode) — off by default, see DIST_BUILD_VM above.
 if(DIST_BUILD_VM)
-    add_executable(dist-vm-coordinator src/dist_vm_coordinator_main.cpp)
-    target_link_libraries(dist-vm-coordinator PRIVATE dist_vm)
+    add_executable(gpunet-vm-coordinator src/dist_vm_coordinator_main.cpp)
+    target_link_libraries(gpunet-vm-coordinator PRIVATE dist_vm)
 
-    add_executable(dist-vm-node        src/dist_vm_node_main.cpp)
-    target_link_libraries(dist-vm-node PRIVATE dist_vm)
+    add_executable(gpunet-vm-node        src/dist_vm_node_main.cpp)
+    target_link_libraries(gpunet-vm-node PRIVATE dist_vm)
 endif()
 
-# dist-join: zero-friction pool membership — queries dashboard, exec's dist-node
-add_executable(dist-join src/dist_join_main.cpp)
-target_include_directories(dist-join PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(dist-join PRIVATE ${_PLATFORM_LIBS})
+# gpunet-join: zero-friction pool membership — queries dashboard, exec's gpunet-node
+add_executable(gpunet-join src/dist_join_main.cpp)
+target_include_directories(gpunet-join PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(gpunet-join PRIVATE ${_PLATFORM_LIBS})
 
 # nat-pingpong: standalone UDP reachability tester for diagnosing symmetric
 # NAT inbound-blocking.  Two modes: `listen` (STUNs its external mapping and
@@ -280,14 +280,14 @@ add_executable(nat-pingpong src/nat_pingpong.cpp)
 add_executable(nat-portmap src/nat_portmap_main.cpp)
 target_link_libraries(nat-portmap PRIVATE dist_common)
 
-# ─── dist-cli — operator CLI ────────────────────────────────────────────────
+# ─── gpunet-cli — operator CLI ────────────────────────────────────────────────
 #
 # Single binary that mirrors the dashboard's surface: pools, models, rigs,
-# inference logs, plus a live TUI dashboard (`dist-cli top`) built on FTXUI.
-# Auth is read from the same on-disk state dist-node maintains so users who
-# have run `dist-node login` are immediately authenticated for CLI ops.
-option(DIST_BUILD_CLI     "Build dist-cli operator CLI"               ON)
-option(DIST_BUILD_CLI_TUI "Vendor FTXUI to enable `dist-cli top` TUI" ON)
+# inference logs, plus a live TUI dashboard (`gpunet-cli top`) built on FTXUI.
+# Auth is read from the same on-disk state gpunet-node maintains so users who
+# have run `gpunet-node login` are immediately authenticated for CLI ops.
+option(DIST_BUILD_CLI     "Build gpunet-cli operator CLI"               ON)
+option(DIST_BUILD_CLI_TUI "Vendor FTXUI to enable `gpunet-cli top` TUI" ON)
 
 if(DIST_BUILD_CLI)
     set(_DIST_CLI_LIBS OpenSSL::SSL OpenSSL::Crypto ${_PLATFORM_LIBS})
@@ -304,35 +304,35 @@ if(DIST_BUILD_CLI)
         set(FTXUI_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
         set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
         FetchContent_MakeAvailable(ftxui)
-        message(STATUS "[llama-distributed] vendored FTXUI for dist-cli top")
+        message(STATUS "[llama-distributed] vendored FTXUI for gpunet-cli top")
         list(APPEND _DIST_CLI_LIBS
             ftxui::screen ftxui::dom ftxui::component)
     endif()
 
-    add_executable(dist-cli
+    add_executable(gpunet-cli
         src/cli_common.cpp
         src/dist_cli_main.cpp
         src/dist_cli_top.cpp
         src/dist_cli_split.cpp
     )
-    target_include_directories(dist-cli PRIVATE
+    target_include_directories(gpunet-cli PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    target_link_libraries(dist-cli PRIVATE ${_DIST_CLI_LIBS})
+    target_link_libraries(gpunet-cli PRIVATE ${_DIST_CLI_LIBS})
 
     if(DIST_BUILD_CLI_TUI)
-        target_compile_definitions(dist-cli PRIVATE DIST_HAVE_FTXUI=1)
+        target_compile_definitions(gpunet-cli PRIVATE DIST_HAVE_FTXUI=1)
     endif()
 endif()
 
-# ─── dist-sdcpp-worker — C++ diffusion backend ──────────────────────────────
+# ─── gpunet-sdcpp-worker — C++ diffusion backend ──────────────────────────────
 #
 # Vendored stable-diffusion.cpp wrapped as a standalone worker binary.  This
 # is the fallback path for rigs that can't run python+diffusers (e.g.
 # paramshakti cn01 — conda py3.7, no sudo, stripped image).  The DppAdapter
 # forks this binary the same way it forks `python -m dpp_runtime`, so the
-# WS / wire surface in dist-node is unchanged.
+# WS / wire surface in gpunet-node is unchanged.
 #
 # Built as a *separate executable* on purpose: sd.cpp ships its own ggml fork
 # (leejet/ggml) which would symbol-collide with the llama.cpp ggml linked
@@ -412,27 +412,27 @@ if(DIST_USE_SDCPP)
 
     add_subdirectory(third_party/stable-diffusion.cpp EXCLUDE_FROM_ALL)
 
-    add_executable(dist-sdcpp-worker
+    add_executable(gpunet-sdcpp-worker
         src/sdcpp_worker.cpp
         src/sdcpp_roles.cpp
         src/sdt_codec.cpp
     )
-    target_include_directories(dist-sdcpp-worker PRIVATE
+    target_include_directories(gpunet-sdcpp-worker PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${_SDCPP_DIR}/include
         ${_SDCPP_DIR}/thirdparty
     )
-    target_link_libraries(dist-sdcpp-worker PRIVATE
+    target_link_libraries(gpunet-sdcpp-worker PRIVATE
         stable-diffusion
         ${_PLATFORM_LIBS}
     )
-    target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP=1)
+    target_compile_definitions(gpunet-sdcpp-worker PRIVATE DIST_HAVE_SDCPP=1)
 
     # CF12-W6a: when the block-split patch is present, expose the symbol so
     # the role bridge calls into the new C surface instead of guessing from
     # the model filename.
     if(EXISTS "${_SDCPP_PATCH}")
-        target_compile_definitions(dist-sdcpp-worker PRIVATE DIST_HAVE_SDCPP_SPLIT=1)
+        target_compile_definitions(gpunet-sdcpp-worker PRIVATE DIST_HAVE_SDCPP_SPLIT=1)
 
         # Smoke test for the CF12-W6a C surface — no model load, just exercises
         # the sd_split_state_t setter/getter/serialize/SDCD wire roundtrip.
@@ -458,9 +458,9 @@ if(DIST_USE_SDCPP)
     # Expose to dist_common via compile definition — used by capability probe.
     target_compile_definitions(dist_common PUBLIC DIST_HAVE_SDCPP=1)
 
-    message(STATUS "[llama-distributed] dist-sdcpp-worker enabled (vendored sd.cpp)")
+    message(STATUS "[llama-distributed] gpunet-sdcpp-worker enabled (vendored sd.cpp)")
 else()
-    message(STATUS "[llama-distributed] dist-sdcpp-worker disabled (DIST_USE_SDCPP=OFF)")
+    message(STATUS "[llama-distributed] gpunet-sdcpp-worker disabled (DIST_USE_SDCPP=OFF)")
 endif()
 
 # ─── Install ─────────────────────────────────────────────────────────────────
@@ -469,14 +469,14 @@ include(GNUInstallDirs)
 
 set(_DIST_INSTALL_TARGETS
     dist_common
-    dist-coordinator dist-node dist-client dist-join
+    gpunet-coordinator gpunet-node gpunet-client gpunet-join
 )
 if(DIST_BUILD_VM)
     list(APPEND _DIST_INSTALL_TARGETS
-        dist_vm dist-vm-coordinator dist-vm-node)
+        dist_vm gpunet-vm-coordinator gpunet-vm-node)
 endif()
 if(DIST_USE_SDCPP)
-    list(APPEND _DIST_INSTALL_TARGETS dist-sdcpp-worker)
+    list(APPEND _DIST_INSTALL_TARGETS gpunet-sdcpp-worker)
 endif()
 
 install(TARGETS ${_DIST_INSTALL_TARGETS}
@@ -504,11 +504,11 @@ message(STATUS "║  Tests             : ${DIST_BUILD_TESTS}")
 message(STATUS "║  sd.cpp worker     : ${DIST_USE_SDCPP}")
 message(STATUS "╠══════════════════════════════════════════════╣")
 message(STATUS "║  Targets built:                              ║")
-message(STATUS "║    dist-coordinator   (base pipeline)        ║")
-message(STATUS "║    dist-node          (base pipeline)        ║")
-message(STATUS "║    dist-client        (CLI client)           ║")
-message(STATUS "║    dist-vm-coordinator(unified VM mode)      ║")
-message(STATUS "║    dist-vm-node       (unified VM mode)      ║")
-message(STATUS "║    dist-join          (one-command pool join)║")
+message(STATUS "║    gpunet-coordinator   (base pipeline)        ║")
+message(STATUS "║    gpunet-node          (base pipeline)        ║")
+message(STATUS "║    gpunet-client        (CLI client)           ║")
+message(STATUS "║    gpunet-vm-coordinator(unified VM mode)      ║")
+message(STATUS "║    gpunet-vm-node       (unified VM mode)      ║")
+message(STATUS "║    gpunet-join          (one-command pool join)║")
 message(STATUS "╚══════════════════════════════════════════════╝")
 message(STATUS "")

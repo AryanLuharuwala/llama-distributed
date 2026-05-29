@@ -26,7 +26,7 @@ Both `handleDeviceCodeMint` and `handleDeviceToken` build a URL from
   curl -X POST -H "Host: evil.example.com" https://real-server/api/device/code
 
 and the response's `verification_url` points at `evil.example.com/device`.
-When `dist-node login` prints that URL the user pastes their `user_code` into
+When `gpunet-node login` prints that URL the user pastes their `user_code` into
 the attacker's site.  `handleDeviceToken` is worse: the `server` field is
 persisted on the rig and used for *every future WS reconnect*.  A rig whose
 first device-code response was poisoned will reconnect to the attacker's WS

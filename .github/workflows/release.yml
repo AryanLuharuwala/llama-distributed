@@ -1,6 +1,6 @@
 name: release
 
-# Builds dist-node / dist-join / dist-coordinator for each platform and uploads
+# Builds gpunet-node / gpunet-join / gpunet-coordinator for each platform and uploads
 # a tarball/zip to the GitHub Release.  Triggered by pushing a tag like
 # `v0.1.0` or via the "Run workflow" button (workflow_dispatch).
 
@@ -103,7 +103,7 @@ jobs:
           set -eu
           STAGE="stage/llama-distributed-${RELEASE_TAG:-dev}-${{ matrix.target }}"
           mkdir -p "$STAGE/bin"
-          BINS="dist-node dist-coordinator dist-client dist-join"
+          BINS="gpunet-node gpunet-coordinator gpunet-client gpunet-join"
           for b in $BINS; do
             if [ -x "build/$b" ]; then
               cp "build/$b" "$STAGE/bin/"
@@ -139,7 +139,7 @@ jobs:
           $bin   = Join-Path $stage "bin"
           if (-not $env:CUDA_PATH) { throw "CUDA_PATH not set — Jimver step failed?" }
           $cudaBin = Join-Path $env:CUDA_PATH "bin"
-          # Runtime DLLs we need next to dist-node.exe.  Version suffixes
+          # Runtime DLLs we need next to gpunet-node.exe.  Version suffixes
           # drift between CUDA releases (cudart64_12.dll, cublas64_12.dll
           # on CUDA 12.x) so glob rather than enumerate.
           $patterns = @("cudart64_*.dll","cublas64_*.dll","cublasLt64_*.dll")

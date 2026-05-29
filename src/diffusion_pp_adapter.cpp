@@ -679,7 +679,7 @@ std::string json_escape_str(const std::string& in) {
 
 // ─── SdcppDaemon ───────────────────────────────────────────────────────────
 //
-// Resident dist-sdcpp-worker child driven over stdin/stdout JSON lines.
+// Resident gpunet-sdcpp-worker child driven over stdin/stdout JSON lines.
 // One per DppAdapter — model identity is internal to the worker, so the
 // same daemon can serve N different sdcpp_route requests; sd.cpp reloads
 // only when the model_path changes.
@@ -734,7 +734,7 @@ struct SdcppDaemon {
 
 namespace {
 
-// Fork dist-sdcpp-worker with --daemon, wiring two pipes (parent→child stdin,
+// Fork gpunet-sdcpp-worker with --daemon, wiring two pipes (parent→child stdin,
 // child→parent stdout).  Stderr is left untouched so sd.cpp's chatty banner
 // reaches the agent log the same way python dpp_runtime logs do.
 bool spawn_sdcpp_daemon(const std::string& worker_bin,
@@ -812,7 +812,7 @@ bool DppAdapter::probe_local_sdcpp_caps(const std::string& worker_bin,
     int status = 0;
     ::waitpid(pid, &status, 0);
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        err = "dist-sdcpp-worker --probe failed (exit=" +
+        err = "gpunet-sdcpp-worker --probe failed (exit=" +
               std::to_string(WIFEXITED(status) ? WEXITSTATUS(status) : -1) + ")";
         return false;
     }

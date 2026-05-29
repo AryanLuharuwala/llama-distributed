@@ -150,7 +150,7 @@ struct ActvPeer {
     bool        opened = false;
 };
 
-// Assemble a complete signaling text frame ready to ship over the dist-node WS.
+// Assemble a complete signaling text frame ready to ship over the gpunet-node WS.
 // Shape: {"kind":"p2p_*","to":"<peer>","session_id":"...","<extra-fields>"}
 static std::string build_signal_frame(const std::string& kind,
                                       const std::string& peerAgentID,

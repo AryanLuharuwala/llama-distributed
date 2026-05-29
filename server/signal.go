@@ -48,7 +48,7 @@ func (s *server) rigTURNSecret(agentID string) string {
 		return ""
 	}
 	mac := hmac.New(sha256.New, []byte(s.cfg.turnSecret))
-	mac.Write([]byte("dist-turn-rig|"))
+	mac.Write([]byte("gpunet-turn-rig|"))
 	mac.Write([]byte(agentID))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -158,7 +158,7 @@ func (s *server) findRelayAgent(exclude map[string]struct{}) *agentConn {
 
 // pickPeerRelays returns up to `limit` ICE entries pointing at relay-capable
 // peer rigs that have advertised a friendly NAT type in their last heartbeat.
-// Entries use the `peer:<agent_id>` URL scheme — the dist-node adapter knows
+// Entries use the `peer:<agent_id>` URL scheme — the gpunet-node adapter knows
 // to route through that rig over an existing or fresh WebRTC channel.
 //
 // audience is opaque (typically the agent_id of the consumer); we don't
@@ -232,7 +232,7 @@ func (s *server) pickPeerRelays(audience string, limit int) []map[string]any {
 }
 
 // mintRigTURNCreds returns credentials valid against a specific rig's
-// bundled dist-turn sidecar (per-rig secret), independent of whether the
+// bundled gpunet-turn sidecar (per-rig secret), independent of whether the
 // operator has configured a global turnURL.  Returns empty strings when no
 // master secret is configured.
 func (s *server) mintRigTURNCreds(relayAgentID, audience string) (string, string) {

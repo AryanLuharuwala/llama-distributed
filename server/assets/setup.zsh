@@ -44,21 +44,21 @@ if [[ -z "$DIST_SERVER" ]]; then
 fi
 
 mkdir -p "$PREFIX"
-asset="surd-${tos}-${tarch}"
+asset="gpunet-${tos}-${tarch}"
 print -r -- "[setup] downloading ${asset} from ${DIST_SERVER}"
-if ! curl -fSL "${DIST_SERVER%/}/releases/${asset}" -o "$PREFIX/surd.tmp"; then
+if ! curl -fSL "${DIST_SERVER%/}/releases/${asset}" -o "$PREFIX/gpunet.tmp"; then
   print -ru2 "[setup] download failed — does the server publish ${asset}?"
   exit 1
 fi
-chmod +x "$PREFIX/surd.tmp"
-mv -f "$PREFIX/surd.tmp" "$PREFIX/surd"
+chmod +x "$PREFIX/gpunet.tmp"
+mv -f "$PREFIX/gpunet.tmp" "$PREFIX/gpunet"
 
 # Ensure PREFIX is on PATH via ~/.zshrc, idempotently.
 if [[ ":$PATH:" != *":$PREFIX:"* ]]; then
   rc="$HOME/.zshrc"
   if [[ ! -f "$rc" || -z "$(grep -F "$PREFIX" "$rc" 2>/dev/null || true)" ]]; then
     print -r -- "" >> "$rc"
-    print -r -- "# added by surd setup.zsh" >> "$rc"
+    print -r -- "# added by gpunet setup.zsh" >> "$rc"
     print -r -- "export PATH=\"$PREFIX:\$PATH\"" >> "$rc"
   fi
   print -r -- "[setup] added $PREFIX to PATH in ~/.zshrc — open a new shell, or:"
@@ -70,11 +70,11 @@ print -r -- "[setup] SURD_SERVER=$DIST_SERVER"
 export SURD_SERVER="$DIST_SERVER"
 
 print -r -- ""
-print -r -- "  ✓ installed: $PREFIX/surd"
+print -r -- "  ✓ installed: $PREFIX/gpunet"
 print -r -- ""
 print -r -- "  next:"
-print -r -- "    surd login"
-next_line="    surd connect"
+print -r -- "    gpunet login"
+next_line="    gpunet connect"
 [[ -n "$POOL"   ]] && next_line+=" --pool $POOL"
 [[ -n "$INVITE" ]] && next_line+=" --invite $INVITE"
 print -r -- "$next_line"

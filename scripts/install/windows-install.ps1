@@ -107,8 +107,8 @@ function Install-ComfyUI {
 }
 
 function Register-AgentTask {
-    $exe = Join-Path $BinDir "dist-node.exe"
-    if (-not (Test-Path $exe)) { throw "dist-node.exe not found in $BinDir" }
+    $exe = Join-Path $BinDir "gpunet-node.exe"
+    if (-not (Test-Path $exe)) { throw "gpunet-node.exe not found in $BinDir" }
 
     $argsLine = "--pair `"$Pair`" -g $GpuLayers"
     $action   = New-ScheduledTaskAction -Execute $exe -Argument $argsLine

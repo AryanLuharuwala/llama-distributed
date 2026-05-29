@@ -84,7 +84,7 @@ bool fetch_shard(const std::string & url, const std::string & dest_path,
     std::string req =
         "GET " + u.path + " HTTP/1.1\r\n"
         "Host: " + u.host + ":" + std::to_string(u.port) + "\r\n"
-        "User-Agent: dist-node/0.1\r\n"
+        "User-Agent: gpunet-node/0.1\r\n"
         "Connection: close\r\n"
         "\r\n";
     if (!send_all(fd, req.data(), req.size())) {

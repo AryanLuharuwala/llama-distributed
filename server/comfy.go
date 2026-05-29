@@ -477,7 +477,7 @@ type comfyGenerateReq struct {
 	InitImageURL string            `json:"init_image_url,omitempty"`
 	Strength     float64           `json:"strength,omitempty"`
 	// sd.cpp-only: absolute path on each rig to the checkpoint file the
-	// dist-sdcpp-worker should load.  Required until the rig-side file
+	// gpunet-sdcpp-worker should load.  Required until the rig-side file
 	// advertisement (Phase A2) lands.
 	SdcppModelPath string `json:"sdcpp_model_path,omitempty"`
 }

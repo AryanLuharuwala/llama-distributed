@@ -11,7 +11,7 @@
 //            "hs.0".."hs.N-1"  fp32, dims = (1, C_i, H_i, W_i)
 //
 // Both encoder and decoder are header-only so the test binary and the
-// dist-sdcpp-worker share a single source of truth.
+// gpunet-sdcpp-worker share a single source of truth.
 
 #pragma once
 

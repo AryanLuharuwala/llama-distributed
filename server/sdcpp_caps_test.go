@@ -26,7 +26,7 @@ func TestUpsertSdcppCaps_RolesArrayStored(t *testing.T) {
 	s.upsertSdcppCaps(7, "rig-A", map[string]any{
 		"ok":      true,
 		"roles":   []any{"full", "te", "unet", "vae"},
-		"worker":  "/usr/bin/dist-sdcpp-worker",
+		"worker":  "/usr/bin/gpunet-sdcpp-worker",
 		"backend": "vulkan:1 cuda:0",
 	})
 

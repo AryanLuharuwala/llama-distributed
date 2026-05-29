@@ -2,7 +2,7 @@
 //
 // P12: Pluggable inference-runtime adapter.
 //
-// dist-node ships with llama.cpp as the default backend — see pp_engine.{h,cpp}
+// gpunet-node ships with llama.cpp as the default backend — see pp_engine.{h,cpp}
 // and node_agent.cpp.  llama.cpp is the right call for the project's core
 // use case: pipeline-parallel inference across heterogeneous rigs, with
 // activations flowing over the wire as bf16/fp16 tensors.  But on rigs
@@ -106,7 +106,7 @@ using ChunkCallback = std::function<bool(const RuntimeChunk&)>;
 
 // IRuntimeAdapter is the minimum surface a runtime backend must provide.
 // All methods are blocking unless documented otherwise; concurrency is
-// up to the caller (dist-node serializes per-request, so adapters don't
+// up to the caller (gpunet-node serializes per-request, so adapters don't
 // need to be reentrant on a single instance).
 class IRuntimeAdapter {
 public:

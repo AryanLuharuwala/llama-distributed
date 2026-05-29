@@ -11,11 +11,11 @@
 #   ./scripts/build.sh --prefix /opt/ld # install prefix
 #   ./scripts/build.sh --llama /path    # external llama.cpp source
 #   ./scripts/build.sh --with-comfyui   # also init third_party/ComfyUI + venv
-#   ./scripts/build.sh --dist-turn-only        # build only the Go relay binary
-#   ./scripts/build.sh --static-dist-turn      # CGO_ENABLED=0 portable dist-turn
-#   ./scripts/build.sh --static-dist-turn-all  # cross-compile linux/{amd64,arm64,arm},
+#   ./scripts/build.sh --gpunet-turn-only        # build only the Go relay binary
+#   ./scripts/build.sh --static-gpunet-turn      # CGO_ENABLED=0 portable gpunet-turn
+#   ./scripts/build.sh --static-gpunet-turn-all  # cross-compile linux/{amd64,arm64,arm},
 #                                              # darwin/{amd64,arm64}, windows/amd64
-#                                              # into build/dist-turn-dist/
+#                                              # into build/gpunet-turn-dist/
 #
 # After a successful build, binaries are in ./build/bin/
 
@@ -48,9 +48,9 @@ while [[ $# -gt 0 ]]; do
         --prefix)       PREFIX="$2"           ; shift 2 ;;
         --llama)        LLAMA_SOURCE="$2"     ; shift 2 ;;
         --with-comfyui) WITH_COMFYUI=ON       ; shift ;;
-        --dist-turn-only)       DIST_TURN_ONLY=ON       ; shift ;;
-        --static-dist-turn)     STATIC_DIST_TURN=ON     ; shift ;;
-        --static-dist-turn-all) STATIC_DIST_TURN_ALL=ON ; shift ;;
+        --gpunet-turn-only)       DIST_TURN_ONLY=ON       ; shift ;;
+        --static-gpunet-turn)     STATIC_DIST_TURN=ON     ; shift ;;
+        --static-gpunet-turn-all) STATIC_DIST_TURN_ALL=ON ; shift ;;
         -h|--help)
             head -20 "$0" | grep "^#" | sed 's/^# \?//'
             exit 0
@@ -60,22 +60,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 BUILD_DIR="${ROOT_DIR}/build"
-DIST_TURN_SRC="${ROOT_DIR}/cmd/dist-turn"
+DIST_TURN_SRC="${ROOT_DIR}/cmd/gpunet-turn"
 
-# ── dist-turn build helpers ──────────────────────────────────────────────────
-# Single source of truth so the host build, --dist-turn-only, --static-dist-turn,
-# and --static-dist-turn-all all share flags + output naming.
+# ── gpunet-turn build helpers ──────────────────────────────────────────────────
+# Single source of truth so the host build, --gpunet-turn-only, --static-gpunet-turn,
+# and --static-gpunet-turn-all all share flags + output naming.
 
 build_dist_turn_host() {
     # Native build using the host's default Go toolchain.  Dynamic-glibc on
     # Linux; works as the sidecar that dist-node spawns.
-    local out="${BUILD_DIR}/dist-turn"
-    echo "⟳  Building dist-turn (Go, native, dynamic)..."
+    local out="${BUILD_DIR}/gpunet-turn"
+    echo "⟳  Building gpunet-turn (Go, native, dynamic)..."
     if ( cd "${DIST_TURN_SRC}" && go build -o "${out}" . ); then
-        echo "✓  dist-turn → ${out}"
+        echo "✓  gpunet-turn → ${out}"
         return 0
     else
-        echo "⚠  dist-turn build failed"
+        echo "⚠  gpunet-turn build failed"
         return 1
     fi
 }
@@ -91,9 +91,9 @@ build_dist_turn_static() {
     local suffix=""
     [[ -n "${goos}" || -n "${goarch}" ]] && suffix="-${goos:-host}-${goarch:-host}"
     [[ "${goos}" == "windows" ]] && suffix="${suffix}.exe"
-    local out="${outdir}/dist-turn${suffix}"
+    local out="${outdir}/gpunet-turn${suffix}"
     mkdir -p "${outdir}"
-    echo "⟳  Building dist-turn (static, goos=${goos:-host} goarch=${goarch:-host})..."
+    echo "⟳  Building gpunet-turn (static, goos=${goos:-host} goarch=${goarch:-host})..."
     if ( cd "${DIST_TURN_SRC}" \
             && CGO_ENABLED=0 \
                GOOS="${goos}" GOARCH="${goarch}" \
@@ -103,10 +103,10 @@ build_dist_turn_static() {
                         -o "${out}" . ); then
         local sz
         sz=$(du -h "${out}" 2>/dev/null | awk '{print $1}')
-        echo "✓  dist-turn → ${out} (${sz})"
+        echo "✓  gpunet-turn → ${out} (${sz})"
         return 0
     else
-        echo "⚠  dist-turn static build failed (goos=${goos:-host} goarch=${goarch:-host})"
+        echo "⚠  gpunet-turn static build failed (goos=${goos:-host} goarch=${goarch:-host})"
         return 1
     fi
 }
@@ -115,7 +115,7 @@ build_dist_turn_all_targets() {
     # Cross-compile to the canonical set of OS/arch combos for distribution.
     # Pure-Go means no cross-toolchain setup required — Go's own runtime
     # handles every target.
-    local outdir="${BUILD_DIR}/dist-turn-dist"
+    local outdir="${BUILD_DIR}/gpunet-turn-dist"
     rm -rf "${outdir}"
     mkdir -p "${outdir}"
     local targets=(
@@ -138,10 +138,10 @@ build_dist_turn_all_targets() {
         ls -lah "${outdir}" | awk 'NR>1 {printf "     %-32s %s\n", $NF, $5}'
         # Generate SHA-256 sums for distribution.
         if command -v sha256sum >/dev/null 2>&1; then
-            ( cd "${outdir}" && sha256sum dist-turn-* > SHA256SUMS )
+            ( cd "${outdir}" && sha256sum gpunet-turn-* > SHA256SUMS )
             echo "✓  SHA256SUMS written to ${outdir}/SHA256SUMS"
         elif command -v shasum >/dev/null 2>&1; then
-            ( cd "${outdir}" && shasum -a 256 dist-turn-* > SHA256SUMS )
+            ( cd "${outdir}" && shasum -a 256 gpunet-turn-* > SHA256SUMS )
             echo "✓  SHA256SUMS written to ${outdir}/SHA256SUMS"
         fi
     else
@@ -150,12 +150,12 @@ build_dist_turn_all_targets() {
     fi
 }
 
-# ── --dist-turn-only / --static-dist-turn / --static-dist-turn-all ───────────
+# ── --gpunet-turn-only / --static-gpunet-turn / --static-gpunet-turn-all ───────────
 # Short-circuit paths.  Skip the cmake + C++ build entirely; useful for CI
 # pipelines and release packaging.
 if [[ "${DIST_TURN_ONLY}" == "ON" || "${STATIC_DIST_TURN}" == "ON" || "${STATIC_DIST_TURN_ALL}" == "ON" ]]; then
     if ! command -v go >/dev/null 2>&1; then
-        echo "✗  go toolchain required for dist-turn build" >&2
+        echo "✗  go toolchain required for gpunet-turn build" >&2
         exit 1
     fi
     mkdir -p "${BUILD_DIR}"
@@ -221,11 +221,11 @@ if [[ "${WITH_COMFYUI}" == "ON" ]]; then
     echo "    The agent advertises comfy_caps automatically once ComfyUI is up."
 fi
 
-# ── dist-turn (Go) ───────────────────────────────────────────────────────────
+# ── gpunet-turn (Go) ───────────────────────────────────────────────────────────
 # Dual-mode binary:
 #   • sidecar  — spawned by dist-node when DIST_WITH_TURN=1 (uses --auth-secret
 #                derived per-rig from the server's welcome frame).
-#   • standalone — provision a relay-only node with `dist-turn --server URL
+#   • standalone — provision a relay-only node with `gpunet-turn --server URL
 #                  --token PAIR_TOKEN`; it registers with the dist-server,
 #                  auto-discovers its public IP via STUN, and receives traffic
 #                  through pickPeerRelays just like a compute rig would.
@@ -236,13 +236,13 @@ if command -v go >/dev/null 2>&1 && [[ -d "${DIST_TURN_SRC}" ]]; then
         echo "    peer-relay rigs will fall back to peer:<agent_id> (plaintext)."
     }
 else
-    echo "⚠  skipping dist-turn (no 'go' on PATH or cmd/dist-turn missing)"
+    echo "⚠  skipping gpunet-turn (no 'go' on PATH or cmd/gpunet-turn missing)"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "✓  Build complete. Binaries:"
-for bin in dist-coordinator dist-node dist-client dist-vm-coordinator dist-vm-node dist-turn; do
+for bin in dist-coordinator dist-node dist-client dist-vm-coordinator dist-vm-node gpunet-turn; do
     path="${BUILD_DIR}/${bin}"
     [[ -f "$path" ]] && echo "     ${path}"
 done

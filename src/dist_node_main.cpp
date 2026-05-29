@@ -4,7 +4,7 @@
  * Entry point for a Node Agent — one per GPU server.
  *
  * Usage:
- *   dist-node -s COORDINATOR_HOST [options]
+ *   gpunet-node -s COORDINATOR_HOST [options]
  *
  *   -s, --server HOST           Coordinator host (required)
  *   -p, --control-port PORT     Coordinator control port (default: 7700)
@@ -292,7 +292,7 @@ static bool state_write_bytes(const std::string& name,
 }
 
 // ─── Tiny HTTPS client (OpenSSL) ────────────────────────────────────────────
-// Used by the `dist-node login` / `dist-node url` subcommands to talk to the
+// Used by the `gpunet-node login` / `gpunet-node url` subcommands to talk to the
 // control-plane HTTP API.  Returns true and fills (status, body) on success.
 // Supports http:// and https://.  Path includes the query string.
 struct HttpResp {
@@ -380,7 +380,7 @@ static bool http_request(const std::string& base_url, const std::string& path,
     std::ostringstream req;
     req << method << " " << path << " HTTP/1.1\r\n"
         << "Host: " << host_hdr << "\r\n"
-        << "User-Agent: dist-node/0.1\r\n"
+        << "User-Agent: gpunet-node/0.1\r\n"
         << "Accept: application/json\r\n"
         << "Connection: close\r\n";
     if (!body.empty()) {
@@ -487,8 +487,8 @@ static std::string json_peek_int(const std::string& msg, const std::string& key)
     return out;
 }
 
-// Resolve the absolute path of the running dist-node binary so we can find
-// our `dist-turn` sibling next to it.  Falls back to "dist-turn" on PATH.
+// Resolve the absolute path of the running gpunet-node binary so we can find
+// our `gpunet-turn` sibling next to it.  Falls back to "gpunet-turn" on PATH.
 static std::string find_dist_turn_binary() {
     if (const char* env = std::getenv("DIST_TURN_BIN"); env && *env) {
         return env;
@@ -499,14 +499,14 @@ static std::string find_dist_turn_binary() {
     if (n > 0) {
         buf[n] = 0;
         std::filesystem::path p(buf);
-        auto sibling = p.parent_path() / "dist-turn";
+        auto sibling = p.parent_path() / "gpunet-turn";
         if (std::filesystem::exists(sibling)) return sibling.string();
     }
 #endif
-    return "dist-turn"; // assume PATH
+    return "gpunet-turn"; // assume PATH
 }
 
-// ── dist-turn sidecar manager ─────────────────────────────────────────────
+// ── gpunet-turn sidecar manager ─────────────────────────────────────────────
 //
 // All state lives in file-scope variables guarded by g_turn_mu so the
 // heartbeat loop and signal/atexit hooks can interact safely.  The model is:
@@ -519,7 +519,7 @@ static std::string find_dist_turn_binary() {
 //     sidecar — atexit alone is not enough.
 //   * The child's stderr is wired to a pipe drained by a daemon thread that
 //     prefixes each line with [turn-child] so operators see startup errors
-//     in dist-node's own log.
+//     in gpunet-node's own log.
 //   * turn_sidecar_alive() does a non-blocking waitpid; if the child died on
 //     its own it returns false and clears state so the next ensure_*() call
 //     respawns.
@@ -730,7 +730,7 @@ static pid_t do_spawn_turn(int port,
         if (::getppid() == 1) _exit(0);
 #endif
         // Wire stderr → pipe; stdout is inherited so operators running
-        // dist-node interactively still see anything pion prints there.
+        // gpunet-node interactively still see anything pion prints there.
         ::dup2(err_pipe[1], STDERR_FILENO);
         ::close(err_pipe[0]);
         ::close(err_pipe[1]);
@@ -789,7 +789,7 @@ static pid_t do_spawn_turn(int port,
     });
 
     // Give pion ~1.5s to bind and start listening, then probe.  pion logs
-    // "dist-turn: listening on ..." once it's actually serving requests;
+    // "gpunet-turn: listening on ..." once it's actually serving requests;
     // we don't need to parse that — waitpid + a localhost UDP smoke test
     // is enough.  The longer window forgives slow/loaded VMs.
     auto deadline = std::chrono::steady_clock::now()
@@ -1167,16 +1167,16 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     //
     // Companion to dpp_caps for rigs that can't run python+diffusers
     // (paramshakti cn01, stripped distros without sudo, …).  If the
-    // dist-sdcpp-worker binary is present and its --probe succeeds we
+    // gpunet-sdcpp-worker binary is present and its --probe succeeds we
     // advertise `sdcpp_caps` so the control plane can route a
     // whole-pipeline single-rig diffusion job here.  Phase A scope:
     // role="full" only — no block-split participation yet (#254).
     //
     // Resolution order for the worker binary:
     //   1. $DIST_SDCPP_WORKER (operator override)
-    //   2. <argv[0]_dir>/dist-sdcpp-worker (next to dist-node in the
+    //   2. <argv[0]_dir>/gpunet-sdcpp-worker (next to gpunet-node in the
     //      install dir or build dir — the common case)
-    //   3. plain "dist-sdcpp-worker" (PATH lookup)
+    //   3. plain "gpunet-sdcpp-worker" (PATH lookup)
     std::string sdcpp_worker_bin;
     if (const char* env = std::getenv("DIST_SDCPP_WORKER"); env && *env) {
         sdcpp_worker_bin = env;
@@ -1188,13 +1188,13 @@ static int run_pair_mode(const std::string& token, const std::string& server,
             std::string self(buf);
             auto slash = self.find_last_of('/');
             if (slash != std::string::npos) {
-                std::string candidate = self.substr(0, slash + 1) + "dist-sdcpp-worker";
+                std::string candidate = self.substr(0, slash + 1) + "gpunet-sdcpp-worker";
                 if (::access(candidate.c_str(), X_OK) == 0) {
                     sdcpp_worker_bin = candidate;
                 }
             }
         }
-        if (sdcpp_worker_bin.empty()) sdcpp_worker_bin = "dist-sdcpp-worker";
+        if (sdcpp_worker_bin.empty()) sdcpp_worker_bin = "gpunet-sdcpp-worker";
     }
     {
         std::string sdcpp_err, sdcpp_info;
@@ -1250,7 +1250,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
              << "\"roles\":[";
         if (sdcpp_ok) {
             // CF12-W4: the role API (sdr_encode_text / sdr_sample /
-            // sdr_decode_latent) is wired into every dist-sdcpp-worker
+            // sdr_decode_latent) is wired into every gpunet-sdcpp-worker
             // build alongside the single-rig "full" path.  Advertise the
             // four roles the daemon can multiplex over; the server-side
             // planner picks one rig per role when an image request comes
@@ -1344,7 +1344,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
     // operator-hosted Triton Inference Server's tensorrtllm_backend and
     // advertise `trtllm_caps`.  We do NOT link the TRT-LLM C++ runtime —
     // Triton's HTTP surface (/v2/models/{name}/generate_stream) is the
-    // boundary, which keeps the dist-node binary CPU-only.
+    // boundary, which keeps the gpunet-node binary CPU-only.
     {
         const char* rt  = std::getenv("DIST_RUNTIME");
         const char* url = std::getenv("DIST_TRTLLM_URL");
@@ -1576,7 +1576,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
         if (v > 0 && v <= 64) advertised_max_concurrent = v;
     }
 
-    // Cross-process lock over device 0.  Any two dist-node processes sharing
+    // Cross-process lock over device 0.  Any two gpunet-node processes sharing
     // one CUDA device serialise their decodes through this flock; a single
     // ggml CUDA backend cannot host two independent llama_contexts doing
     // concurrent decodes without corrupting each other's state.
@@ -2259,7 +2259,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                     bool ok = true;
                     if (!infer_engine || infer_engine_key != key) {
                         infer_engine.reset();
-                        std::string dest = "/tmp/dist-node-" +
+                        std::string dest = "/tmp/gpunet-node-" +
                             std::to_string(::getpid()) + "-infer-" +
                             (shard_file.empty() ? std::string("model.gguf") : shard_file);
                         std::string derr;
@@ -2892,7 +2892,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                                           "-" + std::to_string(r.layer_hi);
                         if (!engine || engine_key != key) {
                             engine.reset();
-                            std::string dest = "/tmp/dist-node-" +
+                            std::string dest = "/tmp/gpunet-node-" +
                                 std::to_string(::getpid()) + "-" +
                                 (shard_file.empty()
                                     ? ("shard-" + std::to_string(rid) + ".gguf")
@@ -3455,7 +3455,7 @@ static int run_pair_mode(const std::string& token, const std::string& server,
 
 // ─── Subcommand helpers ─────────────────────────────────────────────────────
 
-// Default control-plane URL.  Picked once at install time via `dist-node login`,
+// Default control-plane URL.  Picked once at install time via `gpunet-node login`,
 // persisted as agent.api_url in state_dir.  Falls back to the prod ACA FQDN.
 static std::string default_api_url() {
     if (const char* s = std::getenv("DIST_API_URL"); s && *s) return s;
@@ -3483,7 +3483,7 @@ static void open_browser(const std::string& url) {
     (void)std::system(cmd.c_str());
 }
 
-static std::string pid_file_path() { return state_path("dist-node.pid"); }
+static std::string pid_file_path() { return state_path("gpunet-node.pid"); }
 
 static int cmd_login(int argc, char** argv) {
     std::string api_url;
@@ -3546,7 +3546,7 @@ static int cmd_login(int argc, char** argv) {
             continue;
         }
         if (pr.status == 410) {
-            std::cerr << "\n[login] code expired — run `dist-node login` again\n";
+            std::cerr << "\n[login] code expired — run `gpunet-node login` again\n";
             return 1;
         }
         if (pr.status != 200) {
@@ -3571,7 +3571,7 @@ static int cmd_login(int argc, char** argv) {
         }
         std::cout << "\n  ✓ Logged in. agent_id=" << agent_id
                   << "\n    Saved to " << state_dir()
-                  << "\n    Run `dist-node connect` to join the pool.\n\n";
+                  << "\n    Run `gpunet-node connect` to join the pool.\n\n";
         return 0;
     }
 }
@@ -3589,7 +3589,7 @@ static int cmd_connect(int argc, char** argv) {
     std::string srv = state_read("agent.server");
     std::string key = state_read("agent.key");
     if (srv.empty() || key.empty()) {
-        std::cerr << "[connect] no saved login — run `dist-node login` first\n";
+        std::cerr << "[connect] no saved login — run `gpunet-node login` first\n";
         return 1;
     }
 #ifndef _WIN32
@@ -3601,7 +3601,7 @@ static int cmd_connect(int argc, char** argv) {
             std::ofstream f(pid_file_path()); f << pid; f.close();
             std::cout << "[connect] daemon pid=" << pid << " (saved to "
                       << pid_file_path() << ")\n"
-                      << "[connect] Use `dist-node disconnect` to stop.\n";
+                      << "[connect] Use `gpunet-node disconnect` to stop.\n";
             return 0;
         }
         // Child continues.
@@ -3666,7 +3666,7 @@ static int cmd_url(int argc, char** argv) {
     std::string api_url = default_api_url();
     std::string agent_key = state_read("agent.key");
     if (agent_key.empty()) {
-        std::cerr << "[url] no saved login — run `dist-node login` first\n";
+        std::cerr << "[url] no saved login — run `gpunet-node login` first\n";
         return 1;
     }
 
@@ -3707,7 +3707,7 @@ static int cmd_url(int argc, char** argv) {
     std::string api_key = state_read("agent.api_key");
     if (api_key.empty() || api_key.rfind("sk-dist-", 0) != 0) {
         HttpResp mr; std::string merr;
-        std::string body_s = "{\"label\":\"dist-node/" + std::string(state_read("agent.id").empty() ? "rig" : state_read("agent.id")) + "\"}";
+        std::string body_s = "{\"label\":\"gpunet-node/" + std::string(state_read("agent.id").empty() ? "rig" : state_read("agent.id")) + "\"}";
         if (!http_request(api_url, "/api/agent/api_key", "POST", body_s,
                           {"Authorization: Bearer " + agent_key}, mr, merr)
             || mr.status != 200) {
