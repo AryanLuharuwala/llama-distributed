@@ -929,23 +929,38 @@ section.module:nth-of-type(7) { animation-delay: 0.52s; }
             <span class="n">After install · 01</span>
             <b>Pair this rig</b><br>
             Device-code login — opens your browser to confirm.
-            <br><code id="cmd-login">surd login</code>
+            <br><code id="cmd-login">gpunet login</code>
           </div>
           <div class="step">
             <span class="n">After install · 02</span>
             <b>Bring it online</b><br>
             Starts the agent, advertises VRAM &amp; GPUs, holds the WS connection open.
-            <br><code id="cmd-connect">surd connect</code>
+            <br><code id="cmd-connect">gpunet connect</code>
           </div>
           <div class="step">
             <span class="n">That's it · 03</span>
             <b>You're contributing</b><br>
             On connect your rig auto-joins the <b>Global Public Pool</b> and starts serving — no pool setup needed.
-            <br><a href="/console#pools" style="color:var(--accent);">Move it to your own pool →</a>
+            <br><a href="/global" style="color:var(--accent);">Global pool page →</a>
           </div>
         </div>
-        <div class="hint">
-          Want a private pool instead? Pre-bind it with <code style="font-family:var(--mono);font-size:11.5px;">surd connect --pool &lt;id&gt;</code> · invite token via <code style="font-family:var(--mono);font-size:11.5px;">--invite &lt;token&gt;</code>
+
+        <!-- token-connect: no browser, pair straight from a minted token -->
+        <div style="margin-top:16px;border-top:1px solid var(--rule);padding-top:16px;">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:7px;">Or pair with a token — no browser</div>
+          <div class="cmdbox"><code id="cmd-token">mint a token →</code><button type="button" class="copy" id="token-copy">Copy</button></div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:8px;letter-spacing:.03em;">
+            Save it for unattended re-pair (add to your shell profile):
+          </div>
+          <div class="cmdbox" style="margin-top:5px;"><code id="cmd-token-save">…</code><button type="button" class="copy" id="token-save-copy">Copy</button></div>
+          <div class="hint" style="margin-top:8px;">
+            Token is single-use, expires in 5 min — <a href="#" id="token-remint" style="color:var(--accent);">re-mint</a>.
+            After the first connect the rig saves a durable key to <b style="color:var(--ink-2)">~/.config/gpunet/credentials.json</b>, so plain <code style="font-family:var(--mono);font-size:11.5px;">gpunet connect</code> reconnects with no token.
+          </div>
+        </div>
+
+        <div class="hint" style="margin-top:14px;">
+          Want a private pool instead? Pre-bind it with <code style="font-family:var(--mono);font-size:11.5px;">gpunet connect --pool &lt;id&gt;</code> · invite token via <code style="font-family:var(--mono);font-size:11.5px;">--invite &lt;token&gt;</code>
         </div>
       </div>
     </section>
@@ -1842,9 +1857,45 @@ function wireInstall() {
   });
 }
 
+/* ─── token-connect: mint a pair token, render connect + save commands ── */
+function wsFromDeep(deep) {
+  try { return new URL(deep).searchParams.get('server') || ''; } catch { return ''; }
+}
+async function mintToken() {
+  const codeT = $('#cmd-token'), codeS = $('#cmd-token-save');
+  if (!codeT) return;
+  codeT.textContent = 'minting…';
+  let d = null;
+  try {
+    const r = await fetch('/api/pair', { method: 'POST', credentials: 'include' });
+    if (r.ok) d = await r.json();
+  } catch {}
+  if (!d || !d.token) { codeT.textContent = '# sign in first'; if (codeS) codeS.textContent = ''; return; }
+  const deep = d.deep_link;
+  codeT.textContent = `curl -fsSL ${location.origin}/install.sh | sh -s -- --pair "${deep}"`;
+  if (codeS) codeS.textContent = `export GPUNET_PAIR="${deep}"`;
+}
+function wireToken() {
+  const cp = (btnId, codeId) => {
+    const b = document.getElementById(btnId); if (!b) return;
+    b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(document.getElementById(codeId).textContent);
+        b.classList.add('ok'); b.textContent = 'Copied';
+        setTimeout(() => { b.classList.remove('ok'); b.textContent = 'Copy'; }, 1400);
+      } catch { b.textContent = 'Press ⌘C'; setTimeout(() => { b.textContent = 'Copy'; }, 1400); }
+    });
+  };
+  cp('token-copy', 'cmd-token');
+  cp('token-save-copy', 'cmd-token-save');
+  const rm = $('#token-remint');
+  if (rm) rm.addEventListener('click', (e) => { e.preventDefault(); mintToken(); });
+}
+
 /* ─── boot ────────────────────────────────────────────────────── */
 (async function boot() {
   wireInstall();
+  wireToken();
+  mintToken();
   await refreshAll();
   setInterval(refreshAll, 8000);
   setInterval(netgraphLoop, 90);

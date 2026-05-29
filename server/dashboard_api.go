@@ -737,6 +737,23 @@ func (s *server) handlePlaygroundPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(playgroundHTML)
 }
 
+//go:embed assets/pool.html
+var poolHTML []byte
+
+// /global — the Global Public Pool page. Shows live pool stats and the
+// one-command "add your GPU" flow: mints a short-lived pair token (/api/pair)
+// and renders the connect + save-token commands. Requires login (token mint
+// is per-user).
+func (s *server) handleGlobalPoolPage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.userFromRequest(r); !ok {
+		http.Redirect(w, r, "/auth?next=/global", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(poolHTML)
+}
+
 //go:embed assets/studio.html
 var studioHTML []byte
 

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPUnet — Global Public Pool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#fbfaf6;--paper-2:#f4f2ec;--surface:#fff;--ink:#1a1a14;--ink-2:#54544a;
+  --ink-3:#8c8c82;--ink-4:#b8b8ac;--rule:rgba(26,26,20,.08);--rule-strong:rgba(26,26,20,.18);
+  --accent:#7a2c2c;--accent-soft:#f1e2e2;--ok:#2f5a3a;
+  --display:'Instrument Serif',Cambria,serif;--body:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink);min-height:100vh}
+body{font-family:var(--body);font-size:16px;line-height:1.55;font-feature-settings:'tnum' 1;-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:1;background-image:radial-gradient(rgba(26,26,20,.025) 1px,transparent 1px);background-size:3px 3px;opacity:.35;mix-blend-mode:multiply}
+a{color:var(--ink)}
+.wrap{max-width:880px;margin:0 auto;padding:48px 32px 80px;position:relative;z-index:2}
+.top{display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:8px}
+.brand{font-family:var(--display);font-size:30px;line-height:1}
+.brand em{font-style:italic;color:var(--accent)}
+.top .links{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.top .links a{color:var(--ink-3);border:none;margin-left:14px}
+.top .links a:hover{color:var(--ink)}
+h1{font-family:var(--display);font-weight:400;font-size:54px;line-height:1.02;letter-spacing:-.01em;margin:28px 0 6px}
+h1 em{font-style:italic;color:var(--accent)}
+.sub{font-size:17px;color:var(--ink-2);max-width:560px;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule-strong);background:var(--surface);margin-bottom:32px}
+.stat{padding:20px 22px;border-right:1px solid var(--rule)}
+.stat:last-child{border-right:none}
+.stat .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.stat .v{font-family:var(--display);font-size:40px;line-height:1}
+.stat .v em{font-style:italic;color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--rule-strong);padding:26px 28px;margin-bottom:22px}
+.card h2{font-family:var(--display);font-weight:400;font-size:26px;margin-bottom:4px}
+.card .lede{color:var(--ink-2);font-size:14.5px;margin-bottom:18px}
+.step{margin:18px 0}
+.step .n{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:7px}
+.cmd{display:flex;align-items:center;gap:12px;background:var(--paper-2);border:1px solid var(--rule-strong);padding:13px 15px}
+.cmd code{flex:1;font-family:var(--mono);font-size:13px;color:var(--ink);word-break:break-all;line-height:1.5}
+.copy{background:none;border:1px solid var(--ink);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:7px 12px;color:var(--ink);cursor:pointer;white-space:nowrap}
+.copy:hover{background:var(--ink);color:var(--paper)}
+.copy.ok{background:var(--ok);border-color:var(--ok);color:var(--paper)}
+.tokrow{display:flex;align-items:baseline;gap:14px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.04em;margin-top:8px}
+.tokrow b{color:var(--ink);font-size:13px}
+.remint{background:none;border:1px solid var(--rule-strong);font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;color:var(--ink-2);cursor:pointer}
+.remint:hover{border-color:var(--ink);color:var(--ink)}
+.note{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.03em;line-height:1.6;margin-top:10px}
+.note b{color:var(--ink-2)}
+.muted{color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">GPU<em>n</em>et</div>
+    <div class="links">
+      <a href="/studio">Studio</a><a href="/console">Console</a><a href="/nexus">Operations</a>
+    </div>
+  </div>
+
+  <h1>The <em>Global</em> Public Pool</h1>
+  <p class="sub">An open pool anyone can contribute a GPU to. Point a rig at it and it starts
+     serving distributed inference — no pool setup, no invite.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Rigs online</div><div class="v"><em id="s-online">—</em></div></div>
+    <div class="stat"><div class="k">Rigs total</div><div class="v" id="s-rigs">—</div></div>
+    <div class="stat"><div class="k">Contributors</div><div class="v" id="s-members">—</div></div>
+    <div class="stat"><div class="k">Visibility</div><div class="v" style="font-size:22px;line-height:1.6">public</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Add your GPU</h2>
+    <p class="lede">One command pairs this machine to the pool using a short-lived token. The token
+       is single-use and expires in 5 minutes — re-mint if it lapses.</p>
+
+    <div class="step">
+      <span class="n">1 · New machine — one-liner</span>
+      <div class="cmd"><code id="cmd-install">…minting token…</code><button class="copy" data-for="cmd-install">Copy</button></div>
+      <div class="note">Auto-detects OS/arch, fetches the <b>gpunet</b> agent, pairs, and connects. On first
+        connect the rig saves a durable key to <b>~/.config/gpunet/credentials.json</b> — after that, plain
+        <code style="font-size:11px">gpunet connect</code> reconnects with no token.</div>
+    </div>
+
+    <div class="step">
+      <span class="n">2 · Already installed — connect with the token</span>
+      <div class="cmd"><code id="cmd-connect">…</code><button class="copy" data-for="cmd-connect">Copy</button></div>
+    </div>
+
+    <div class="step">
+      <span class="n">3 · Save the token (unattended / re-pair)</span>
+      <div class="cmd"><code id="cmd-save">…</code><button class="copy" data-for="cmd-save">Copy</button></div>
+      <div class="note">Exporting <b>GPUNET_PAIR</b> (add it to your shell profile) lets the installer and
+        <code style="font-size:11px">gpunet connect</code> re-pair unattended. Prefer the durable key in
+        <b>credentials.json</b> for long-running rigs — the token is only needed once.</div>
+    </div>
+
+    <div class="tokrow">
+      <span>token <b id="tok">—</b></span>
+      <span>expires <b id="exp">—</b></span>
+      <button class="remint" id="remint">re-mint ↻</button>
+    </div>
+  </div>
+
+  <p class="note muted">Want a private pool instead? <a href="/console#pools" style="color:var(--accent)">Create one in the console</a>
+     and pair with <code style="font-size:11px">gpunet connect --pool &lt;id&gt;</code>.</p>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+async function j(u,o={}){try{const r=await fetch(u,{credentials:'include',...o});return r.ok?await r.json():null}catch{return null}}
+
+// ── pool stats ──
+async function loadPool(){
+  const d=await j('/api/pools'); const ps=(d&&(d.pools||d))||[];
+  const g=ps.find(p=>p.slug==='global'&&p.visibility==='public')||ps.find(p=>p.visibility==='public');
+  if(!g) return;
+  $('#s-online').textContent=g.n_online??0;
+  $('#s-rigs').textContent=g.n_rigs??0;
+  $('#s-members').textContent=g.n_members??0;
+}
+
+// ── token mint → commands ──
+function wsURLfrom(deep){ // deep_link = scheme://pair?token=..&server=ws(s)://host/ws/agent
+  try{const u=new URL(deep);return u.searchParams.get('server')||''}catch{return ''}
+}
+async function mint(){
+  $('#cmd-install').textContent='…minting token…';
+  const d=await j('/api/pair',{method:'POST'});
+  if(!d||!d.token){$('#cmd-install').textContent='# sign in first → /auth';return}
+  const origin=location.origin;
+  const deep=d.deep_link;                 // distpool://pair?token=…&server=ws…
+  const ws=wsURLfrom(deep);
+  $('#cmd-install').textContent=`curl -fsSL ${origin}/install.sh | sh -s -- --pair "${deep}"`;
+  $('#cmd-connect').textContent=`gpunet-node --server "${ws}" --token ${d.token}`;
+  $('#cmd-save').textContent=`export GPUNET_PAIR="${deep}"`;
+  $('#tok').textContent=d.token;
+  const exp=new Date(d.expires_at*1000);
+  $('#exp').textContent=exp.toLocaleTimeString();
+}
+
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.copy'); if(!b)return;
+  const code=document.getElementById(b.dataset.for);
+  navigator.clipboard.writeText(code.textContent).then(()=>{
+    b.classList.add('ok');const o=b.textContent;b.textContent='Copied';
+    setTimeout(()=>{b.classList.remove('ok');b.textContent=o},1300);
+  }).catch(()=>{});
+});
+$('#remint').addEventListener('click',mint);
+
+loadPool(); mint();
+setInterval(loadPool,5000);
+</script>
+</body>
+</html>
