@@ -1,4 +1,4 @@
-module github.com/llama-distributed/server
+module github.com/gpunet/server
 
 go 1.25.0
 

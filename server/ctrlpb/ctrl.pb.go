@@ -1148,7 +1148,7 @@ const file_distpool_ctrl_v1_ctrl_proto_rawDesc = "" +
 	"\acommand\x18\x04 \x01(\v2\x19.distpool.ctrl.v1.CommandH\x00R\acommand\x124\n" +
 	"\x05other\x18\x05 \x01(\v2\x1c.distpool.ctrl.v1.OpaqueJSONH\x00R\x05otherB\x06\n" +
 	"\x04bodyB\xb6\x01\n" +
-	"\x14com.distpool.ctrl.v1B\tCtrlProtoP\x01Z1github.com/llama-distributed/server/ctrlpb;ctrlpb\xa2\x02\x03DCX\xaa\x02\x10Distpool.Ctrl.V1\xca\x02\x10Distpool\\Ctrl\\V1\xe2\x02\x1cDistpool\\Ctrl\\V1\\GPBMetadata\xea\x02\x12Distpool::Ctrl::V1b\x06proto3"
+	"\x14com.distpool.ctrl.v1B\tCtrlProtoP\x01Z1github.com/gpunet/server/ctrlpb;ctrlpb\xa2\x02\x03DCX\xaa\x02\x10Distpool.Ctrl.V1\xca\x02\x10Distpool\\Ctrl\\V1\xe2\x02\x1cDistpool\\Ctrl\\V1\\GPBMetadata\xea\x02\x12Distpool::Ctrl::V1b\x06proto3"
 
 var (
 	file_distpool_ctrl_v1_ctrl_proto_rawDescOnce sync.Once

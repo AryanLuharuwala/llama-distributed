@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Distpool — Control</title>
+<title>GPUnet — Control</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -639,7 +639,7 @@ table.t .center { text-align: center; }
 <div id="app">
   <div class="shell">
     <aside class="rail">
-      <div class="brand">Dist<em>p</em>ool</div>
+      <div class="brand">GPU<em>n</em>et</div>
       <div class="tag">Control · Plane</div>
       <nav id="nav">
         <a href="#identity"  data-jump="identity"><span class="n">01</span> Identity</a>
@@ -654,7 +654,7 @@ table.t .center { text-align: center; }
         <a href="/observatory" style="color:var(--ink-3)"><span class="n">→</span> Observatory</a>
       </nav>
       <div class="foot">
-        <b>Distpool</b><br>
+        <b>GPUnet</b><br>
         <span id="env-badge">local</span> · <span id="hostname">—</span>
         <div class="who" id="who-card" style="display:none;">
           <b id="who-name">—</b>
@@ -1082,7 +1082,7 @@ async function api(method, path, body) {
 function renderWall() {
   document.getElementById('app').innerHTML = `
     <div class="wall">
-      <div class="masthead">Dist<em>p</em>ool</div>
+      <div class="masthead">GPU<em>n</em>et</div>
       <div class="tag">Control · Plane</div>
       <p>You need to be signed in to manage the pool.</p>
       <a class="gobtn" href="/auth?next=/console">Sign in →</a>

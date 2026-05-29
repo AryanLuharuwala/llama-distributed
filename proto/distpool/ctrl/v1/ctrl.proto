@@ -23,7 +23,7 @@ syntax = "proto3";
 
 package distpool.ctrl.v1;
 
-option go_package = "github.com/llama-distributed/server/ctrlpb;ctrlpb";
+option go_package = "github.com/gpunet/server/ctrlpb;ctrlpb";
 
 // CachedShardEntry — one row of a rig's on-disk shard cache.
 message CachedShardEntry {

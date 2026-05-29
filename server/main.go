@@ -377,7 +377,33 @@ func runMigrationsWithRetry(db *sql.DB, d sqlDialect) error {
 	return nil
 }
 
+// bridgeEnvPrefixes mirrors GPUNET_* <-> DIST_* config vars in both
+// directions (when only one side is set). The project was renamed distpool ->
+// gpunet; this lets renamed GPUNET_* reads pick up legacy DIST_* config (e.g.
+// the live ACA deployment's existing env) and vice versa, so neither old
+// config nor new config breaks across the rename.
+func bridgeEnvPrefixes() {
+	for _, kv := range os.Environ() {
+		i := strings.IndexByte(kv, '=')
+		if i < 0 {
+			continue
+		}
+		k, v := kv[:i], kv[i+1:]
+		switch {
+		case strings.HasPrefix(k, "DIST_"):
+			if alt := "GPUNET_" + k[len("DIST_"):]; os.Getenv(alt) == "" {
+				_ = os.Setenv(alt, v)
+			}
+		case strings.HasPrefix(k, "GPUNET_"):
+			if alt := "DIST_" + k[len("GPUNET_"):]; os.Getenv(alt) == "" {
+				_ = os.Setenv(alt, v)
+			}
+		}
+	}
+}
+
 func main() {
+	bridgeEnvPrefixes()
 	cfg := loadConfig()
 
 	// OpenTelemetry SDK init (P2).  No-op when OTEL_EXPORTER_OTLP_ENDPOINT

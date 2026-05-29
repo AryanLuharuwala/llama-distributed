@@ -51,7 +51,7 @@ var (
 // not been configured (matches OTel's noop semantics — no error).
 func otelM() *otelInstruments {
 	otelInstOnce.Do(func() {
-		m := otel.Meter("github.com/llama-distributed/server")
+		m := otel.Meter("github.com/gpunet/server")
 		bag := &otelInstruments{}
 
 		var err error

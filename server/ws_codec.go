@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/coder/websocket"
-	ctrlpb "github.com/llama-distributed/server/ctrlpb"
+	ctrlpb "github.com/gpunet/server/ctrlpb"
 	"google.golang.org/protobuf/proto"
 )
 

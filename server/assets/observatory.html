@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Distpool — Observatory</title>
+<title>GPUnet — Observatory</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -400,7 +400,7 @@ table.t .right { text-align: right; }
 <div id="app">
   <div class="shell">
     <aside class="rail">
-      <div class="brand">Dist<em>p</em>ool</div>
+      <div class="brand">GPU<em>n</em>et</div>
       <div class="tag">Observatory</div>
       <nav id="nav">
         <a href="#vitals"   data-jump="vitals"><span class="n">01</span> Vital signs</a>
@@ -414,7 +414,7 @@ table.t .right { text-align: right; }
       </nav>
       <div class="live" id="live-badge"><span class="pulse"></span><span>Streaming · live</span></div>
       <div class="foot">
-        <b>Distpool</b><br>
+        <b>GPUnet</b><br>
         <span id="env-badge">local</span> · <span id="hostname">—</span>
         <div class="who" id="who-card" style="display:none;">
           <b id="who-name">—</b>
@@ -681,7 +681,7 @@ async function api(method, path) {
 function renderWall() {
   document.getElementById('app').innerHTML = `
     <div class="wall">
-      <div class="masthead">Dist<em>p</em>ool</div>
+      <div class="masthead">GPU<em>n</em>et</div>
       <div class="tag">Observatory</div>
       <p>Sign in to view telemetry.</p>
       <a class="gobtn" href="/auth?next=/observatory">Sign in →</a>

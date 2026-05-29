@@ -10,7 +10,7 @@ COPY *.go ./
 COPY assets ./assets
 COPY ctrlpb ./ctrlpb
 COPY migrations ./migrations
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o distpool-server .
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o gpunet-server .
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 # The custom llama-split-gguf tool lives in a fork of llama.cpp that isn't
@@ -22,19 +22,24 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates sqlite3 libgomp1 libstdc++6 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /build/distpool-server .
+COPY --from=builder /build/gpunet-server .
 
 # Data volume for SQLite DB, model shards, and release cache
 VOLUME ["/data"]
 
-ENV DIST_ADDR=:8080
-ENV DIST_DB=/data/distpool.sqlite
-ENV DIST_MODELS_DIR=/data/models
-ENV DIST_RELEASES_DIR=/data/releases-cache
-ENV DIST_SPLITTER=/data/bin/llama-split-gguf
+# gpunet rename: defaults use GPUNET_*; the server's bridgeEnvPrefixes() also
+# accepts legacy DIST_* (e.g. existing ACA app settings), so the live deploy
+# keeps working without re-keying its env.
+ENV GPUNET_ADDR=:8080
+# Keep the existing on-share DB filename so the live deploy's data is not
+# orphaned by the rename (the var name changes; the path value must not).
+ENV GPUNET_DB=/data/distpool.sqlite
+ENV GPUNET_MODELS_DIR=/data/models
+ENV GPUNET_RELEASES_DIR=/data/releases-cache
+ENV GPUNET_SPLITTER=/data/bin/llama-split-gguf
 ENV LD_LIBRARY_PATH=/data/bin
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -qO- http://localhost:8080/healthz || exit 1
 
-ENTRYPOINT ["./distpool-server"]
+ENTRYPOINT ["./gpunet-server"]
