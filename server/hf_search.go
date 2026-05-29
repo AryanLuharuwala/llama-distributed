@@ -30,6 +30,47 @@ type hfSearchRow struct {
 	Tags         []string `json:"tags,omitempty"`
 	Private      bool     `json:"private,omitempty"`
 	Gated        bool     `json:"gated,omitempty"`
+	// Supported reports whether one of our backends (llama.cpp / sd.cpp) can
+	// actually run this repo, so the UI can badge / filter the results the
+	// user can download-and-run today. Backend names the runner ("sdcpp",
+	// "llama", or "gguf" when the format is loadable but the family is
+	// ambiguous).
+	Supported bool   `json:"supported"`
+	Backend   string `json:"backend,omitempty"`
+}
+
+// hfBackendSupport classifies an HF repo against our runnable backends using
+// only the signals the search API returns (no per-file probing). It is a
+// hint, not a guarantee — the import job still inspects the actual files.
+func hfBackendSupport(id, pipelineTag, library string, tags []string) (bool, string) {
+	isGGUF := strings.EqualFold(library, "gguf")
+	for _, t := range tags {
+		if strings.EqualFold(t, "gguf") {
+			isGGUF = true
+			break
+		}
+	}
+	pt := strings.ToLower(strings.TrimSpace(pipelineTag))
+	imageish := pt == "text-to-image" || pt == "image-to-image" ||
+		pt == "text-to-video" || pt == "image-to-video"
+	textish := pt == "" || pt == "text-generation" ||
+		pt == "text2text-generation" || pt == "conversational"
+
+	// sd.cpp: an eligible diffusion family, as GGUF or as native weights, so
+	// long as the family isn't one sd.cpp explicitly can't run.
+	if isSdcppEligible(id) && (imageish || isGGUF) &&
+		!isSdcppUnsupportedFamily(sdcppFamilyForModel(id)) {
+		return true, "sdcpp"
+	}
+	// llama.cpp: GGUF text/chat models.
+	if isGGUF && textish {
+		return true, "llama"
+	}
+	// GGUF with an ambiguous/other pipeline — still a loadable container.
+	if isGGUF {
+		return true, "gguf"
+	}
+	return false, ""
 }
 
 // hfSearchUpstream is the subset of huggingface.co/api/models we use.
@@ -76,6 +117,10 @@ func (s *server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 	pipelineTag := strings.TrimSpace(r.URL.Query().Get("pipeline_tag"))
 	library := strings.TrimSpace(r.URL.Query().Get("library"))
 	tags := strings.TrimSpace(r.URL.Query().Get("tags"))
+	// supported=1 drops repos no backend can run, so the layman only sees
+	// download-and-run models.
+	supportedOnly := r.URL.Query().Get("supported") == "1" ||
+		r.URL.Query().Get("supported") == "true"
 
 	sort := strings.TrimSpace(r.URL.Query().Get("sort"))
 	switch sort {
@@ -186,6 +231,10 @@ func (s *server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		supported, backend := hfBackendSupport(r.ID, r.PipelineTag, r.LibraryName, r.Tags)
+		if supportedOnly && !supported {
+			continue
+		}
 		out = append(out, hfSearchRow{
 			ID:           r.ID,
 			Author:       r.Author,
@@ -197,6 +246,8 @@ func (s *server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 			Tags:         r.Tags,
 			Private:      r.Private,
 			Gated:        gated,
+			Supported:    supported,
+			Backend:      backend,
 		})
 	}
 
@@ -204,6 +255,7 @@ func (s *server) handleHFSearch(w http.ResponseWriter, r *http.Request) {
 		"query": map[string]any{
 			"q": q, "pipeline_tag": pipelineTag, "library": library,
 			"tags": tags, "sort": sort, "direction": direction, "limit": limit,
+			"supported": supportedOnly,
 		},
 		"results": out,
 	})

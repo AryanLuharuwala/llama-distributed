@@ -83,7 +83,8 @@ textarea{min-height:64px;resize:vertical}
       <label>Prompt</label>
       <textarea id="prompt">a small landscape, watercolour</textarea>
       <label>Negative</label><input type="text" id="negative" placeholder="(optional)">
-      <label>Checkpoint path (on each rig)</label><input type="text" id="model" placeholder="/models/sd/sd-v1-5-q4_0.gguf">
+      <label>Model</label><select id="model"></select>
+      <div class="hint" id="model-hint">Models your online rigs have cached. Need one? <a href="/home#models">Download from the dashboard →</a></div>
       <label>Pool</label><select id="pool"></select>
       <div class="row3"><div><label>Width</label><input type="number" id="width" value="512" step="64"></div>
         <div><label>Height</label><input type="number" id="height" value="512" step="64"></div>
@@ -123,7 +124,14 @@ function sync(){const n=+stages.value;$('#stages-v').textContent=n;$('#dist-sub'
 stages.addEventListener('input',sync);
 (async()=>{const me=await j('/api/me/rigs');const rigs=(me&&(me.rigs||me))||[];if(rigs.length>1)stages.max=Math.min(6,rigs.length);
   const pd=await j('/api/pools');const ps=(pd&&(pd.pools||pd))||[];
-  $('#pool').innerHTML=ps.length?ps.map(p=>`<option value="${p.id}">${p.name||('pool '+p.id)}</option>`).join(''):'<option value="0">(default)</option>';})();
+  $('#pool').innerHTML=ps.length?ps.map(p=>`<option value="${p.id}">${p.name||('pool '+p.id)}</option>`).join(''):'<option value="0">(default)</option>';
+  await loadModels();})();
+async function loadModels(){
+  const d=await j('/api/sdcpp/models');const ms=(d&&d.models)||[];const sel=$('#model');
+  if(!ms.length){sel.innerHTML='<option value="">— no cached models on online rigs —</option>';
+    $('#model-hint').innerHTML='Your rigs haven\'t advertised any sd.cpp models yet. <a href="/home#models">Download one from the dashboard →</a>';return}
+  sel.innerHTML=ms.map(m=>{const n=(m.on_rigs||[]).length;return `<option value="${m.name}">${m.name} · on ${n} rig${n===1?'':'s'}</option>`}).join('');
+  $('#model-hint').innerHTML='Picked from your rigs\' cache — the host resolves each rig\'s local path automatically. Need another? <a href="/home#models">Download →</a>';}
 let poll=null;
 async function tick(id,n){const d=await j('/api/comfy/jobs/'+id);if(!d)return;
   if(d.status==='running'){render(n,Math.floor(Date.now()/700)%n);$('#phase').textContent='running';$('#barfill').style.width='66%'}
@@ -131,8 +139,8 @@ async function tick(id,n){const d=await j('/api/comfy/jobs/'+id);if(!d)return;
     if(d.out_urls&&d.out_urls[0])$('#preview').innerHTML=`<img src="${d.out_urls[0]}">`;$('#go').disabled=false}
   else if(d.status==='error'||d.status==='failed'){clearInterval(poll);$('#phase').textContent='failed';$('#err').textContent=d.error||'failed';$('#go').disabled=false;$('#barfill').style.width='0'}}
 $('#gen-form').addEventListener('submit',async e=>{e.preventDefault();$('#err').textContent='';const n=+stages.value;
-  const model=$('#model').value.trim();if(!model){$('#err').textContent='checkpoint path required';return}
-  const body={prompt:$('#prompt').value,backend:'sdcpp',pool_id:+($('#pool').value||0),sdcpp_model_path:model,unet_stages:n,
+  const model=$('#model').value.trim();if(!model){$('#err').textContent='pick a model — your rigs haven\'t cached any yet';return}
+  const body={prompt:$('#prompt').value,backend:'sdcpp',pool_id:+($('#pool').value||0),model:model,unet_stages:n,
     params:JSON.stringify({steps:+$('#steps').value,cfg:+$('#cfg').value,width:+$('#width').value,height:+$('#height').value,seed:+$('#seed').value,negative_prompt:$('#negative').value})};
   $('#go').disabled=true;$('#phase').textContent='queued';$('#barfill').style.width='15%';$('#preview').innerHTML='<span class="e">generating…</span>';render(n,-1);
   const r=await fetch('/api/comfy/generate',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
