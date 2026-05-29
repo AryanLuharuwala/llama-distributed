@@ -1214,7 +1214,8 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if kind == "sdcpp_progress" || kind == "sdcpp_role_done" ||
-				kind == "sdcpp_done" || kind == "sdcpp_error" {
+				kind == "sdcpp_done" || kind == "sdcpp_error" ||
+				kind == "sdcpp_need_denoise" {
 				// Route the frame into the per-req_id channel owned by
 				// the runSdcppComfyJob goroutine.  Stale frames (job
 				// already errored / unsubscribed) are silently dropped.

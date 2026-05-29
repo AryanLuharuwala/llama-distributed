@@ -126,14 +126,14 @@ def main() -> int:
                 eps_b64 = _run_block_chain(chain, total, ranges, sdcd_b64,
                                            msg["x_b64"], float(msg["t"]))
                 _send(host, {"cmd": "sdr_denoise_result", "req_id": 1, "eps_b64": eps_b64})
-            elif kind == "sdcpp_role_done" and msg.get("role") == "generate":
-                img = sc.sdt_decode(base64.b64decode(msg["frame_b64"]))
-                nbytes = img.expected_nbytes()
-                nonzero = sum(1 for b in img.data[:min(nbytes, 8192)] if b != 0)
-                mean = sum(img.data[:min(nbytes, 65536)]) / max(1, min(nbytes, 65536))
-                print(f"[remote] DONE image dims={img.dims} evals={n_evals} "
-                      f"nonzero_head={nonzero} mean_u8={mean:.1f}")
-                ok = (nonzero > 0 and 1.0 < mean < 254.0)
+            elif kind == "sdcpp_done":
+                png = base64.b64decode(msg.get("png_b64", ""))
+                is_png = png[:8] == b"\x89PNG\r\n\x1a\n"
+                print(f"[remote] DONE png bytes={len(png)} png_magic={is_png} evals={n_evals}")
+                ok = (len(png) > 1000 and is_png)
+                if ok:
+                    open("/tmp/sdcpp_remote_nway.png", "wb").write(png)
+                    print("[remote] wrote /tmp/sdcpp_remote_nway.png")
                 print("[remote] RESULT:", "PASS" if ok else "FAIL")
                 return 0 if ok else 1
             elif kind == "sdcpp_error":

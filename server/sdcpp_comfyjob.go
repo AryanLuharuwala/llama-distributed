@@ -145,6 +145,28 @@ func (s *server) executeSdcppInference(ctx context.Context, userID int64, body s
 		plannerName = body.Model
 	}
 
+	// CF12-W7: N-way distributed UNet (remote-denoise). Needs a host rig
+	// (full pipeline) + >=2 unet_blocks rigs distinct from it. Falls through
+	// to the classic role chain / full path when not satisfiable.
+	if body.UnetStages > 1 {
+		if host, ok := s.planSdcppFull(ctx, userID, plannerName); ok {
+			// 4096 is a placeholder total just to satisfy the partitioner —
+			// we only use the picked agents; the real block_total comes from
+			// the host's need_denoise frames at run time.
+			ranges := s.planSdcppUnetSplit(ctx, userID, 4096, body.UnetStages)
+			var blockRigs []sdcppRoleAgent
+			for _, r := range ranges {
+				if r.Agent.AgentID != host.AgentID {
+					blockRigs = append(blockRigs, r.Agent)
+				}
+			}
+			if len(blockRigs) >= 2 {
+				return s.runSdcppUnetSplit(ctx, reqID, ch, host, blockRigs, body)
+			}
+		}
+		// not enough rigs for the requested split — fall back below.
+	}
+
 	chain := s.planSdcppRoleChain(ctx, userID, plannerName)
 	if chain != nil {
 		return s.runSdcppRoleChain(ctx, reqID, ch, chain, body)

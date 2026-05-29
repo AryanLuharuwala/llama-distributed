@@ -30,19 +30,28 @@ const (
 	sdcppResultRoleDone
 	sdcppResultDone
 	sdcppResultError
+	// CF12-W7: the host sampler needs a UNet eval — the coordinator drives
+	// the N-way block chain and replies with sdr_denoise_result.
+	sdcppResultNeedDenoise
 )
 
 // sdcppResultMsg is the normalised event delivered to the per-req_id
 // subscriber. Only the fields relevant to Kind are populated.
 type sdcppResultMsg struct {
-	Kind    sdcppResultKind
-	Role    string // role_done: which role completed
+	Kind     sdcppResultKind
+	Role     string // role_done: which role completed
 	FrameB64 string // role_done: TE cond / UNet latent payload
-	PNGB64  string // done: final image
-	ErrMsg  string // error
-	Step    int    // progress
-	Steps   int    // progress
-	AgentID string // provenance — useful for error reporting
+	PNGB64   string // done: final image
+	ErrMsg   string // error
+	Step     int    // progress
+	Steps    int    // progress
+	AgentID  string // provenance — useful for error reporting
+	// need_denoise (CF12-W7): the host's per-step UNet eval request.
+	NeedT      float64 // UNet timestep
+	NeedXB64   string  // scaled latent x_in (SDT)
+	NeedCtxB64 string  // c_crossattn (SDT)
+	NeedYB64   string  // c_vector / pooled (SDT; empty if absent)
+	BlockTotal int     // real linearized UNet block count (model-dependent)
 }
 
 // sdcppResultDispatcher routes inbound sd.cpp frames into per-req_id
@@ -126,6 +135,15 @@ func (s *server) ingestSdcppFrame(agentID string, kind string, msg map[string]an
 	case "sdcpp_done":
 		out.Kind = sdcppResultDone
 		out.PNGB64, _ = msg["png_b64"].(string)
+	case "sdcpp_need_denoise":
+		out.Kind = sdcppResultNeedDenoise
+		out.NeedT, _ = msg["t"].(float64)
+		out.NeedXB64, _ = msg["x_b64"].(string)
+		out.NeedCtxB64, _ = msg["ctx_b64"].(string)
+		out.NeedYB64, _ = msg["y_b64"].(string)
+		if v, ok := msg["block_total"].(float64); ok {
+			out.BlockTotal = int(v)
+		}
 	case "sdcpp_error":
 		out.Kind = sdcppResultError
 		if v, ok := msg["error"].(string); ok && v != "" {

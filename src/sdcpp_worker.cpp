@@ -570,7 +570,7 @@ static std::string sdt_b64_from(const float* d, const int64_t* ne, int ndim) {
     return b64encode(enc.data(), enc.size());
 }
 
-struct RemoteDenoiseCtx { int req_id; };
+struct RemoteDenoiseCtx { int req_id; int block_total; };
 
 // Matches sd_remote_unet_cb_t. Emits sdcpp_need_denoise to the coordinator and
 // blocks for sdr_denoise_result (the eps from the N-way block chain).
@@ -588,8 +588,9 @@ extern "C" int worker_remote_unet_cb(
 
     std::fprintf(stdout,
                  "{\"kind\":\"sdcpp_need_denoise\",\"req_id\":%d,\"t\":%.9g,"
+                 "\"block_total\":%d,"
                  "\"x_b64\":\"%s\",\"ctx_b64\":\"%s\",\"y_b64\":\"%s\"}\n",
-                 rdc->req_id, static_cast<double>(timestep),
+                 rdc->req_id, static_cast<double>(timestep), rdc->block_total,
                  x_b64.c_str(), ctx_b64.c_str(), y_b64.c_str());
     std::fflush(stdout);
 
@@ -637,7 +638,7 @@ void handle_role_generate_remote(DaemonState& st, const std::string& line) {
         return;
     }
 
-    RemoteDenoiseCtx rdc{ req_id };
+    RemoteDenoiseCtx rdc{ req_id, sd_unet_block_count(st.ctx) };
     sd_set_remote_unet_cb(st.ctx, worker_remote_unet_cb, &rdc);
 
     sd_img_gen_params_t gen;
@@ -658,18 +659,22 @@ void handle_role_generate_remote(DaemonState& st, const std::string& line) {
     sd_set_remote_unet_cb(st.ctx, nullptr, nullptr);  // clear before returning
     if (!result) { emit_error(req_id, "generate_image (remote) returned NULL"); return; }
 
-    dist::SdtTensor img;
-    img.dtype = dist::SdtDType::U8;
-    img.dims  = {1, (uint32_t)result->height, (uint32_t)result->width, (uint32_t)result->channel};
-    size_t n  = (size_t)result->height * (size_t)result->width * (size_t)result->channel;
-    img.data.assign(result->data, result->data + n);
+    // PNG-encode in-memory so the coordinator gets the terminal sdcpp_done
+    // frame (same shape as the role-chain VAE hop) — no extra decode hop.
+    std::vector<uint8_t> png;
+    stbi_write_png_to_func(
+        [](void* c, void* data, int size) {
+            auto* v = static_cast<std::vector<uint8_t>*>(c);
+            v->insert(v->end(), (uint8_t*)data, (uint8_t*)data + size);
+        },
+        &png, (int)result->width, (int)result->height, (int)result->channel,
+        result->data, (int)(result->width * result->channel));
     if (result->data) std::free(result->data);
     std::free(result);
-
-    std::vector<uint8_t> enc;
-    std::string err;
-    if (!dist::sdt_encode(img, enc, err)) { emit_error(req_id, "generate_remote sdt_encode"); return; }
-    emit_role_done(req_id, "generate", enc);
+    if (png.empty()) { emit_error(req_id, "generate_remote png encode failed"); return; }
+    std::fprintf(stdout, "{\"kind\":\"sdcpp_done\",\"req_id\":%d,\"png_b64\":\"%s\"}\n",
+                 req_id, b64encode(png.data(), png.size()).c_str());
+    std::fflush(stdout);
 }
 
 int daemon_loop() {
