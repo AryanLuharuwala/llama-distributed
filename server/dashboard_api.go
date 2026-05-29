@@ -737,6 +737,23 @@ func (s *server) handlePlaygroundPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(playgroundHTML)
 }
 
+//go:embed assets/studio.html
+var studioHTML []byte
+
+// /studio — distributed image-gen workbench. Surfaces the N-way UNet split:
+// prompt/size/steps + a "distribute across N rigs" control, a live pipeline
+// view (host + block rigs), and the generated image. Posts to
+// /api/comfy/generate with backend=sdcpp + unet_stages and polls the job.
+func (s *server) handleStudioPage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.userFromRequest(r); !ok {
+		http.Redirect(w, r, "/auth?next=/studio", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(studioHTML)
+}
+
 //go:embed assets/nexus.html
 var nexusHTML []byte
 

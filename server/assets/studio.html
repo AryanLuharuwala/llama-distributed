@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPUnet — Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#fbfaf6; --paper-2:#f4f2ec; --surface:#fff; --ink:#1a1a14; --ink-2:#54544a;
+  --ink-3:#8c8c82; --ink-4:#b8b8ac; --rule:rgba(26,26,20,.08); --rule-strong:rgba(26,26,20,.18);
+  --accent:#7a2c2c; --accent-soft:#f1e2e2; --ok:#2f5a3a; --warn:#8c6a1c;
+  --display:'Instrument Serif','Iowan Old Style',Cambria,serif;
+  --body:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  --mono:'IBM Plex Mono',Menlo,monospace; --rail-w:232px; --grid-w:1320px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink)}
+body{font-family:var(--body);font-size:16px;line-height:1.55;font-feature-settings:'tnum' 1;min-height:100vh;-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:1;background-image:radial-gradient(rgba(26,26,20,.025) 1px,transparent 1px);background-size:3px 3px;opacity:.35;mix-blend-mode:multiply}
+a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
+a:hover{border-bottom-color:var(--ink)}
+button,input,select,textarea{font-family:inherit;font-size:inherit}
+.shell{display:grid;grid-template-columns:var(--rail-w) 1fr;min-height:100vh;max-width:var(--grid-w);margin:0 auto;position:relative;z-index:2}
+.rail{border-right:1px solid var(--rule);padding:36px 26px 28px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
+.brand{font-family:var(--display);font-size:32px;letter-spacing:.005em;line-height:1;margin-bottom:4px}
+.brand em{font-style:italic;color:var(--accent);font-weight:400}
+.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.rail nav{margin-top:44px;display:flex;flex-direction:column;gap:2px}
+.rail nav a{border:none;padding:8px 0;font-size:14.5px;color:var(--ink-2);display:flex;gap:10px;align-items:baseline}
+.rail nav a .n{font-family:var(--mono);font-size:10.5px;color:var(--ink-4);min-width:18px}
+.rail nav a:hover,.rail nav a.active{color:var(--ink)}
+.rail nav a.active{position:relative}
+.rail nav a.active::before{content:'';position:absolute;left:-26px;top:50%;transform:translateY(-50%);width:3px;height:16px;background:var(--accent)}
+.rail .foot{margin-top:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);line-height:1.7}
+.canvas{padding:36px 48px 80px;min-width:0}
+.strip{display:flex;align-items:baseline;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--rule);margin-bottom:28px}
+.strip .lede{font-family:var(--display);font-size:46px;line-height:1;letter-spacing:-.005em}
+.strip .lede em{font-style:italic;color:var(--accent)}
+.strip .meta{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);text-align:right}
+.work{display:grid;grid-template-columns:380px 1fr;gap:28px;align-items:start}
+@media(max-width:1100px){.work{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--rule-strong);padding:22px 24px}
+.card h3{font-family:var(--display);font-weight:400;font-size:24px;margin-bottom:16px}
+label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 6px}
+input[type=text],input[type=number],textarea,select{width:100%;background:var(--paper-2);border:1px solid var(--rule-strong);padding:10px 12px;font-family:var(--body);font-size:14.5px;color:var(--ink);outline:none}
+textarea{min-height:72px;resize:vertical}
+input:focus,textarea:focus,select:focus{border-color:var(--ink);background:var(--surface)}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* distribute control */
+.dist{margin-top:18px;padding:16px;border:1px solid var(--accent-soft);background:linear-gradient(0deg,var(--paper-2),var(--surface))}
+.dist .hd{display:flex;justify-content:space-between;align-items:baseline}
+.dist .hd .t{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.dist .hd .v{font-family:var(--display);font-size:30px;line-height:1}
+.dist .hd .v em{font-style:italic;color:var(--accent)}
+.dist input[type=range]{width:100%;margin-top:10px;accent-color:var(--accent)}
+.dist .sub{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:8px;letter-spacing:.03em}
+.go{margin-top:18px;width:100%;background:var(--ink);color:var(--paper);border:1px solid var(--ink);padding:13px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+.go:hover{background:var(--accent);border-color:var(--accent)}
+.go[disabled]{opacity:.5;cursor:not-allowed}
+/* pipeline */
+.pipe{margin-bottom:20px}
+.pipe .stages{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-top:14px}
+.node{flex:1;min-width:96px;border:1px solid var(--rule-strong);background:var(--surface);padding:12px 14px;position:relative;transition:border-color .2s,background .2s}
+.node .role{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.node .rng{font-family:var(--mono);font-size:13px;color:var(--ink);margin-top:4px}
+.node .rig{font-size:12px;color:var(--ink-2);margin-top:2px}
+.node.host{border-color:var(--ink)}
+.node.live{border-color:var(--accent);background:var(--accent-soft)}
+.node .dot{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--ink-4)}
+.node.live .dot{background:var(--accent);box-shadow:0 0 0 0 rgba(122,44,44,.5);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(122,44,44,.4)}70%{box-shadow:0 0 0 7px rgba(122,44,44,0)}100%{box-shadow:0 0 0 0 rgba(122,44,44,0)}}
+.statusbar{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--ink-2);margin-top:14px;display:flex;justify-content:space-between}
+.statusbar .ph{text-transform:uppercase}
+.bar{height:3px;background:var(--rule);margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s}
+.preview{margin-top:20px;border:1px solid var(--rule);background:var(--paper-2);min-height:320px;display:flex;align-items:center;justify-content:center}
+.preview img{max-width:100%;display:block}
+.preview .empty{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase}
+.err{color:var(--accent);font-family:var(--mono);font-size:12px;margin-top:10px}
+.hint{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand">GPU<em>n</em>et</div>
+    <div class="tag">Studio · distributed gen</div>
+    <nav>
+      <a href="/studio" class="active"><span class="n">→</span> Studio</a>
+      <a href="/console"><span class="n">·</span> Console</a>
+      <a href="/nexus"><span class="n">·</span> Operations</a>
+      <a href="/playground"><span class="n">·</span> Playground</a>
+    </nav>
+    <div class="foot">
+      <div><b style="color:var(--ink-2)">RIGS</b> <span id="f-rigs">—</span> online</div>
+      <div style="margin-top:6px"><b style="color:var(--ink-2)">SPLIT-CAPABLE</b> <span id="f-blocks">—</span></div>
+    </div>
+  </aside>
+
+  <main class="canvas">
+    <div class="strip">
+      <div class="lede">Distributed <em>image</em> synthesis</div>
+      <div class="meta"><div>sd.cpp · N-way UNet</div><div id="m-clock">--:--</div></div>
+    </div>
+
+    <div class="work">
+      <!-- ── controls ── -->
+      <form class="card" id="gen-form">
+        <h3>Compose</h3>
+        <label>Prompt</label>
+        <textarea id="prompt" placeholder="a small landscape, watercolour">a small landscape, watercolour</textarea>
+        <label>Negative</label>
+        <input type="text" id="negative" placeholder="(optional)">
+        <label>Checkpoint path (on each rig)</label>
+        <input type="text" id="model" placeholder="/models/sd/sd-v1-5-q4_0.gguf">
+        <label>Pool</label>
+        <select id="pool"></select>
+        <div class="row3">
+          <div><label>Width</label><input type="number" id="width" value="512" step="64" min="128"></div>
+          <div><label>Height</label><input type="number" id="height" value="512" step="64" min="128"></div>
+          <div><label>Steps</label><input type="number" id="steps" value="20" min="1" max="150"></div>
+        </div>
+        <div class="row2">
+          <div><label>CFG</label><input type="number" id="cfg" value="5.0" step="0.5" min="0"></div>
+          <div><label>Seed</label><input type="number" id="seed" value="1234"></div>
+        </div>
+
+        <div class="dist">
+          <div class="hd">
+            <span class="t">Distribute UNet</span>
+            <span class="v"><em id="stages-v">3</em> rigs</span>
+          </div>
+          <input type="range" id="stages" min="1" max="6" value="3">
+          <div class="sub" id="dist-sub">UNet split across 3 rigs · ~6%/step fp16 boundary</div>
+        </div>
+
+        <button type="submit" class="go" id="go">Generate</button>
+        <div class="err" id="err"></div>
+        <div class="hint">1 rig = whole UNet on one rig. &gt;1 = the UNet is sliced across N "unet_blocks" rigs while a host rig runs the sampler + VAE.</div>
+      </form>
+
+      <!-- ── pipeline + preview ── -->
+      <div>
+        <div class="card pipe">
+          <h3>Pipeline</h3>
+          <div class="stages" id="stages-view"></div>
+          <div class="statusbar"><span class="ph" id="phase">idle</span><span id="stepc"></span></div>
+          <div class="bar"><i id="barfill"></i></div>
+        </div>
+        <div class="preview" id="preview"><span class="empty">no image yet</span></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+async function j(u,o={}){try{const r=await fetch(u,{credentials:'include',...o});return r.ok?await r.json():null}catch{return null}}
+function tick(){const d=new Date();$('#m-clock').textContent=String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')}
+setInterval(tick,1000);tick();
+
+let blockRigs=1;
+function partition(total,n){const o=[];let b=Math.floor(total/n),e=total%n,c=0;for(let i=0;i<n;i++){let s=b+(i<e?1:0);o.push([c,c+s]);c+=s}return o}
+// SD1.5=25; we don't know block_total until run, so show a representative split.
+function renderStages(n,liveIdx){
+  const total=25, ranges=partition(total,n), v=$('#stages-view');
+  let html=`<div class="node host"><span class="dot"></span><div class="role">TE · host</div><div class="rng">encode</div><div class="rig">sampler+VAE</div></div>`;
+  for(let i=0;i<n;i++){
+    const live = liveIdx===i ? ' live':'';
+    html+=`<div class="node${live}"><span class="dot"></span><div class="role">UNet stage ${i+1}</div><div class="rng">[${ranges[i][0]}–${ranges[i][1]})</div><div class="rig">rig ${i+1}</div></div>`;
+  }
+  html+=`<div class="node host"><span class="dot"></span><div class="role">VAE · host</div><div class="rng">decode</div><div class="rig">→ image</div></div>`;
+  v.innerHTML=html;
+}
+const stages=$('#stages'), stagesV=$('#stages-v'), distSub=$('#dist-sub');
+function syncStages(){
+  const n=+stages.value; stagesV.textContent=n;
+  distSub.textContent = n===1 ? 'whole UNet on one rig (no split)'
+    : `UNet split across ${n} rigs · ~6%/step fp16 boundary`;
+  renderStages(n,-1);
+}
+stages.addEventListener('input',syncStages);
+
+async function loadCtx(){
+  const me=await j('/api/me/rigs');
+  const rigs=(me&&(me.rigs||me))||[];
+  const online=rigs.filter(r=>r.online||r.status==='online').length;
+  $('#f-rigs').textContent=online;
+  $('#f-blocks').textContent=rigs.length? rigs.length+' rigs':'—';
+  if(rigs.length>1) stages.max=Math.min(6,rigs.length);
+  const pools=await j('/api/me/pools');
+  const ps=(pools&&(pools.pools||pools))||[];
+  const sel=$('#pool');
+  sel.innerHTML = ps.length? ps.map(p=>`<option value="${p.id}">${(p.name||('pool '+p.id))}</option>`).join('')
+    : '<option value="0">(default)</option>';
+}
+
+let polling=null;
+async function poll(jobID,n){
+  const d=await j('/api/comfy/jobs/'+jobID);
+  if(!d){return}
+  if(d.status==='running'){
+    // animate stage liveness round-robin as a visual proxy for per-step work
+    const k=Math.floor(Date.now()/700)%n; renderStages(n,k);
+    $('#phase').textContent='running'; $('#barfill').style.width='66%';
+  }else if(d.status==='done'){
+    clearInterval(polling); renderStages(n,-1);
+    $('#phase').textContent='done'; $('#barfill').style.width='100%'; $('#stepc').textContent='';
+    if(d.out_urls&&d.out_urls[0]){$('#preview').innerHTML=`<img src="${d.out_urls[0]}" alt="result">`}
+    $('#go').disabled=false;
+  }else if(d.status==='error'||d.status==='failed'){
+    clearInterval(polling); $('#phase').textContent='failed';
+    $('#err').textContent=d.error||'generation failed'; $('#go').disabled=false; $('#barfill').style.width='0';
+  }
+}
+
+$('#gen-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  $('#err').textContent='';
+  const n=+stages.value;
+  const body={
+    prompt:$('#prompt').value, backend:'sdcpp',
+    pool_id:+($('#pool').value||0),
+    sdcpp_model_path:$('#model').value.trim(),
+    unet_stages:n,
+    params:JSON.stringify({
+      steps:+$('#steps').value, cfg:+$('#cfg').value,
+      width:+$('#width').value, height:+$('#height').value,
+      seed:+$('#seed').value, negative_prompt:$('#negative').value
+    })
+  };
+  if(!body.sdcpp_model_path){$('#err').textContent='checkpoint path required';return}
+  $('#go').disabled=true; $('#phase').textContent='queued'; $('#barfill').style.width='15%';
+  $('#preview').innerHTML='<span class="empty">generating…</span>';
+  renderStages(n,-1);
+  const r=await fetch('/api/comfy/generate',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>null);
+  if(!r.ok||!d||!d.job_id){$('#err').textContent=(d&&d.error)||('generate failed ('+r.status+')');$('#go').disabled=false;$('#barfill').style.width='0';return}
+  if(polling)clearInterval(polling);
+  polling=setInterval(()=>poll(d.job_id,n),900);
+});
+
+syncStages(); loadCtx();
+</script>
+</body>
+</html>

@@ -367,6 +367,7 @@ func (s *server) router() http.Handler {
 	mux.HandleFunc("GET /console", s.handleConsolePage)
 	mux.HandleFunc("GET /observatory", s.handleObservatoryPage)
 	mux.HandleFunc("GET /nexus", s.handleNexusPage)
+	mux.HandleFunc("GET /studio", s.handleStudioPage)
 	mux.HandleFunc("GET /playground", s.handlePlaygroundPage)
 
 	// RAG control plane.
