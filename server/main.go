@@ -512,6 +512,10 @@ func main() {
 	srv := newServer(cfg, db)
 	srv.dialect = dialect
 
+	// Bootstrap the open Global Public Pool so a newcomer can contribute a
+	// GPU with zero pool setup (install -> login -> connect auto-attaches).
+	srv.ensureGlobalPool()
+
 	// P11: enable BigQuery analytics sink when DIST_BQ_* is configured.
 	// Absent any env, the nopAnalyticsSink default leaves behaviour
 	// identical to a non-cloud deploy.

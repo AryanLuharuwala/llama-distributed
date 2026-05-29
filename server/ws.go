@@ -956,6 +956,12 @@ func (s *server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Limbo-killer: if this rig isn't in ANY pool after the token-driven
+	// attach above (the common newcomer case — no pre-selected pool), drop it
+	// into the open Global Public Pool so it actually serves traffic. No-op
+	// once the rig belongs to any pool, so manual pool choices stick.
+	s.attachRigToGlobalIfOrphan(uid, hello.AgentID)
+
 	// Fetch display name for welcome.
 	var displayName string
 	_ = s.dbQueryRow(`SELECT display_name FROM users WHERE id = ?`, uid).
