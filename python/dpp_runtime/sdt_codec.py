@@ -195,3 +195,18 @@ def sdcd_decode(buf: bytes) -> SdcdFrame:
         off = end
 
     return frame
+
+
+def partition_blocks(total, stages):
+    """Even contiguous partition of [0, total) into `stages` ranges, front-
+    loading the remainder. Single source of truth shared by the N-way split
+    tests/validators (mirrors the Go partitionUNetBlocks + the C++ schedule).
+    Returns [(lo, hi), ...] or [] for invalid inputs."""
+    if stages < 1 or total < stages:
+        return []
+    base, extra, cursor, out = total // stages, total % stages, 0, []
+    for i in range(stages):
+        size = base + (1 if i < extra else 0)
+        out.append((cursor, cursor + size))
+        cursor += size
+    return out

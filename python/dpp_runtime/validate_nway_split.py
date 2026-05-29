@@ -35,6 +35,8 @@ import sys
 from dpp_runtime.test_sdcpp_daemon import Daemon
 from dpp_runtime import sdt_codec as sc
 
+_partition = sc.partition_blocks  # shared block partitioner
+
 
 def _encode_step_x_frame(x_dims, *, step_idx, timestep, fill="randn", seed=7):
     """sdcpp_step_x frame. fill='randn' uses a seeded ~N(0,1) latent (a
@@ -63,15 +65,6 @@ WORKER = os.environ.get("DIST_SDCPP_WORKER") or os.environ.get("DIST_SDCPP_WORKE
 MODEL = os.environ.get("DIST_SDCPP_MODEL") or os.environ.get("DIST_SDCPP_MODEL_SD15")
 TOL = float(os.environ.get("DIST_SDCPP_NWAY_TOL", "1e-3"))
 
-
-def _partition(total: int, stages: int):
-    base, extra = divmod(total, stages)
-    out, cursor = [], 0
-    for i in range(stages):
-        size = base + (1 if i < extra else 0)
-        out.append((cursor, cursor + size))
-        cursor += size
-    return out
 
 
 def _floats(sdt) -> list:

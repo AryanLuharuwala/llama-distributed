@@ -65,21 +65,18 @@ func sdcdWrap(kv [][2]string, tensors []sdcdTensor) []byte {
 	return b.Bytes()
 }
 
-// partitionBlocks splits [0,total) into `stages` contiguous ranges, front-
-// loading the remainder (matches partitionUNetBlocks / the worker schedule).
+// partitionBlocks splits [0,total) into `stages` contiguous ranges. Thin
+// adapter over partitionUNetBlocks (dpp_unet_split.go) — the single source of
+// truth for the even/front-loaded block partition — returning the [lo,hi]
+// pairs this coordinator works in.
 func partitionBlocks(total, stages int) [][2]int {
-	if total < stages || stages < 1 {
+	rngs := partitionUNetBlocks(total, stages)
+	if rngs == nil {
 		return nil
 	}
-	out := make([][2]int, 0, stages)
-	base, extra, cursor := total/stages, total%stages, 0
-	for i := 0; i < stages; i++ {
-		size := base
-		if i < extra {
-			size++
-		}
-		out = append(out, [2]int{cursor, cursor + size})
-		cursor += size
+	out := make([][2]int, len(rngs))
+	for i, r := range rngs {
+		out[i] = [2]int{r.Lo, r.Hi}
 	}
 	return out
 }

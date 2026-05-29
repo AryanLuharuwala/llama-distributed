@@ -34,6 +34,8 @@ from dpp_runtime.test_sdcpp_daemon import Daemon, WORKER_BIN
 from dpp_runtime.test_sdcpp_wire import _encode_step_x_frame
 from dpp_runtime import sdt_codec as sc
 
+_partition = sc.partition_blocks  # shared block partitioner
+
 
 REMOTE_HOST  = os.environ.get("DIST_SDCPP_2RIG")
 REMOTE_BIN   = os.environ.get("DIST_SDCPP_REMOTE_BIN")
@@ -202,20 +204,6 @@ def test_2rig_half_split_real_checkpoint():
         try:    local .close()
         except: pass
 
-
-def _partition(total: int, stages: int):
-    """Even contiguous partition of [0, total) into `stages` ranges.
-
-    Mirrors server/dpp_unet_split.go partitionUNetBlocks — front-loads the
-    remainder so the first stage owns conv_in. Returns [(lo, hi), ...].
-    """
-    base, extra = divmod(total, stages)
-    out, cursor = [], 0
-    for i in range(stages):
-        size = base + (1 if i < extra else 0)
-        out.append((cursor, cursor + size))
-        cursor += size
-    return out
 
 
 @need_2rig

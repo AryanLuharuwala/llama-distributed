@@ -33,21 +33,14 @@ import sys
 from dpp_runtime.test_sdcpp_daemon import Daemon
 from dpp_runtime import sdt_codec as sc
 
+_partition = sc.partition_blocks  # shared block partitioner
+
 WORKER = os.environ.get("DIST_SDCPP_WORKER") or os.environ.get("DIST_SDCPP_WORKER_BIN")
 MODEL = os.environ.get("DIST_SDCPP_MODEL") or os.environ.get("DIST_SDCPP_MODEL_SD15")
 STAGES = int(os.environ.get("DIST_SDCPP_STAGES", "3"))
 STEPS = int(os.environ.get("DIST_SDCPP_STEPS", "3"))
 DIM = int(os.environ.get("DIST_SDCPP_DIM", "256"))
 
-
-def _partition(total, stages):
-    base, extra = divmod(total, stages)
-    out, cursor = [], 0
-    for i in range(stages):
-        size = base + (1 if i < extra else 0)
-        out.append((cursor, cursor + size))
-        cursor += size
-    return out
 
 
 def _send(d, obj):
