@@ -155,9 +155,26 @@ main{padding:34px 0 80px}
         </div>
       </div>
       <div class="card">
-        <div class="hd"><h2>Your pools</h2><a class="act" href="/console#pools">Manage →</a></div>
+        <div class="hd"><h2>Your pools</h2><a class="act" href="#" id="newpool-link">+ New pool</a></div>
         <div class="bd" id="pools"><div class="empty">loading…</div></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Models: download (HuggingFace) + loaded registry -->
+  <div class="card" style="margin-top:16px">
+    <div class="hd"><h2>Models</h2><span style="font-size:12.5px;color:var(--faint)">download from HuggingFace · load into a pool</span></div>
+    <div class="bd pad">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:2;min-width:220px"><label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:6px">HuggingFace repo</label>
+          <input id="hf-repo" type="text" placeholder="e.g. TheBloke/Llama-2-7B-Chat-GGUF" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px;outline:none"></div>
+        <div style="flex:1;min-width:120px"><label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:6px">Convert quant <span style="color:var(--faint);font-weight:400">(non-GGUF)</span></label>
+          <select id="hf-quant" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px"><option value="">none (GGUF repo)</option><option value="q4_k_m">q4_k_m</option><option value="q8_0">q8_0</option><option value="f16">f16</option></select></div>
+        <button class="btn primary" id="hf-go" style="padding:10px 18px">Download</button>
+      </div>
+      <div id="hf-jobs" style="margin-top:6px"></div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--muted);margin:18px 0 8px">Loaded models</div>
+      <div id="models"><div class="empty" style="padding:18px">no models yet — download one above</div></div>
     </div>
   </div>
 
@@ -190,6 +207,27 @@ main{padding:34px 0 80px}
     <div class="tok"><span>token <b id="tok">—</b></span><span>expires <b id="exp">—</b></span><button class="remint" id="remint">re-mint ↻</button></div>
   </div>
 </aside>
+
+<!-- Create pool modal -->
+<div class="scrim" id="pscrim"></div>
+<div id="pmodal" style="position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;padding:24px">
+  <div style="background:var(--card);border:1px solid var(--line-2);border-radius:16px;box-shadow:0 30px 60px -20px rgba(16,16,26,.4);width:min(440px,94vw);padding:24px 26px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><h3 style="font-size:19px;font-weight:700">New pool</h3><button class="x" id="pmodal-x" style="border:none;background:#f1f1f4;width:30px;height:30px;border-radius:8px;font-size:16px;color:var(--muted);cursor:pointer">×</button></div>
+    <p style="color:var(--muted);font-size:13.5px;margin-bottom:14px">A private pool of your own rigs serving a chosen model.</p>
+    <label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:10px 0 6px">Name</label>
+    <input id="np-name" type="text" placeholder="my-pool" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px;outline:none">
+    <label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:12px 0 6px">Model</label>
+    <select id="np-model" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px"></select>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <div style="flex:1"><label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:6px">Visibility</label>
+        <select id="np-vis" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px"><option value="private">private</option><option value="invite">invite</option><option value="public">public</option></select></div>
+      <div style="flex:1"><label style="display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:6px">Pipeline stages</label>
+        <input id="np-stages" type="number" value="1" min="1" max="8" style="width:100%;border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px"></div>
+    </div>
+    <div id="np-err" style="color:#dc2626;font-size:13px;margin-top:10px"></div>
+    <button class="btn primary" id="np-create" style="width:100%;margin-top:16px;padding:11px">Create pool</button>
+  </div>
+</div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -255,7 +293,61 @@ document.addEventListener('click',e=>{const b=e.target.closest('.cp');if(!b)retu
   navigator.clipboard.writeText(document.getElementById(b.dataset.for).textContent).then(()=>{
     b.classList.add('ok');const o=b.textContent;b.textContent='Copied';setTimeout(()=>{b.classList.remove('ok');b.textContent=o},1300)}).catch(()=>{})});
 
-load(); setInterval(load,6000);
+/* ── models: registry + HuggingFace download ── */
+let MODELS=[];
+async function loadModels(){
+  const d=await j('/api/models'); MODELS=(d&&(d.models||d))||[];
+  const mb=$('#models');
+  if(!MODELS.length){mb.innerHTML='<div class="empty" style="padding:18px">no models yet — download one above</div>'}
+  else mb.innerHTML=MODELS.map(m=>{
+    const sz=m.size_bytes?(m.size_bytes/1073741824).toFixed(1)+' GiB':'—';
+    return `<div class="rig"><span class="nm">${esc(m.name)}</span>
+      <span class="meta">${m.n_shards||1} shards · ${m.n_layers||'?'} layers</span>
+      <span class="meta">${sz}</span></div>`}).join('');
+  // fill the create-pool model select
+  const sel=$('#np-model');
+  sel.innerHTML = MODELS.length ? MODELS.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')
+    : '<option value="0">— download a model first —</option>';
+}
+async function pollHFJobs(){
+  const d=await j('/api/hf/jobs'); const jobs=(d&&(d.jobs||d))||[];
+  const active=jobs.filter(x=>['queued','downloading','converting','splitting'].includes(x.status));
+  const jb=$('#hf-jobs');
+  if(!active.length){jb.innerHTML='';return}
+  jb.innerHTML=active.map(x=>{
+    const pct=x.bytes_total?Math.round(100*(x.bytes_done||0)/x.bytes_total):0;
+    return `<div style="margin-top:10px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)">
+      <span>${esc(x.model_name||x.repo_id||'import')} · <b style="color:var(--accent)">${x.status}</b></span><span>${pct}%</span></div>
+      <div class="barp" style="margin-top:5px"><i style="width:${pct}%"></i></div></div>`}).join('');
+}
+$('#hf-go').addEventListener('click',async()=>{
+  const repo=$('#hf-repo').value.trim(); if(!repo)return;
+  const quant=$('#hf-quant').value;
+  $('#hf-go').disabled=true; $('#hf-go').textContent='…';
+  const r=await fetch('/api/hf/import',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({repo_id:repo,convert:!!quant,convert_quant:quant||undefined})});
+  $('#hf-go').disabled=false; $('#hf-go').textContent='Download';
+  if(r.ok){$('#hf-repo').value='';pollHFJobs()}
+  else{const e=await r.json().catch(()=>null);alert((e&&e.error)||('import failed ('+r.status+')'))}
+});
+
+/* ── create pool modal ── */
+function openPool(){$('#pscrim').classList.add('on');$('#pmodal').style.display='flex';$('#np-err').textContent='';loadModels()}
+function closePool(){$('#pscrim').classList.remove('on');$('#pmodal').style.display='none'}
+$('#newpool-link').addEventListener('click',e=>{e.preventDefault();openPool()});
+$('#pmodal-x').addEventListener('click',closePool);
+$('#pscrim').addEventListener('click',closePool);
+$('#np-create').addEventListener('click',async()=>{
+  const name=$('#np-name').value.trim(); if(!name){$('#np-err').textContent='name required';return}
+  const body={name,visibility:$('#np-vis').value,pp_stages:+$('#np-stages').value};
+  const mid=+$('#np-model').value; if(mid>0)body.model_id=mid;
+  const r=await fetch('/api/pools',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.ok){closePool();load()}
+  else{const e=await r.json().catch(()=>null);$('#np-err').textContent=(e&&e.error)||('failed ('+r.status+')')}
+});
+
+load(); loadModels(); pollHFJobs();
+setInterval(load,6000); setInterval(loadModels,12000); setInterval(pollHFJobs,3000);
 </script>
 </body>
 </html>
