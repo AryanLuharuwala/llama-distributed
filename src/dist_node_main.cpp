@@ -3300,7 +3300,12 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                 // Per-role sd.cpp dispatch (CF12-W3).  TE/UNet/VAE may live
                 // on different rigs; this rig serves whichever role(s) it
                 // advertised in `sdcpp_roles`.
-                if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
+                if (txt.find("\"kind\":\"sdcpp_worker_cmd\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_worker_cmd(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] worker cmd rejected: " << err << "\n";
+                    }
+                } else if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
                     std::string err;
                     if (!dpp.handle_sdcpp_role_route(txt, sdcpp_worker_bin, err)) {
                         std::cerr << "[sdcpp] role route rejected: " << err << "\n";
@@ -3401,7 +3406,12 @@ static int run_pair_mode(const std::string& token, const std::string& server,
                         std::cout << "[sdcpp] route accepted\n";
                     }
                 }
-                if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
+                if (txt.find("\"kind\":\"sdcpp_worker_cmd\"") != std::string::npos) {
+                    std::string err;
+                    if (!dpp.handle_sdcpp_worker_cmd(txt, sdcpp_worker_bin, err)) {
+                        std::cerr << "[sdcpp] worker cmd rejected: " << err << "\n";
+                    }
+                } else if (txt.find("\"kind\":\"sdcpp_role_route\"") != std::string::npos) {
                     std::string err;
                     if (!dpp.handle_sdcpp_role_route(txt, sdcpp_worker_bin, err)) {
                         std::cerr << "[sdcpp] role route rejected: " << err << "\n";

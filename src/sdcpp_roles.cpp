@@ -360,20 +360,26 @@ extern "C" sd_role_status_t sd_role_sample_blocks(
     }
 
 #ifdef DIST_HAVE_SDCPP_SPLIT
-    // ── CF12-W6c per-step block-split dispatch ─────────────────────────
-    // The role bridge handles the 2-way case (block_total == 2).  Caller
-    // (coordinator) drives the sampler loop; each step issues TWO calls:
-    //   1) block_lo=0, block_hi=1, upld_in = SDCD "sdcpp_step_x"     → SDCD half0-carry
-    //   2) block_lo=1, block_hi=2, upld_in = SDCD "upld_sdcpp_half0" → SDT noise_pred
-    if (in->block_total < 2) {
-        return fail(SDR_EINVAL, "block_total < 2");
+    // ── CF12-W7 per-step N-way block-split dispatch ────────────────────
+    // Caller (coordinator) drives the sampler loop; each step issues one
+    // call per stage with a contiguous block range [block_lo, block_hi):
+    //   • lo==0            : upld_in = SDCD "sdcpp_step_x"  (seeds prelude)
+    //   • lo>0             : upld_in = SDCD carry from prev rig
+    //   • hi <  block_total: emits an SDCD carry for the next rig
+    //   • hi == block_total: emits the SDT noise_pred (last stage)
+    // Any tiling of [0, total) works — the down-path skip residuals ride
+    // the hs[] stack forward until the up-path pops them.  block_total is
+    // the real linear block count (sd_unet_block_count), not 2.
+    const int total = sd_unet_block_count(sd_ctx);
+    if (total < 1) {
+        return fail(SDR_ENOTIMPL, "model not split-capable");
     }
-    const int half_cut = in->block_total / 2;
-    const bool is_half0 = (in->block_lo == 0 && in->block_hi == half_cut);
-    const bool is_half1 = (in->block_lo == half_cut && in->block_hi == in->block_total);
-    if (!is_half0 && !is_half1) {
-        return fail(SDR_ENOTIMPL, "block range must be [0,N/2) or [N/2,N)");
-    }
+    int lo = in->block_lo;
+    int hi = (in->block_hi <= 0 || in->block_hi > total) ? total : in->block_hi;
+    if (lo < 0)   lo = 0;
+    if (lo >= hi) return fail(SDR_EINVAL, "empty block range");
+    const bool is_first = (lo == 0);
+    const bool is_last  = (hi == total);
     if (in->upld_in == nullptr || in->upld_in_nbytes == 0) {
         return fail(SDR_EINVAL, "upld_in required for partial range");
     }
@@ -422,10 +428,9 @@ extern "C" sd_role_status_t sd_role_sample_blocks(
         sd_split_state_set_input(state, "timesteps", ts_data, ts_shape, 1);
     }
 
-    int which_half = is_half0 ? 0 : 1;
-
-    if (is_half0) {
-        // upld_in is an SDCD-step-x frame carrying x and step metadata.
+    // ── stage the per-stage input ──────────────────────────────────────
+    if (is_first) {
+        // upld_in is an SDCD step-x frame carrying x and step metadata.
         dist::SdcdFrame xframe;
         const float* x_data = nullptr;
         std::vector<int64_t> x_shape;
@@ -437,28 +442,41 @@ extern "C" sd_role_status_t sd_role_sample_blocks(
                                    &step_idx_in, &ts_in, err)) {
             sd_split_state_free(state);
             static thread_local std::string m;
-            m = std::string("blocks/half0 decode x: ") + err;
+            m = std::string("blocks/decode step-x: ") + err;
             return fail(SDR_EBADSDCD, m.c_str());
         }
         sd_split_state_set_input(state, "x", x_data,
                                  x_shape.data(),
                                  static_cast<int>(x_shape.size()));
-
-        rc = sd_compute_unet_split_step(sd_ctx, which_half,
-                                        in->step_idx, in->steps, state);
-        if (rc != SD_SPLIT_OK) {
+    } else {
+        // upld_in is an SDCD carry frame from the previous stage.
+        std::string err;
+        if (!dist::sdcpp_sdcd_to_carry(in->upld_in, in->upld_in_nbytes, state, err)) {
             sd_split_state_free(state);
             static thread_local std::string m;
-            m = "blocks/half0 compute rc=" + std::to_string(rc);
-            return fail(SDR_EGEN, m.c_str());
+            m = std::string("blocks/decode carry: ") + err;
+            return fail(SDR_EBADSDCD, m.c_str());
         }
+    }
 
+    rc = sd_compute_unet_split_range(sd_ctx, lo, hi,
+                                     in->step_idx, in->steps, state);
+    if (rc != SD_SPLIT_OK) {
+        sd_split_state_free(state);
+        static thread_local std::string m;
+        m = "blocks/range compute rc=" + std::to_string(rc) +
+            " [" + std::to_string(lo) + "," + std::to_string(hi) + ")";
+        return fail(SDR_EGEN, m.c_str());
+    }
+
+    // ── intermediate stage: emit an SDCD carry for the next rig ────────
+    if (!is_last) {
         std::vector<uint8_t> enc;
         std::string carry_err;
         if (!dist::sdcpp_carry_to_sdcd(state, enc, carry_err)) {
             sd_split_state_free(state);
             static thread_local std::string m;
-            m = "blocks/half0 carry_to_sdcd: " + carry_err;
+            m = "blocks/carry_to_sdcd: " + carry_err;
             return fail(SDR_EBADSDCD, m.c_str());
         }
         sd_split_state_free(state);
@@ -466,25 +484,7 @@ extern "C" sd_role_status_t sd_role_sample_blocks(
         return ok();
     }
 
-    // half1: upld_in is SDCD half0-carry; output is SDT noise_pred.
-    {
-        std::string err;
-        if (!dist::sdcpp_sdcd_to_carry(in->upld_in, in->upld_in_nbytes, state, err)) {
-            sd_split_state_free(state);
-            static thread_local std::string m;
-            m = std::string("blocks/half1 decode carry: ") + err;
-            return fail(SDR_EBADSDCD, m.c_str());
-        }
-    }
-
-    rc = sd_compute_unet_split_step(sd_ctx, which_half,
-                                    in->step_idx, in->steps, state);
-    if (rc != SD_SPLIT_OK) {
-        sd_split_state_free(state);
-        static thread_local std::string m;
-        m = "blocks/half1 compute rc=" + std::to_string(rc);
-        return fail(SDR_EGEN, m.c_str());
-    }
+    // ── last stage: emit the SDT noise_pred ────────────────────────────
 
     const float*   np_data  = nullptr;
     const int64_t* np_shape = nullptr;

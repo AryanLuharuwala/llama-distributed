@@ -153,6 +153,13 @@ public:
                                  const std::string& worker_bin,
                                  std::string& err_out);
 
+    // CF12-W7: passthrough for the remote-denoise N-way path — writes a raw
+    // worker stdin line (carried escaped in "cmd_line") to the resident
+    // daemon (sdr_generate_remote / sdr_denoise_result).
+    bool handle_sdcpp_worker_cmd(const std::string& json_msg,
+                                 const std::string& worker_bin,
+                                 std::string& err_out);
+
 private:
     // Key by (role + ":" + model).  Reusing the same runtime across
     // requests keeps the model resident in VRAM.

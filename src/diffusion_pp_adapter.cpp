@@ -1149,6 +1149,47 @@ bool DppAdapter::handle_sdcpp_role_route(const std::string& json_msg,
     return true;
 }
 
+// CF12-W7: thin passthrough for the remote-denoise N-way path. The server
+// sends {"kind":"sdcpp_worker_cmd","cmd_line":"<escaped worker JSON>"} —
+// e.g. an sdr_generate_remote (starts a distributed generation) or an
+// sdr_denoise_result (the eps from the N-way block chain, fed back mid-loop).
+// We just lazy-spawn the daemon and write the raw line to its stdin; the
+// worker's sdcpp_need_denoise / sdcpp_role_done frames flow back verbatim
+// through sdcpp_daemon_reader → text_outbox → server.
+bool DppAdapter::handle_sdcpp_worker_cmd(const std::string& json_msg,
+                                         const std::string& worker_bin,
+                                         std::string& err_out) {
+    std::string cmd_line = json_extract_string_decoded(json_msg, "cmd_line");
+    if (cmd_line.empty()) { err_out = "missing cmd_line"; return false; }
+
+    {
+        std::lock_guard<std::mutex> lk(sdcpp_daemon_mu_);
+        if (!sdcpp_daemon_) {
+            auto d = std::make_unique<SdcppDaemon>();
+            std::string spawn_err;
+            if (!spawn_sdcpp_daemon(worker_bin, *d, spawn_err)) {
+                err_out = "spawn sdcpp daemon: " + spawn_err;
+                return false;
+            }
+            d->reader = std::thread(&DppAdapter::sdcpp_daemon_reader, this, d.get());
+            sdcpp_daemon_ = std::move(d);
+            for (int i = 0; i < 100; ++i) {
+                if (sdcpp_daemon_->ready.load()) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+        }
+    }
+
+    bool sent = false;
+    {
+        std::lock_guard<std::mutex> lk(sdcpp_daemon_mu_);
+        if (sdcpp_daemon_) sent = sdcpp_daemon_->write_line(cmd_line);
+    }
+    if (!sent) { err_out = "sdcpp daemon write failed"; return false; }
+    err_out.clear();
+    return true;
+}
+
 bool DppAdapter::probe_local_caps(const std::string& python_bin,
                                   const std::string& module_path,
                                   std::string& err) {

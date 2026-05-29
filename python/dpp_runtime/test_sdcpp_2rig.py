@@ -91,12 +91,16 @@ def test_2rig_half_split_real_checkpoint():
 
     try:
         # ── caps ──────────────────────────────────────────────────────────
-        rcaps = remote.request({"cmd": "sdr_caps", "req_id": 1})
-        lcaps = local .request({"cmd": "sdr_caps", "req_id": 1})
+        # CF12-W7: block_total is now the REAL linear block count (SD1.5 → 25),
+        # reported only once a model is resident — so the caps probe names the
+        # model so the worker loads it and counts.
+        rcaps = remote.request({"cmd": "sdr_caps", "req_id": 1, "model_path": REMOTE_MODEL}, timeout=600.0)
+        lcaps = local .request({"cmd": "sdr_caps", "req_id": 1, "model_path": LOCAL_MODEL},  timeout=600.0)
         assert rcaps["block_split"] is True, f"remote caps: {rcaps}"
         assert lcaps["block_split"] is True, f"local  caps: {lcaps}"
         assert rcaps["block_total"] == lcaps["block_total"], (rcaps, lcaps)
         block_total = rcaps["block_total"]
+        assert block_total >= 4, f"expected real block count, got {block_total}"
         half_cut    = block_total // 2
         print(f"[2rig] caps ok: block_total={block_total} half_cut={half_cut}")
 
@@ -192,6 +196,96 @@ def test_2rig_half_split_real_checkpoint():
         print(f"[2rig] noise_pred dtype={nd.dtype} dims={nd.dims} "
               f"nonzero head bytes={nonzero}/{min(nbytes, 4096)}")
 
+    finally:
+        try:    remote.close()
+        except: pass
+        try:    local .close()
+        except: pass
+
+
+def _partition(total: int, stages: int):
+    """Even contiguous partition of [0, total) into `stages` ranges.
+
+    Mirrors server/dpp_unet_split.go partitionUNetBlocks — front-loads the
+    remainder so the first stage owns conv_in. Returns [(lo, hi), ...].
+    """
+    base, extra = divmod(total, stages)
+    out, cursor = [], 0
+    for i in range(stages):
+        size = base + (1 if i < extra else 0)
+        out.append((cursor, cursor + size))
+        cursor += size
+    return out
+
+
+@need_2rig
+def test_3stage_split_real_checkpoint():
+    """N-way (N=3) proof on two physical rigs.
+
+    The UNet is cut into THREE contiguous block ranges. With only two rigs
+    available the stages map remote → local → remote (a rig can own several
+    non-adjacent ranges — it holds the whole checkpoint). The carry SDCD is
+    chained twice:
+
+        remote[0,k1)  →  local[k1,k2)  →  remote[k2,total)  →  SDT noise_pred
+
+    This exercises forward_range at non-half cut points and proves the
+    down-path skip residuals survive an intermediate stage (carried, not
+    consumed) before the up-path pops them — the core N-way invariant.
+    """
+    print(f"\n[3stage] remote={REMOTE_HOST}")
+    remote = RemoteDaemon(REMOTE_HOST, REMOTE_BIN)
+    local  = Daemon(WORKER_BIN)
+    try:
+        rcaps = remote.request({"cmd": "sdr_caps", "req_id": 1, "model_path": REMOTE_MODEL}, timeout=600.0)
+        block_total = rcaps["block_total"]
+        assert block_total >= 3, f"need >=3 blocks for a 3-way split, got {block_total}"
+        ranges = _partition(block_total, 3)
+        print(f"[3stage] block_total={block_total} ranges={ranges}")
+
+        te = remote.request({
+            "cmd": "sdr_encode_text", "req_id": 20, "model_path": REMOTE_MODEL,
+            "prompt": "a small landscape, watercolour", "negative_prompt": "",
+        }, timeout=600.0)
+        assert te["kind"] == "sdcpp_role_done", te
+        sdcd_b64 = te["frame_b64"]
+
+        # stage 0 input is the per-step x frame; later stages take the carry.
+        step_x = _encode_step_x_frame((64, 64, 4, 1), step_idx=0, timestep=999.0)
+        upld_b64 = base64.b64encode(step_x).decode("ascii")
+
+        # rig per stage: remote, local, remote
+        stage_rigs = [(remote, REMOTE_MODEL), (local, LOCAL_MODEL), (remote, REMOTE_MODEL)]
+        out = None
+        for idx, ((lo, hi), (rig, model)) in enumerate(zip(ranges, stage_rigs)):
+            t0 = time.monotonic()
+            out = rig.request({
+                "cmd": "sdr_sample_blocks", "req_id": 30 + idx, "model_path": model,
+                "sdcd_b64": sdcd_b64, "upld_b64": upld_b64,
+                "block_lo": lo, "block_hi": hi, "block_total": block_total,
+                "steps": 4, "cfg": 5.0, "seed": 1234, "sampler": "euler_a",
+                "step_idx": 0, "timestep": 999.0,
+            }, timeout=1200.0)
+            assert out["kind"] == "sdcpp_role_done", (idx, out)
+            is_last = (hi >= block_total)
+            frame = sc.sdcd_decode(base64.b64decode(out["frame_b64"])) if not is_last else None
+            if not is_last:
+                assert frame.kv.get("kind") == "upld_sdcpp_half0", (idx, frame.kv)
+                assert frame.get("h") is not None and frame.get("emb") is not None
+                print(f"[3stage] stage {idx} [{lo},{hi}) carry "
+                      f"hs_count={frame.kv.get('hs_count')} in {time.monotonic()-t0:.1f}s")
+                upld_b64 = out["frame_b64"]   # chain carry into next stage
+            else:
+                print(f"[3stage] stage {idx} [{lo},{hi}) FINAL in {time.monotonic()-t0:.1f}s")
+
+        nd = sc.sdt_decode(base64.b64decode(out["frame_b64"]))
+        assert len(nd.dims) in (3, 4), nd.dims
+        assert nd.dtype in (sc.DT_F32, sc.DT_F16, sc.DT_BF16), nd.dtype
+        nbytes = nd.expected_nbytes()
+        nonzero = sum(1 for b in nd.data[:min(nbytes, 4096)] if b != 0)
+        assert nonzero > 0, "3-way noise_pred is all zeros — UNet didn't run end-to-end"
+        print(f"[3stage] noise_pred dtype={nd.dtype} dims={nd.dims} "
+              f"nonzero head bytes={nonzero}/{min(nbytes, 4096)}")
     finally:
         try:    remote.close()
         except: pass

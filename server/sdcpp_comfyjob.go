@@ -53,6 +53,11 @@ type sdcppRequestBody struct {
 	Scheduler string
 	CFGSplit  bool
 	ClipSkip  int
+	// CF12-W7: requested UNet block-split degree. >1 → distribute the UNet
+	// across N rigs via the remote-denoise path (a host rig runs the sampler
+	// and delegates each per-step UNet eval to an N-stage block chain). 0/1 →
+	// the classic role-chain / full path.
+	UnetStages int
 }
 
 // runSdcppComfyJob owns the comfy_jobs row for an sd.cpp run.  Drives
@@ -373,5 +378,8 @@ func applyComfyParamsToSdcppBody(params string, b *sdcppRequestBody) {
 	}
 	if v, ok := m["cfg_split"].(bool); ok {
 		b.CFGSplit = v
+	}
+	if v, ok := numericInt(m["unet_stages"]); ok && v > 0 {
+		b.UnetStages = v
 	}
 }

@@ -492,27 +492,184 @@ void handle_role_sample_blocks(DaemonState& st, const std::string& line) {
     emit_role_done(req_id, "unet_blocks", v);
 }
 
-void handle_role_caps(const std::string& line) {
+void handle_role_caps(DaemonState& st, const std::string& line) {
     int req_id = (int)json_int(line, "req_id", 0);
-    // CF12-W6c: block_split reflects compile-time gate.  The actual
-    // backbone tag still requires a loaded ctx (sd_loaded_backbone_tag);
-    // until then we report "unknown" but a non-zero block_total advert
-    // tells the planner the worker CAN do split if a UNet model loads.
+    // CF12-W7: block_split reflects the compile-time gate. block_total is the
+    // REAL linear UNet block count (sd_role_block_count) once a model is
+    // resident — model-dependent (SD1.5 → 25, SDXL → 19), so the planner can
+    // partition [0, total) across N rigs. When the caps probe names a
+    // model_path we best-effort load it to report the real count + backbone;
+    // otherwise block_total=0 advertises "split-capable, count TBD on load".
 #ifdef DIST_HAVE_SDCPP_SPLIT
     const char* block_split = "true";
-    const int   block_total = 2;
+    int         block_total = 0;
+    const char* backbone    = "unknown";
+    std::string model_path  = json_str(line, "model_path");
+    if (!model_path.empty()) {
+        int n_threads = (int)json_int(line, "threads", 0);
+        if (n_threads <= 0) n_threads = sd_get_num_physical_cores();
+        load_model(st, model_path, n_threads, "unet");  // best-effort; no error frame
+    }
+    if (st.ctx != nullptr) {
+        int bc = sd_role_block_count(st.ctx);
+        if (bc > 0) block_total = bc;
+        backbone = sd_loaded_backbone_tag(st.ctx);
+    }
 #else
     const char* block_split = "false";
     const int   block_total = 1;
+    const char* backbone    = "unknown";
 #endif
     std::fprintf(stdout,
                  "{\"kind\":\"sdcpp_caps\",\"req_id\":%d,"
                  "\"roles\":[\"te\",\"unet\",\"vae\"],"
                  "\"block_split\":%s,"
                  "\"block_total\":%d,"
-                 "\"backbone\":\"unknown\",\"sdt_ver\":1,\"upld_ver\":1}\n",
-                 req_id, block_split, block_total);
+                 "\"backbone\":\"%s\",\"sdt_ver\":1,\"upld_ver\":1}\n",
+                 req_id, block_split, block_total, backbone);
     std::fflush(stdout);
+}
+
+// ─── CF12-W7: shared stdin line reader ───────────────────────────────────
+// daemon_loop and the remote-denoise callback both pull lines from stdin via
+// this single buffer so they never desync (the callback reads the next line
+// — the coordinator's sdr_denoise_result — mid-sample()).
+static std::string g_stdin_buf;
+static bool read_next_stdin_line(std::string& out) {
+    char chunk[4096];
+    for (;;) {
+        size_t pos = g_stdin_buf.find('\n');
+        if (pos != std::string::npos) {
+            out = g_stdin_buf.substr(0, pos);
+            g_stdin_buf.erase(0, pos + 1);
+            return true;
+        }
+        ssize_t n = ::read(STDIN_FILENO, chunk, sizeof(chunk));
+        if (n < 0) { if (errno == EINTR) continue; return false; }
+        if (n == 0) return false;
+        g_stdin_buf.append(chunk, chunk + n);
+    }
+}
+
+// ─── CF12-W7: remote-denoise IPC (sampler host side) ─────────────────────
+static std::string sdt_b64_from(const float* d, const int64_t* ne, int ndim) {
+    dist::SdtTensor t;
+    t.dtype = dist::SdtDType::F32;
+    size_t numel = 1;
+    for (int i = 0; i < ndim; ++i) {
+        t.dims.push_back(static_cast<uint32_t>(ne[i]));
+        numel *= static_cast<size_t>(ne[i]);
+    }
+    if (d != nullptr && numel > 0) {
+        t.data.assign(reinterpret_cast<const uint8_t*>(d),
+                      reinterpret_cast<const uint8_t*>(d) + numel * sizeof(float));
+    }
+    std::vector<uint8_t> enc;
+    std::string err;
+    if (!dist::sdt_encode(t, enc, err)) return std::string{};
+    return b64encode(enc.data(), enc.size());
+}
+
+struct RemoteDenoiseCtx { int req_id; };
+
+// Matches sd_remote_unet_cb_t. Emits sdcpp_need_denoise to the coordinator and
+// blocks for sdr_denoise_result (the eps from the N-way block chain).
+extern "C" int worker_remote_unet_cb(
+    void* user,
+    const float* x,   const int64_t* x_ne,   int x_ndim,
+    float timestep,
+    const float* ctx, const int64_t* ctx_ne, int ctx_ndim,
+    const float* y,   const int64_t* y_ne,   int y_ndim,
+    float** out_eps,  int64_t* out_ne,        int* out_ndim) {
+    auto* rdc = static_cast<RemoteDenoiseCtx*>(user);
+    std::string x_b64   = sdt_b64_from(x, x_ne, x_ndim);
+    std::string ctx_b64 = (ctx && ctx_ndim > 0) ? sdt_b64_from(ctx, ctx_ne, ctx_ndim) : std::string{};
+    std::string y_b64   = (y && y_ndim > 0)     ? sdt_b64_from(y, y_ne, y_ndim)       : std::string{};
+
+    std::fprintf(stdout,
+                 "{\"kind\":\"sdcpp_need_denoise\",\"req_id\":%d,\"t\":%.9g,"
+                 "\"x_b64\":\"%s\",\"ctx_b64\":\"%s\",\"y_b64\":\"%s\"}\n",
+                 rdc->req_id, static_cast<double>(timestep),
+                 x_b64.c_str(), ctx_b64.c_str(), y_b64.c_str());
+    std::fflush(stdout);
+
+    std::string line;
+    while (read_next_stdin_line(line)) {
+        if (line.empty()) continue;
+        if (json_str(line, "cmd") != "sdr_denoise_result") continue;  // request/response
+        std::vector<uint8_t> raw = b64decode(json_str(line, "eps_b64"));
+        dist::SdtTensor t2;
+        std::string err;
+        if (!dist::sdt_decode(raw.data(), raw.size(), t2, err)) return 1;
+        int nd = static_cast<int>(t2.dims.size());
+        if (nd <= 0 || nd > 8) return 1;
+        size_t numel = 1;
+        for (int i = 0; i < nd; ++i) { out_ne[i] = static_cast<int64_t>(t2.dims[i]); numel *= t2.dims[i]; }
+        *out_ndim = nd;
+        float* buf = static_cast<float*>(std::malloc(numel * sizeof(float)));
+        if (!buf) return 1;
+        std::memcpy(buf, t2.data.data(), std::min(t2.data.size(), numel * sizeof(float)));
+        *out_eps = buf;
+        return 0;
+    }
+    return 1;  // stdin EOF before a denoise result
+}
+
+// sdr_generate_remote: the sampler host runs the full generate (TE + sampler +
+// VAE locally) but each per-step UNet eval is delegated to the coordinator via
+// worker_remote_unet_cb. Returns the final RGB image as an SDT U8 frame.
+void handle_role_generate_remote(DaemonState& st, const std::string& line) {
+    int req_id             = (int)json_int(line, "req_id", 0);
+    std::string model_path = json_str(line, "model_path");
+    std::string prompt     = json_str(line, "prompt");
+    std::string neg        = json_str(line, "negative_prompt");
+    std::string sampler    = json_str(line, "sampler", "euler_a");
+    int w         = (int)json_int(line, "width", 512);
+    int h         = (int)json_int(line, "height", 512);
+    int steps     = (int)json_int(line, "steps", 20);
+    float cfg     = (float)json_dbl(line, "cfg", 7.0);
+    long long sd  = json_int(line, "seed", -1);
+    int n_threads = (int)json_int(line, "threads", 0);
+    if (n_threads <= 0) n_threads = sd_get_num_physical_cores();
+    if (model_path.empty()) { emit_error(req_id, "missing model_path"); return; }
+    if (!load_model(st, model_path, n_threads, std::string{})) {
+        emit_error(req_id, "new_sd_ctx returned NULL (check model_path)");
+        return;
+    }
+
+    RemoteDenoiseCtx rdc{ req_id };
+    sd_set_remote_unet_cb(st.ctx, worker_remote_unet_cb, &rdc);
+
+    sd_img_gen_params_t gen;
+    std::memset(&gen, 0, sizeof(gen));
+    gen.prompt          = prompt.c_str();
+    gen.negative_prompt = neg.c_str();
+    gen.width           = w;
+    gen.height          = h;
+    gen.seed            = sd;
+    gen.batch_count     = 1;
+    sd_sample_params_init(&gen.sample_params);
+    gen.sample_params.sample_steps     = steps;
+    gen.sample_params.guidance.txt_cfg = cfg;
+    gen.sample_params.sample_method    = str_to_sample_method(sampler.c_str());
+    gen.sample_params.scheduler        = sd_get_default_scheduler(st.ctx, gen.sample_params.sample_method);
+
+    sd_image_t* result = generate_image(st.ctx, &gen);
+    sd_set_remote_unet_cb(st.ctx, nullptr, nullptr);  // clear before returning
+    if (!result) { emit_error(req_id, "generate_image (remote) returned NULL"); return; }
+
+    dist::SdtTensor img;
+    img.dtype = dist::SdtDType::U8;
+    img.dims  = {1, (uint32_t)result->height, (uint32_t)result->width, (uint32_t)result->channel};
+    size_t n  = (size_t)result->height * (size_t)result->width * (size_t)result->channel;
+    img.data.assign(result->data, result->data + n);
+    if (result->data) std::free(result->data);
+    std::free(result);
+
+    std::vector<uint8_t> enc;
+    std::string err;
+    if (!dist::sdt_encode(img, enc, err)) { emit_error(req_id, "generate_remote sdt_encode"); return; }
+    emit_role_done(req_id, "generate", enc);
 }
 
 int daemon_loop() {
@@ -523,24 +680,10 @@ int daemon_loop() {
     std::fflush(stdout);
 
     DaemonState st;
-    std::string buf;
-    char chunk[4096];
 
-    while (true) {
-        // Use the raw fd; fread() on a pipe blocks until the full buffer
-        // is filled, which deadlocks our line-oriented protocol.
-        ssize_t n = ::read(STDIN_FILENO, chunk, sizeof(chunk));
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        if (n == 0) break;
-        buf.append(chunk, chunk + n);
-
-        size_t pos;
-        while ((pos = buf.find('\n')) != std::string::npos) {
-            std::string line = buf.substr(0, pos);
-            buf.erase(0, pos + 1);
+    {
+        std::string line;
+        while (read_next_stdin_line(line)) {
             if (line.empty()) continue;
 
             std::string cmd = json_str(line, "cmd");
@@ -555,7 +698,9 @@ int daemon_loop() {
             } else if (cmd == "sdr_decode_latent") {
                 handle_role_decode(st, line);
             } else if (cmd == "sdr_caps") {
-                handle_role_caps(line);
+                handle_role_caps(st, line);
+            } else if (cmd == "sdr_generate_remote") {
+                handle_role_generate_remote(st, line);
             } else if (cmd == "unload") {
                 if (st.ctx) { free_sd_ctx(st.ctx); st.ctx = nullptr; st.loaded_model.clear(); st.loaded_role.clear(); }
                 int req_id = (int)json_int(line, "req_id", 0);

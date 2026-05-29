@@ -1,8 +1,8 @@
 diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
-index f8b2c2f..0b5f190 100644
+index f8b2c2f..3c7d9aa 100644
 --- a/include/stable-diffusion.h
 +++ b/include/stable-diffusion.h
-@@ -480,6 +480,178 @@ SD_API bool preprocess_canny(sd_image_t image,
+@@ -480,6 +480,214 @@ SD_API bool preprocess_canny(sd_image_t image,
  SD_API const char* sd_commit(void);
  SD_API const char* sd_version(void);
  
@@ -107,11 +107,47 @@ index f8b2c2f..0b5f190 100644
 +    int                 total_steps,
 +    sd_split_state_t*   state);
 +
-+// Number of logical UNet blocks the loaded model supports for split-mode.
-+// Phase 1: returns 2 (the two halves) for SD1.x/SDXL once the forward_half
-+// body is wired; 0 otherwise.  Phase 2+ will return higher counts for
-+// finer subdivision inside input or output phases.
++// CF12-W7: N-way generalization of sd_compute_unet_split_step. Runs the
++// linearized UNet blocks [block_lo, block_hi) for one denoise step. block_lo==0
++// seeds the prelude from the staged x/timesteps/... inputs; block_hi >=
++// sd_unet_block_count() produces the final noise-pred (sd_split_state_get_output);
++// any other contiguous range produces a carry {h, hs, emb} (sd_split_state_get_carry_*)
++// for the next stage. block_lo>0 requires the carry staged via sd_split_state_set_*.
++// Down-path skip residuals ride the hs[] stack forward across intermediate
++// stages until the up-path consumes them, so any tiling of [0, count) is valid.
++SD_API int sd_compute_unet_split_range(
++    sd_ctx_t*           sd_ctx,
++    int                 block_lo,
++    int                 block_hi,
++    int                 step_idx,
++    int                 total_steps,
++    sd_split_state_t*   state);
++
++// Number of linear UNet blocks the loaded model can be split into. SD1.x/SD2
++// → 25, SDXL → 19 (conv_in + input + middle + output). 0 for non-UNet
++// backbones and tiny-UNet variants → caller falls back to the whole-UNet /
++// role-chain path. The planner partitions [0, count) across N rigs (dynamic N).
 +SD_API int sd_unet_block_count(const sd_ctx_t* sd_ctx);
++
++// CF12-W7: remote-denoise hook. When a callback is installed, the host runs
++// sd.cpp's full sample() loop (TE, denoiser scalings, sigmas, sampler, VAE all
++// local) but delegates each per-step UNet eval to `cb` — the coordinator drives
++// the N-way block chain across rigs and returns the eps. Pass cb=NULL to clear.
++//
++// cb is invoked once per conditioning eval (cond and uncond separately under
++// CFG). x is the scaled UNet input (WHCN), timestep the UNet t, ctx the
++// c_crossattn (prompt embeds), y the c_vector (SDXL pooled; ndim 0 if absent).
++// The callee mallocs *out_eps (host frees) and fills out_ne[0..*out_ndim)
++// (out_ne points at a caller buffer of >= 8 slots). Return 0 on success.
++typedef int (*sd_remote_unet_cb_t)(
++    void*          user,
++    const float*   x,   const int64_t* x_ne,   int x_ndim,
++    float          timestep,
++    const float*   ctx, const int64_t* ctx_ne, int ctx_ndim,
++    const float*   y,   const int64_t* y_ne,   int y_ndim,
++    float**        out_eps, int64_t* out_ne,   int* out_ndim);
++
++SD_API void sd_set_remote_unet_cb(sd_ctx_t* sd_ctx, sd_remote_unet_cb_t cb, void* user);
 +
 +// Backbone tag derived from the loaded model — "sd1" | "sd2" | "sdxl" |
 +// "sd3" | "flux" | "pixart" | "unknown".  Used by the role bridge's
@@ -182,7 +218,7 @@ index f8b2c2f..0b5f190 100644
  }
  #endif
 diff --git a/src/diffusion_model.hpp b/src/diffusion_model.hpp
-index 9e4e444..ca2704c 100644
+index 9e4e444..0ae4d58 100644
 --- a/src/diffusion_model.hpp
 +++ b/src/diffusion_model.hpp
 @@ -50,6 +50,15 @@ static inline const sd::Tensor<T>& tensor_or_empty(const sd::Tensor<T>* tensor)
@@ -201,7 +237,7 @@ index 9e4e444..ca2704c 100644
  struct DiffusionModel {
      virtual std::string get_desc()                                               = 0;
      virtual sd::Tensor<float> compute(int n_threads,
-@@ -64,6 +73,23 @@ struct DiffusionModel {
+@@ -64,6 +73,44 @@ struct DiffusionModel {
      virtual void set_flash_attention_enabled(bool enabled)           = 0;
      virtual void set_max_graph_vram_bytes(size_t max_vram_bytes)     = 0;
      virtual void set_circular_axes(bool circular_x, bool circular_y) = 0;
@@ -221,11 +257,32 @@ index 9e4e444..ca2704c 100644
 +        (void)n_threads; (void)diffusion_params; (void)carry;
 +        return {};
 +    }
++
++    // CF12-W7: N-way generalization of the 2-way half split. split_block_count()
++    // returns the number of linear blocks the backbone can be cut into (0 ==
++    // not split-capable → caller falls back to whole-UNet / role-chain).
++    // compute_range runs blocks [lo, hi): lo==0 seeds from diffusion_params
++    // (x/timesteps/...); hi>=split_block_count() fills out_noise with the
++    // final noise_pred; otherwise carry_out holds the {h, hs, emb} handed to
++    // the next stage. carry_in is ignored when lo==0.
++    virtual int split_block_count() const { return 0; }
++    virtual bool compute_range(int n_threads,
++                               int lo,
++                               int hi,
++                               const DiffusionHalfCarry& carry_in,
++                               const DiffusionParams& diffusion_params,
++                               DiffusionHalfCarry& carry_out,
++                               sd::Tensor<float>& out_noise) {
++        (void)n_threads; (void)lo; (void)hi; (void)carry_in;
++        (void)diffusion_params; (void)carry_out; (void)out_noise;
++        return false;
++    }
++
 +    virtual ~DiffusionModel() = default;
  };
  
  struct UNetModel : public DiffusionModel {
-@@ -135,6 +161,52 @@ struct UNetModel : public DiffusionModel {
+@@ -135,6 +182,136 @@ struct UNetModel : public DiffusionModel {
                              diffusion_params.controls ? *diffusion_params.controls : empty_controls,
                              diffusion_params.control_strength);
      }
@@ -275,14 +332,134 @@ index 9e4e444..ca2704c 100644
 +                                  diffusion_params.control_strength,
 +                                  diffusion_params.x->dim());
 +    }
++
++    int split_block_count() const override {
++        return unet.unet.num_split_blocks();
++    }
++
++    bool compute_range(int n_threads,
++                       int lo,
++                       int hi,
++                       const DiffusionHalfCarry& carry_in,
++                       const DiffusionParams& diffusion_params,
++                       DiffusionHalfCarry& carry_out,
++                       sd::Tensor<float>& out_noise) override {
++        static const std::vector<sd::Tensor<float>> empty_controls;
++        UNetModelRunner::SplitCarry cin;
++        cin.h   = carry_in.h;
++        cin.hs  = carry_in.hs;
++        cin.emb = carry_in.emb;
++
++        // The noise_pred restores to the latent (x) dim. lo==0 has x; later
++        // stages reconstruct it from the carried hidden state's rank.
++        size_t dim_hint = 4;
++        if (diffusion_params.x != nullptr) {
++            dim_hint = diffusion_params.x->dim();
++        } else if (!carry_in.h.empty()) {
++            dim_hint = carry_in.h.dim();
++        }
++
++        UNetModelRunner::SplitCarry cout;
++        const bool ok = unet.compute_range(n_threads, lo, hi, cin,
++                                           tensor_or_empty(diffusion_params.x),
++                                           tensor_or_empty(diffusion_params.timesteps),
++                                           tensor_or_empty(diffusion_params.context),
++                                           tensor_or_empty(diffusion_params.c_concat),
++                                           tensor_or_empty(diffusion_params.y),
++                                           diffusion_params.num_video_frames,
++                                           diffusion_params.controls ? *diffusion_params.controls : empty_controls,
++                                           diffusion_params.control_strength,
++                                           dim_hint, cout, out_noise);
++        if (!ok) {
++            return false;
++        }
++        carry_out.h   = std::move(cout.h);
++        carry_out.hs  = std::move(cout.hs);
++        carry_out.emb = std::move(cout.emb);
++        return true;
++    }
++};
++
++// CF12-W7: a DiffusionModel whose per-step UNet eval is delegated to a remote
++// callback (the coordinator drives the N-way block chain across rigs). The
++// host runs sd.cpp's real sample() loop — denoiser scalings, sigmas, sampler
++// all local and unchanged — and only the diffusion_model->compute(x_in, t,
++// cond) call goes remote. Non-compute virtuals forward to `inner` (the real
++// model, used for config like adm_in_channels) so setup paths still work.
++using RemoteUNetFn = std::function<bool(const DiffusionParams& params,
++                                        sd::Tensor<float>& out_eps)>;
++
++struct RemoteUNetModel : public DiffusionModel {
++    std::shared_ptr<DiffusionModel> inner;
++    RemoteUNetFn fn;
++
++    RemoteUNetModel(std::shared_ptr<DiffusionModel> inner_, RemoteUNetFn fn_)
++        : inner(std::move(inner_)), fn(std::move(fn_)) {}
++
++    std::string get_desc() override { return "remote-unet"; }
++    void alloc_params_buffer() override {}
++    void free_params_buffer() override {}
++    void free_compute_buffer() override {}
++    void get_param_tensors(std::map<std::string, ggml_tensor*>&) override {}
++    size_t get_params_buffer_size() override { return 0; }
++    int64_t get_adm_in_channels() override { return inner ? inner->get_adm_in_channels() : 0; }
++    void set_flash_attention_enabled(bool) override {}
++    void set_max_graph_vram_bytes(size_t) override {}
++    void set_circular_axes(bool, bool) override {}
++
++    sd::Tensor<float> compute(int n_threads,
++                              const DiffusionParams& diffusion_params) override {
++        (void)n_threads;
++        sd::Tensor<float> out;
++        if (!fn || !fn(diffusion_params, out)) {
++            return {};
++        }
++        return out;
++    }
  };
  
  struct MMDiTModel : public DiffusionModel {
 diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
-index 9e8e474..67b3594 100644
+index 9e8e474..4b93a5f 100644
 --- a/src/stable-diffusion.cpp
 +++ b/src/stable-diffusion.cpp
-@@ -2857,6 +2857,344 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
+@@ -138,6 +138,11 @@ public:
+     std::shared_ptr<Conditioner> cond_stage_model;
+     std::shared_ptr<FrozenCLIPVisionEmbedder> clip_vision;  // for svd or wan2.1 i2v
+     std::shared_ptr<DiffusionModel> diffusion_model;
++    // CF12-W7: when set, sample() delegates each per-step UNet eval to this
++    // callback (the coordinator drives the N-way block chain across rigs)
++    // instead of running diffusion_model->compute locally. Everything else
++    // (TE, denoiser scalings, sigmas, sampler, VAE) runs on this host.
++    RemoteUNetFn remote_unet_fn;
+     std::shared_ptr<DiffusionModel> high_noise_diffusion_model;
+     std::shared_ptr<VAE> first_stage_model;
+     std::shared_ptr<VAE> preview_vae;
+@@ -1868,6 +1873,14 @@ public:
+         float img_cfg_scale = guidance.img_cfg;
+         float slg_scale     = guidance.slg.scale;
+ 
++        // CF12-W7: if a remote UNet callback is installed, run the per-step
++        // UNet eval remotely (distributed N-way block chain) — everything
++        // else in this sample() loop stays local and unchanged.
++        std::shared_ptr<DiffusionModel> eff_diffusion_model = work_diffusion_model;
++        if (remote_unet_fn) {
++            eff_diffusion_model = std::make_shared<RemoteUNetModel>(work_diffusion_model, remote_unet_fn);
++        }
++
+         sd_sample::SampleCacheRuntime cache_runtime = sd_sample::init_sample_cache_runtime(version,
+                                                                                            cache_params,
+                                                                                            denoiser.get(),
+@@ -2003,7 +2016,7 @@ public:
+                     return std::move(cached_output);
+                 }
+ 
+-                auto output_opt = work_diffusion_model->compute(n_threads, diffusion_params);
++                auto output_opt = eff_diffusion_model->compute(n_threads, diffusion_params);
+                 if (output_opt.empty()) {
+                     LOG_ERROR("diffusion model compute failed");
+                     return sd::Tensor<float>();
+@@ -2857,6 +2870,456 @@ void free_sd_ctx(sd_ctx_t* sd_ctx) {
      free(sd_ctx);
  }
  
@@ -588,23 +765,135 @@ index 9e8e474..67b3594 100644
 +    return SD_SPLIT_OK;
 +}
 +
++// CF12-W7: N-way generalization of sd_compute_unet_split_step. Runs the
++// linearized UNet blocks [block_lo, block_hi) for one denoise step. lo==0
++// seeds from the staged x/timesteps/...; hi>=block_count fills noise_pred;
++// otherwise the carry {h, hs, emb} is left on the state for the next stage.
++// Any contiguous range tiles correctly because the down-path skip residuals
++// ride the hs[] stack forward until the up-path pops them.
++int sd_compute_unet_split_range(sd_ctx_t* sd_ctx,
++                                int block_lo,
++                                int block_hi,
++                                int step_idx,
++                                int total_steps,
++                                sd_split_state_t* state) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr || state == nullptr) {
++        return SD_SPLIT_EINVAL;
++    }
++    if (step_idx < 0 || total_steps <= 0 || step_idx >= total_steps) {
++        return SD_SPLIT_EINVAL;
++    }
++    auto& sd = *sd_ctx->sd;
++    if (!sd.diffusion_model || !sd.diffusion_model->supports_block_split()) {
++        return SD_SPLIT_ENOTSUP;
++    }
++    const int total = sd.diffusion_model->split_block_count();
++    if (total <= 0) {
++        return SD_SPLIT_ENOTSUP;
++    }
++    if (block_lo < 0 || block_hi > total || block_lo >= block_hi) {
++        return SD_SPLIT_EINVAL;
++    }
++
++    state->step_idx    = step_idx;
++    state->total_steps = total_steps;
++
++    DiffusionParams params{};
++    params.x         = &state->x;
++    params.timesteps = &state->timesteps;
++    params.context   = state->context.empty()  ? nullptr : &state->context;
++    params.c_concat  = state->c_concat.empty() ? nullptr : &state->c_concat;
++    params.y         = state->y.empty()        ? nullptr : &state->y;
++
++    DiffusionHalfCarry carry_in;
++    if (block_lo > 0) {
++        if (state->h.empty() || state->emb.empty() || state->hs.empty()) {
++            return SD_SPLIT_ESTATE;
++        }
++        carry_in.h   = state->h;
++        carry_in.hs  = state->hs;
++        carry_in.emb = state->emb;
++    } else {
++        if (state->x.empty() || state->timesteps.empty()) {
++            return SD_SPLIT_ESTATE;
++        }
++    }
++
++    DiffusionHalfCarry carry_out;
++    sd::Tensor<float>  out_noise;
++    const bool ok = sd.diffusion_model->compute_range(sd.n_threads, block_lo, block_hi,
++                                                      carry_in, params, carry_out, out_noise);
++    if (!ok) {
++        return SD_SPLIT_ENOTSUP;
++    }
++
++    if (block_hi >= total) {
++        state->noise_pred = std::move(out_noise);
++        state->last_half  = 1;
++    } else {
++        state->h         = std::move(carry_out.h);
++        state->hs        = std::move(carry_out.hs);
++        state->emb       = std::move(carry_out.emb);
++        state->last_half = 0;
++    }
++    return SD_SPLIT_OK;
++}
++
++void sd_set_remote_unet_cb(sd_ctx_t* sd_ctx, sd_remote_unet_cb_t cb, void* user) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
++        return;
++    }
++    if (cb == nullptr) {
++        sd_ctx->sd->remote_unet_fn = nullptr;
++        return;
++    }
++    sd_ctx->sd->remote_unet_fn = [cb, user](const DiffusionParams& p, sd::Tensor<float>& out) -> bool {
++        static const sd::Tensor<float> kEmpty;
++        const sd::Tensor<float>& x   = p.x ? *p.x : kEmpty;
++        const sd::Tensor<float>& ctx = p.context ? *p.context : kEmpty;
++        const sd::Tensor<float>& y   = p.y ? *p.y : kEmpty;
++        float ts = (p.timesteps && p.timesteps->numel() > 0) ? p.timesteps->data()[0] : 0.f;
++
++        float*  out_eps  = nullptr;
++        int64_t out_ne[8] = {0};
++        int     out_ndim = 0;
++        int rc = cb(user,
++                    x.data(), x.shape().data(), static_cast<int>(x.dim()),
++                    ts,
++                    ctx.empty() ? nullptr : ctx.data(),
++                    ctx.empty() ? nullptr : ctx.shape().data(),
++                    static_cast<int>(ctx.dim()),
++                    y.empty() ? nullptr : y.data(),
++                    y.empty() ? nullptr : y.shape().data(),
++                    static_cast<int>(y.dim()),
++                    &out_eps, out_ne, &out_ndim);
++        if (rc != 0 || out_eps == nullptr || out_ndim <= 0 || out_ndim > 8) {
++            if (out_eps) std::free(out_eps);
++            return false;
++        }
++        std::vector<int64_t> sh(out_ne, out_ne + out_ndim);
++        out = sd::Tensor<float>(sh);
++        if (out.numel() > 0) {
++            std::memcpy(out.data(), out_eps, static_cast<size_t>(out.numel()) * sizeof(float));
++        }
++        std::free(out_eps);
++        return true;
++    };
++}
++
 +int sd_unet_block_count(const sd_ctx_t* sd_ctx) {
 +    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
 +        return 0;
 +    }
-+    // The UnetModelBlock forward path is now split-capable (forward_half0
-+    // ∘ forward_half1, see unet.hpp).  Logical block count = 2 (the two
-+    // halves) for SD1/SD2/SDXL.  Other backbones (SD3/Flux/PixArt/etc.)
-+    // use different runner classes that don't yet implement forward_half,
-+    // so they return 0 and fall back to the role chain.
-+    //
-+    // Phase 2 will return the finer subdivision count (intra-input /
-+    // intra-output) once partial hs[] serialization lands.
-+    SDVersion v = sd_ctx->sd->version;
-+    if (sd_version_is_sd1(v))  return 2;
-+    if (sd_version_is_sd2(v))  return 2;
-+    if (sd_version_is_sdxl(v)) return 2;
-+    return 0;
++    // CF12-W7: real linearized block count from the backbone (e.g. SD1.5 →
++    // 25: conv_in + 11 input + middle + 12 output). 0 for non-UNet backbones
++    // (DiT/MMDiT/Flux/...) and tiny-UNet variants → caller falls back to the
++    // whole-UNet / role-chain path. The planner partitions [0, count) across
++    // however many unet_blocks rigs are available (dynamic N).
++    if (!sd_ctx->sd->diffusion_model) {
++        return 0;
++    }
++    return sd_ctx->sd->diffusion_model->split_block_count();
 +}
 +
 +const char* sd_loaded_backbone_tag(const sd_ctx_t* sd_ctx) {
@@ -627,7 +916,7 @@ index 9e8e474..67b3594 100644
  static sd_audio_t* waveform_to_sd_audio(const StableDiffusionGGML* sd,
                                          const sd::Tensor<float>& waveform) {
      if (sd == nullptr || waveform.empty()) {
-@@ -5369,3 +5707,169 @@ SD_API bool generate_video(sd_ctx_t* sd_ctx,
+@@ -5369,3 +5832,169 @@ SD_API bool generate_video(sd_ctx_t* sd_ctx,
      }
      return true;
  }
@@ -798,10 +1087,10 @@ index 9e8e474..67b3594 100644
 +    if (shape) std::free(shape);
 +}
 diff --git a/src/unet.hpp b/src/unet.hpp
-index a67fe07..feaeef6 100644
+index a67fe07..3de1d1e 100644
 --- a/src/unet.hpp
 +++ b/src/unet.hpp
-@@ -185,6 +185,17 @@ public:
+@@ -185,6 +185,129 @@ public:
      int model_channels  = 320;
      int adm_in_channels = 2816;  // only for VERSION_SDXL/SVD
  
@@ -816,10 +1105,122 @@ index a67fe07..feaeef6 100644
 +        return ds;
 +    }
 +
++    // ─── CF12-W7: N-way UNet block-split schedule ────────────────────────
++    //
++    // The monolithic forward() is a linear sequence of blocks:
++    //   [0]                       conv_in            (pushes hs[0])
++    //   [1 .. n_in-1]             input res/down     (each pushes hs)
++    //   [n_in]                    middle             (non-tiny only)
++    //   [n_in+1 .. total-1]       output res/up      (each pops hs)
++    // with a final out-conv folded onto the last stage (hi == total).
++    //
++    // `ds`, layer names, attention placement, upsample sublayer indices and
++    // controlnet offsets are all pure functions of the block index, so any
++    // contiguous range [lo, hi) is reconstructible from the carry-state
++    // {h, hs, emb} alone — no extra wire fields. forward_range() walks this
++    // schedule; forward_half0/half1/forward delegate to it (so the existing
++    // 2-way path is byte-identical and acts as a regression guard).
++    struct BlockStep {
++        enum Kind { ConvIn, InputRes, InputDown, Middle, OutputRes } kind = ConvIn;
++        int  idx           = 0;      // input_block_idx / output_block_idx for layer names
++        int  ds            = 1;      // downsample factor during this block (attention test)
++        bool has_attn      = false;  // attention sublayer present
++        bool upsample      = false;  // OutputRes: an upsample follows
++        int  up_sample_idx = 1;      // OutputRes: upsample sublayer name index
++    };
++
++    // Pure simulation of the input/middle/output loops — records per-block
++    // metadata without building any graph ops. Mirrors forward_half0/half1.
++    std::vector<BlockStep> build_split_schedule() const {
++        std::vector<BlockStep> sch;
++        const size_t len_mults = channel_mult.size();
++        auto attn_at = [&](int d) {
++            return std::find(attention_resolutions.begin(), attention_resolutions.end(), d) != attention_resolutions.end();
++        };
++        { BlockStep s; s.kind = BlockStep::ConvIn; s.idx = 0; s.ds = 1; sch.push_back(s); }
++        int input_block_idx = 0;
++        int ds              = 1;
++        for (int i = 0; i < (int)len_mults; i++) {
++            for (int j = 0; j < num_res_blocks; j++) {
++                input_block_idx += 1;
++                BlockStep s; s.kind = BlockStep::InputRes; s.idx = input_block_idx; s.ds = ds;
++                s.has_attn = attn_at(ds);
++                sch.push_back(s);
++            }
++            if (i != (int)len_mults - 1) {
++                ds *= 2;
++                input_block_idx += 1;
++                BlockStep s; s.kind = BlockStep::InputDown; s.idx = input_block_idx; s.ds = ds;
++                sch.push_back(s);
++            }
++        }
++        { BlockStep s; s.kind = BlockStep::Middle; s.ds = ds;
++          s.has_attn = (version != VERSION_SDXL_SSD1B && version != VERSION_SDXL_VEGA);
++          sch.push_back(s); }
++        int output_block_idx = 0;
++        for (int i = (int)len_mults - 1; i >= 0; i--) {
++            for (int j = 0; j < num_res_blocks + 1; j++) {
++                BlockStep s; s.kind = BlockStep::OutputRes; s.idx = output_block_idx; s.ds = ds;
++                s.has_attn      = attn_at(ds);
++                s.up_sample_idx = s.has_attn ? 2 : 1;
++                if (i > 0 && j == num_res_blocks) {
++                    s.upsample = true;
++                    ds /= 2;
++                }
++                sch.push_back(s);
++                output_block_idx += 1;
++            }
++        }
++        return sch;
++    }
++
++    // Total splittable blocks; 0 == not split-capable (tiny UNet variants use
++    // a different index dance that we don't slice — they fall back to the
++    // whole-UNet / role-chain path).
++    int num_split_blocks() const {
++        if (tiny_unet) return 0;
++        return (int)build_split_schedule().size();
++    }
++
++    // The legacy 2-way cut point: index immediately after the middle block.
++    int split_mid_cut() const {
++        const auto sch = build_split_schedule();
++        for (size_t i = 0; i < sch.size(); ++i) {
++            if (sch[i].kind == BlockStep::Middle) return (int)i + 1;
++        }
++        return (int)sch.size() / 2;
++    }
++
++    struct UnetHalfState;  // defined below (carry-state used by forward_range)
++
++    // Run linearized blocks [lo, hi). lo==0 computes the prelude (emb +
++    // conv_in) from x/timesteps/c_concat/y. hi==num_split_blocks() appends
++    // the final out-conv (io.h becomes the noise_pred). Otherwise io is the
++    // carry handed to the next stage.
++    // out_carry_passthrough (optional): on return, the number of leading
++    // io.hs entries that are unconsumed carry-in residuals (graph-input
++    // leaves passed straight through). The caller persists/reads back only
++    // the NEW suffix io.hs[passthrough..] and splices the prefix host-side —
++    // round-tripping input leaves through the cache does not read back
++    // correctly and corrupts the carry (BUG-2).
++    void forward_range(GGMLRunnerContext* ctx,
++                       UnetHalfState& io,
++                       int lo,
++                       int hi,
++                       ggml_tensor* x,
++                       ggml_tensor* timesteps,
++                       ggml_tensor* context,
++                       ggml_tensor* c_concat              = nullptr,
++                       ggml_tensor* y                     = nullptr,
++                       int num_video_frames               = -1,
++                       std::vector<ggml_tensor*> controls = {},
++                       float control_strength             = 0.f,
++                       int* out_carry_passthrough         = nullptr);
++
      UnetModelBlock(SDVersion version = VERSION_SD1, const String2TensorStorage& tensor_storage_map = {})
          : version(version) {
          if (sd_version_is_sd2(version)) {
-@@ -424,6 +435,42 @@ public:
+@@ -424,6 +547,42 @@ public:
          }
      }
  
@@ -862,7 +1263,7 @@ index a67fe07..feaeef6 100644
      ggml_tensor* forward(GGMLRunnerContext* ctx,
                           ggml_tensor* x,
                           ggml_tensor* timesteps,
-@@ -439,31 +486,48 @@ public:
+@@ -439,31 +598,48 @@ public:
          // c_concat: [N, in_channels, h, w] or [1, in_channels, h, w]
          // y: [N, adm_in_channels] or [1, adm_in_channels]
          // return: [N, out_channels, h, w]
@@ -870,18 +1271,12 @@ index a67fe07..feaeef6 100644
 -            if (context->ne[2] != x->ne[3]) {
 -                context = ggml_repeat(ctx->ggml_ctx, context, ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, context->ne[0], context->ne[1], x->ne[3]));
 -            }
--        }
 +        UnetHalfState st = forward_half0(ctx, x, timesteps, context, c_concat, y,
 +                                         num_video_frames, controls, control_strength);
 +        return forward_half1(ctx, st, context, num_video_frames, controls, control_strength);
 +    }
 +};
- 
--        if (c_concat != nullptr) {
--            if (c_concat->ne[3] != x->ne[3]) {
--                c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
--            }
--            x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
++
 +// ─── CF12-W6a: out-of-class definitions of forward_half0 / forward_half1 ──
 +// Defined here (still in the header, since UNetModelRunner is header-only)
 +// so the file stays a single translation-unit drop-in.
@@ -902,10 +1297,11 @@ index a67fe07..feaeef6 100644
          }
 +    }
  
--        if (y != nullptr) {
--            if (y->ne[1] != x->ne[3]) {
--                y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
+-        if (c_concat != nullptr) {
+-            if (c_concat->ne[3] != x->ne[3]) {
+-                c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
 -            }
+-            x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
 +    if (c_concat != nullptr) {
 +        if (c_concat->ne[3] != x->ne[3]) {
 +            c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
@@ -913,15 +1309,20 @@ index a67fe07..feaeef6 100644
 +        x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
 +    }
  
--        auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
--        auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
--        auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
+-        if (y != nullptr) {
+-            if (y->ne[1] != x->ne[3]) {
+-                y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
+-            }
 +    if (y != nullptr) {
 +        if (y->ne[1] != x->ne[3]) {
 +            y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
-+        }
+         }
 +    }
  
+-        auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
+-        auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
+-        auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
+-
 -        auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
 -        auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
 +    auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
@@ -930,7 +1331,7 @@ index a67fe07..feaeef6 100644
  
          auto t_emb = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, model_channels);  // [N, model_channels]
  
-@@ -540,7 +604,26 @@ public:
+@@ -540,7 +716,26 @@ public:
              auto cs = ggml_ext_scale(ctx->ggml_ctx, controls[controls.size() - 1], control_strength, true);
              h       = ggml_add(ctx->ggml_ctx, h, cs);  // middle control
          }
@@ -958,17 +1359,185 @@ index a67fe07..feaeef6 100644
  
          // output_blocks
          int output_block_idx = 0;
-@@ -596,8 +679,7 @@ public:
+@@ -596,8 +791,176 @@ public:
          h = out_2->forward(ctx, h);
          ggml_set_name(h, "bench-end");
          return h;  // [N, out_channels, h, w]
--    }
++}
++
++// ─── CF12-W7: N-way block-split forward over the linearized schedule ─────
++//
++// Purely additive: forward()/forward_half0/forward_half1 above are left
++// byte-identical (they remain the proven monolithic + 2-way path, and the
++// only path used by tiny-UNet variants). forward_range reproduces the same
++// op sequence for an arbitrary contiguous block range [lo, hi); the CPU
++// equivalence test (UNetModelRunner::test_split) checks that chaining
++// forward_range segments reproduces forward() bit-for-bit before any GPU
++// run. Callers must gate on num_split_blocks() > 0 (i.e. non-tiny).
++inline void UnetModelBlock::forward_range(
++    GGMLRunnerContext* ctx,
++    UnetHalfState& io,
++    int lo,
++    int hi,
++    ggml_tensor* x,
++    ggml_tensor* timesteps,
++    ggml_tensor* context,
++    ggml_tensor* c_concat,
++    ggml_tensor* y,
++    int num_video_frames,
++    std::vector<ggml_tensor*> controls,
++    float control_strength,
++    int* out_carry_passthrough) {
++    const std::vector<BlockStep> sch = build_split_schedule();
++    const int total = (int)sch.size();
++    if (lo < 0)     lo = 0;
++    if (hi > total) hi = total;
++
++    ggml_tensor* h               = io.h;
++    std::vector<ggml_tensor*> hs = io.hs;
++    ggml_tensor* emb             = io.emb;
++
++    // Track the unconsumed carry-in prefix: hs starts as the carry-in stack
++    // (its full length for lo>0; 0 for lo==0 since the prelude clears it).
++    // Pops remove from the back, so newly-pushed residuals go first and the
++    // carry-in leaves at the bottom survive until pops dip below `base`.
++    int base = (lo == 0) ? 0 : (int)hs.size();
++
++    int b = lo;
++    if (lo == 0) {
++        // ── prelude (mirrors forward_half0 head) ──────────────────────
++        if (context != nullptr && context->ne[2] != x->ne[3]) {
++            context = ggml_repeat(ctx->ggml_ctx, context,
++                                  ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32,
++                                                     context->ne[0], context->ne[1], x->ne[3]));
++        }
++        if (c_concat != nullptr) {
++            if (c_concat->ne[3] != x->ne[3]) {
++                c_concat = ggml_repeat(ctx->ggml_ctx, c_concat, x);
++            }
++            x = ggml_concat(ctx->ggml_ctx, x, c_concat, 2);
++        }
++        if (y != nullptr && y->ne[1] != x->ne[3]) {
++            y = ggml_repeat(ctx->ggml_ctx, y,
++                            ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
++        }
++
++        auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
++        auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
++        auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
++
++        auto t_emb = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, model_channels);
++        emb        = time_embed_0->forward(ctx, t_emb);
++        emb        = ggml_silu_inplace(ctx->ggml_ctx, emb);
++        emb        = time_embed_2->forward(ctx, emb);
++        if (y != nullptr) {
++            auto label_embed_0 = std::dynamic_pointer_cast<Linear>(blocks["label_emb.0.0"]);
++            auto label_embed_2 = std::dynamic_pointer_cast<Linear>(blocks["label_emb.0.2"]);
++            auto label_emb     = label_embed_0->forward(ctx, y);
++            label_emb          = ggml_silu_inplace(ctx->ggml_ctx, label_emb);
++            label_emb          = label_embed_2->forward(ctx, label_emb);
++            emb                = ggml_add(ctx->ggml_ctx, emb, label_emb);
++        }
++
++        h = input_blocks_0_0->forward(ctx, x);
++        sd::ggml_graph_cut::mark_graph_cut(h, "unet.input_blocks.0", "h");
++        ggml_set_name(h, "bench-start");
++        hs.clear();
++        hs.push_back(h);
++        b = 1;
+     }
 -};
++
++    for (; b < hi; ++b) {
++        const BlockStep& s = sch[b];
++        switch (s.kind) {
++            case BlockStep::ConvIn:
++                // only valid at b==0, handled by the prelude above.
++                break;
++            case BlockStep::InputRes: {
++                std::string n0 = "input_blocks." + std::to_string(s.idx) + ".0";
++                h              = resblock_forward(n0, ctx, h, emb, num_video_frames);
++                if (s.has_attn) {
++                    std::string n1 = "input_blocks." + std::to_string(s.idx) + ".1";
++                    h              = attention_layer_forward(n1, ctx, h, context, num_video_frames);
++                }
++                sd::ggml_graph_cut::mark_graph_cut(h, "unet.input_blocks." + std::to_string(s.idx), "h");
++                hs.push_back(h);
++                break;
++            }
++            case BlockStep::InputDown: {
++                std::string n0 = "input_blocks." + std::to_string(s.idx) + ".0";
++                auto block     = std::dynamic_pointer_cast<DownSampleBlock>(blocks[n0]);
++                h              = block->forward(ctx, h);
++                hs.push_back(h);
++                break;
++            }
++            case BlockStep::Middle: {
++                h = resblock_forward("middle_block.0", ctx, h, emb, num_video_frames);
++                if (s.has_attn) {
++                    h = attention_layer_forward("middle_block.1", ctx, h, context, num_video_frames);
++                    h = resblock_forward("middle_block.2", ctx, h, emb, num_video_frames);
++                }
++                sd::ggml_graph_cut::mark_graph_cut(h, "unet.middle_block", "h");
++                if (!controls.empty()) {
++                    auto cs = ggml_ext_scale(ctx->ggml_ctx, controls[controls.size() - 1], control_strength, true);
++                    h       = ggml_add(ctx->ggml_ctx, h, cs);  // middle control
++                }
++                break;
++            }
++            case BlockStep::OutputRes: {
++                auto h_skip = hs.back();
++                hs.pop_back();
++                if ((int)hs.size() < base) base = (int)hs.size();  // consumed a carry-in leaf
++                if (!controls.empty()) {
++                    // control_offset in forward_half1 starts at size-2 and
++                    // decrements per output block → size-2-idx for block idx.
++                    int control_offset = (int)controls.size() - 2 - s.idx;
++                    if (control_offset >= 0 && control_offset < (int)controls.size()) {
++                        auto cs = ggml_ext_scale(ctx->ggml_ctx, controls[control_offset], control_strength, true);
++                        h_skip  = ggml_add(ctx->ggml_ctx, h_skip, cs);  // control net condition
++                    }
++                }
++                h = ggml_concat(ctx->ggml_ctx, h, h_skip, 2);
++
++                std::string n0 = "output_blocks." + std::to_string(s.idx) + ".0";
++                h              = resblock_forward(n0, ctx, h, emb, num_video_frames);
++                if (s.has_attn) {
++                    std::string n1 = "output_blocks." + std::to_string(s.idx) + ".1";
++                    h              = attention_layer_forward(n1, ctx, h, context, num_video_frames);
++                }
++                if (s.upsample) {
++                    std::string nu = "output_blocks." + std::to_string(s.idx) + "." + std::to_string(s.up_sample_idx);
++                    auto block     = std::dynamic_pointer_cast<UpSampleBlock>(blocks[nu]);
++                    h              = block->forward(ctx, h);
++                }
++                sd::ggml_graph_cut::mark_graph_cut(h, "unet.output_blocks." + std::to_string(s.idx), "h");
++                break;
++            }
++        }
++    }
++
++    if (hi == total) {
++        auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
++        auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
++        h          = out_0->forward(ctx, h);
++        h          = ggml_silu_inplace(ctx->ggml_ctx, h);
++        h          = out_2->forward(ctx, h);
++        ggml_set_name(h, "bench-end");
++    }
++
++    io.h   = h;
++    io.hs  = std::move(hs);
++    io.emb = emb;
++    io.ds  = boundary_ds();  // informational; forward_range derives ds per block
++    if (out_carry_passthrough != nullptr) {
++        *out_carry_passthrough = base;
++    }
 +}
  
  struct UNetModelRunner : public GGMLRunner {
      UnetModelBlock unet;
-@@ -682,6 +764,167 @@ struct UNetModelRunner : public GGMLRunner {
+@@ -682,6 +1045,326 @@ struct UNetModelRunner : public GGMLRunner {
          return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false), x.dim());
      }
  
@@ -1131,6 +1700,165 @@ index a67fe07..feaeef6 100644
 +        return restore_trailing_singleton_dims(
 +            GGMLRunner::compute<float>(get_graph, n_threads, false),
 +            output_dim_hint);
++    }
++
++    // ─── CF12-W7: N-way range runner ─────────────────────────────────────
++    //
++    // Build the graph for blocks [lo, hi). lo==0 takes x/timesteps/c_concat/y
++    // as inputs (carry_in ignored); lo>0 takes the carry tensors as inputs.
++    // For the final stage (hi>=total) the graph expands on the noise_pred so
++    // GGMLRunner::compute returns it directly. For intermediate stages we
++    // persist h/emb + ONLY the NEWLY-computed residual suffix (io.hs[base..])
++    // and expand on them. The unconsumed carry-in prefix (io.hs[0..base-1])
++    // are graph-input leaves — persisting an input leaf does NOT read back
++    // correctly (BUG-2), so the caller splices that prefix host-side straight
++    // from carry_in. out_passthrough returns `base`.
++    ggml_cgraph* build_graph_range(const SplitCarry& carry_in,
++                                   int lo,
++                                   int hi,
++                                   const sd::Tensor<float>& x_tensor,
++                                   const sd::Tensor<float>& timesteps_tensor,
++                                   const sd::Tensor<float>& context_tensor,
++                                   const sd::Tensor<float>& c_concat_tensor,
++                                   const sd::Tensor<float>& y_tensor,
++                                   int num_video_frames,
++                                   const std::vector<sd::Tensor<float>>& controls_tensor,
++                                   float control_strength,
++                                   int* out_passthrough = nullptr,
++                                   int* out_new_count   = nullptr) {
++        ggml_cgraph* gf = new_graph_custom(UNET_GRAPH_SIZE);
++        const int total = unet.num_split_blocks();
++
++        UnetModelBlock::UnetHalfState io;
++        ggml_tensor* x         = nullptr;
++        ggml_tensor* timesteps = nullptr;
++        ggml_tensor* context   = make_optional_input(context_tensor);
++        ggml_tensor* c_concat  = nullptr;
++        ggml_tensor* y         = nullptr;
++
++        if (lo == 0) {
++            x         = make_input(x_tensor);
++            timesteps = make_input(timesteps_tensor);
++            c_concat  = make_optional_input(c_concat_tensor);
++            y         = make_optional_input(y_tensor);
++        } else {
++            io.h   = make_input(carry_in.h);
++            io.emb = make_input(carry_in.emb);
++            io.hs.reserve(carry_in.hs.size());
++            for (const auto& hs_tensor : carry_in.hs) {
++                io.hs.push_back(make_input(hs_tensor));
++            }
++        }
++
++        std::vector<ggml_tensor*> controls;
++        controls.reserve(controls_tensor.size());
++        for (const auto& control_tensor : controls_tensor) {
++            controls.push_back(make_input(control_tensor));
++        }
++
++        if (num_video_frames == -1) {
++            num_video_frames = (lo == 0) ? static_cast<int>(x->ne[3])
++                                         : static_cast<int>(io.h->ne[3]);
++        }
++
++        int base = 0;
++        auto runner_ctx = get_context();
++        unet.forward_range(&runner_ctx, io, lo, hi, x, timesteps, context, c_concat, y,
++                           num_video_frames, controls, control_strength, &base);
++        const int new_count = (int)io.hs.size() - base;
++        if (out_passthrough != nullptr) *out_passthrough = base;
++        if (out_new_count   != nullptr) *out_new_count   = new_count;
++
++        if (hi >= total) {
++            ggml_build_forward_expand(gf, io.h);  // final: io.h == noise_pred
++        } else {
++            runner_ctx.persist_cache_tensor(kSplitCacheH, io.h);
++            ggml_build_forward_expand(gf, io.h);
++            // emb is computed only at lo==0 (the prelude); for lo>0 it is a
++            // pass-through input leaf (carry_in.emb) that the caller splices
++            // host-side — round-tripping the leaf through the cache is lossy
++            // and corrupts emb for every downstream resblock (BUG-1b).
++            if (lo == 0) {
++                runner_ctx.persist_cache_tensor(kSplitCacheEmb, io.emb);
++                ggml_build_forward_expand(gf, io.emb);
++            }
++            // Persist + expand ONLY the new computed suffix; the prefix
++            // [0,base) are pass-through input leaves (spliced host-side).
++            // The caller reads back exactly new_count keys — the persistent
++            // cache may still hold MORE hs keys from a prior stage's compute,
++            // so "read until missing" would pick up stale residuals (BUG-2).
++            for (size_t i = static_cast<size_t>(base); i < io.hs.size(); ++i) {
++                runner_ctx.persist_cache_tensor(split_hs_key(i - base), io.hs[i]);
++                ggml_build_forward_expand(gf, io.hs[i]);
++            }
++        }
++        return gf;
++    }
++
++    // Run blocks [lo, hi). Final stage fills out_noise; intermediate stages
++    // fill carry_out. Returns false on compute / cache-readback failure.
++    bool compute_range(int n_threads,
++                       int lo,
++                       int hi,
++                       const SplitCarry& carry_in,
++                       const sd::Tensor<float>& x,
++                       const sd::Tensor<float>& timesteps,
++                       const sd::Tensor<float>& context,
++                       const sd::Tensor<float>& c_concat,
++                       const sd::Tensor<float>& y,
++                       int num_video_frames,
++                       const std::vector<sd::Tensor<float>>& controls,
++                       float control_strength,
++                       size_t output_dim_hint,
++                       SplitCarry& carry_out,
++                       sd::Tensor<float>& out_noise) {
++        const int total = unet.num_split_blocks();
++        int passthrough = 0;
++        int new_count   = 0;
++        auto get_graph  = [&]() -> ggml_cgraph* {
++            return build_graph_range(carry_in, lo, hi, x, timesteps, context,
++                                     c_concat, y, num_video_frames, controls,
++                                     control_strength, &passthrough, &new_count);
++        };
++        auto result = GGMLRunner::compute<float>(get_graph, n_threads, false);
++        if (!result.has_value()) {
++            return false;
++        }
++        if (hi >= total) {
++            out_noise = restore_trailing_singleton_dims(std::move(result), output_dim_hint);
++            return true;
++        }
++        if (!read_cache_sd_tensor(kSplitCacheH, carry_out.h)) {
++            return false;
++        }
++        // emb: computed at lo==0 (read from cache); pass-through for lo>0
++        // (spliced exactly from carry_in — it is constant across a step's
++        // stages, so this is both correct and lossless).
++        if (lo == 0) {
++            if (!read_cache_sd_tensor(kSplitCacheEmb, carry_out.emb)) {
++                return false;
++            }
++        } else {
++            carry_out.emb = carry_in.emb;
++        }
++        carry_out.hs.clear();
++        // Pass-through prefix: spliced straight from carry_in (host tensors)
++        // — never round-tripped through the graph cache.
++        for (int i = 0; i < passthrough && i < (int)carry_in.hs.size(); ++i) {
++            carry_out.hs.push_back(carry_in.hs[i]);
++        }
++        // New suffix: EXACTLY the new_count residuals this stage computed
++        // (keyed 0..new_count-1). Must not "read until missing" — the
++        // persistent cache can hold stale higher-index keys from a prior
++        // stage that pushed more residuals (BUG-2).
++        for (int i = 0; i < new_count; ++i) {
++            sd::Tensor<float> hs_i;
++            if (!read_cache_sd_tensor(split_hs_key(i), hs_i)) {
++                return false;
++            }
++            carry_out.hs.push_back(std::move(hs_i));
++        }
++        return true;
 +    }
 +
      void test() {
